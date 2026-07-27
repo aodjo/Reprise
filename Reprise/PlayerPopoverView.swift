@@ -3,14 +3,13 @@
 //  Reprise
 //
 
-import AppKit
 import SwiftUI
 
 struct PlayerPopoverView: View {
     @Bindable var store: NowPlayingStore
 
     private var snapshot: PlayerSnapshot {
-        store.selectedSnapshot
+        store.activeSnapshot
     }
 
     var body: some View {
@@ -31,9 +30,6 @@ struct PlayerPopoverView: View {
         }
         .frame(width: 390)
         .background(.regularMaterial)
-        .contextMenu {
-            contextCommands
-        }
         .task {
             await store.refresh()
         }
@@ -104,38 +100,6 @@ struct PlayerPopoverView: View {
             }
         }
         .frame(minHeight: 150)
-    }
-
-    @ViewBuilder
-    private var contextCommands: some View {
-        ForEach(MediaPlayerKind.allCases) { player in
-            Button {
-                store.selectedPlayer = player
-            } label: {
-                if store.selectedPlayer == player {
-                    Label(player.displayName, systemImage: "checkmark")
-                } else {
-                    Text(player.displayName)
-                }
-            }
-        }
-
-        Divider()
-
-        Button {
-            Task {
-                await store.perform(.stop)
-            }
-        } label: {
-            Label("정지", systemImage: "stop.fill")
-        }
-        .disabled(!snapshot.isRunning || snapshot.errorMessage != nil)
-        .accessibilityIdentifier("stopButton")
-
-        Button("종료") {
-            NSApplication.shared.terminate(nil)
-        }
-        .accessibilityIdentifier("quitButton")
     }
 
     private var controls: some View {

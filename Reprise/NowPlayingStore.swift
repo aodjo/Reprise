@@ -11,7 +11,7 @@ import Observation
 final class NowPlayingStore {
     private(set) var spotify = PlayerSnapshot.notRunning(.spotify)
     private(set) var appleMusic = PlayerSnapshot.notRunning(.appleMusic)
-    var selectedPlayer: MediaPlayerKind = .spotify
+    private(set) var selectedPlayer: MediaPlayerKind = .spotify
     private(set) var isRefreshing = false
     private(set) var commandError: String?
 
@@ -19,8 +19,8 @@ final class NowPlayingStore {
     private var pollingTask: Task<Void, Never>?
     private var hasCompletedInitialRefresh = false
 
-    var selectedSnapshot: PlayerSnapshot {
-        snapshot(for: selectedPlayer)
+    var activeSnapshot: PlayerSnapshot {
+        menuBarSnapshot ?? snapshot(for: selectedPlayer)
     }
 
     var menuBarSnapshot: PlayerSnapshot? {
@@ -85,9 +85,10 @@ final class NowPlayingStore {
 
     func perform(_ command: PlaybackCommand) async {
         commandError = nil
+        let targetPlayer = activeSnapshot.player
 
         do {
-            try await automation.perform(command, on: selectedPlayer)
+            try await automation.perform(command, on: targetPlayer)
             try? await Task.sleep(for: .milliseconds(250))
             await refresh()
         } catch {
