@@ -24,7 +24,7 @@ struct RepriseSettingsView: View {
                     Label("시스템 정보", systemImage: "info.square")
                 }
         }
-        .frame(width: 500, height: 410)
+        .frame(width: 500, height: 480)
     }
 }
 
@@ -410,28 +410,42 @@ private struct SystemInfoSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("앱") {
-                LabeledContent("버전", value: version)
-            }
+        VStack(spacing: 0) {
+            Form {
+                Section("앱") {
+                    LabeledContent("버전", value: version)
+                }
 
-            Section("시스템") {
-                LabeledContent("운영체제", value: operatingSystem)
-            }
+                Section("시스템") {
+                    LabeledContent("운영체제", value: operatingSystem)
+                }
 
-            Section("연결된 디스플레이") {
-                ForEach(
-                    Array(NSScreen.screens.enumerated()),
-                    id: \.offset
-                ) { _, screen in
-                    LabeledContent(screen.localizedName) {
-                        Text(resolution(of: screen))
-                            .foregroundStyle(.secondary)
+                Section("연결된 디스플레이") {
+                    ForEach(
+                        Array(NSScreen.screens.enumerated()),
+                        id: \.offset
+                    ) { _, screen in
+                        LabeledContent(screen.localizedName) {
+                            Text(resolution(of: screen))
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
             }
+            .formStyle(.grouped)
+
+            HStack(spacing: 0) {
+                Text("Made by ")
+                Link(
+                    "aodjo",
+                    destination: URL(string: "https://junx.dev")!
+                )
+                Text(" with ❤️")
+            }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.bottom, 18)
         }
-        .formStyle(.grouped)
     }
 
     private func resolution(of screen: NSScreen) -> String {
