@@ -28,7 +28,7 @@ struct PlayerPopoverView: View {
                     .padding(.bottom, 14)
             }
         }
-        .frame(width: 390)
+        .frame(width: 360)
         .background(.regularMaterial)
         .task {
             await store.refresh()

@@ -3,6 +3,7 @@
 //  RepriseTests
 //
 
+import CoreGraphics
 import Testing
 @testable import Reprise
 
@@ -18,6 +19,35 @@ struct RepriseTests {
         )
 
         #expect(snapshot.menuBarTitle == "Midnight City")
+    }
+
+    @Test
+    func shortMenuBarTitleDoesNotScroll() {
+        let title = "Antifreeze"
+        let titleWidth = MenuBarMarquee.textWidth(title)
+
+        #expect(!MenuBarMarquee.requiresScrolling(titleWidth: titleWidth))
+        #expect(MenuBarMarquee.offset(elapsed: 5, titleWidth: titleWidth) == 0)
+        #expect(MenuBarMarquee.viewportWidth(for: titleWidth) == titleWidth)
+    }
+
+    @Test
+    func longMenuBarTitleScrollsSmoothlyWithinMaximumWidth() {
+        let title = "사랑하긴 했었나요 스쳐가는 인연이었나요 짧지 않은 우리 함께했던 시간들이"
+        let titleWidth = MenuBarMarquee.textWidth(title)
+        let firstOffset = MenuBarMarquee.offset(
+            elapsed: MenuBarMarquee.initialPause + 0.1,
+            titleWidth: titleWidth
+        )
+        let secondOffset = MenuBarMarquee.offset(
+            elapsed: MenuBarMarquee.initialPause + 0.2,
+            titleWidth: titleWidth
+        )
+
+        #expect(MenuBarMarquee.requiresScrolling(titleWidth: titleWidth))
+        #expect(MenuBarMarquee.viewportWidth(for: titleWidth) == MenuBarMarquee.maximumTextWidth)
+        #expect(abs(firstOffset + 3) < 0.001)
+        #expect(abs(secondOffset + 6) < 0.001)
     }
 
     @Test
