@@ -332,7 +332,7 @@ final class PanelTitleMarqueeNSView: NSView {
 }
 
 enum MarqueeFade {
-    static let width: CGFloat = 10
+    static let width: CGFloat = 14
 
     static func startLocation(
         viewportWidth: CGFloat,

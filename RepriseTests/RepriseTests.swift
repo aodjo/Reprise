@@ -135,15 +135,13 @@ struct RepriseTests {
         #expect(
             abs(
                 MarqueeFade.startLocation(
-                    viewportWidth: 200,
-                    fadeWidth: 10
-                ) - 0.95
+                    viewportWidth: 200
+                ) - 0.93
             ) < 0.0001
         )
         #expect(
             MarqueeFade.startLocation(
-                viewportWidth: 5,
-                fadeWidth: 10
+                viewportWidth: 5
             ) == 0
         )
     }
