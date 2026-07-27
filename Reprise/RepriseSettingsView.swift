@@ -7,6 +7,15 @@ import AppKit
 import SwiftUI
 
 struct RepriseSettingsView: View {
+    @Environment(\.controlActiveState)
+    private var controlActiveState
+
+    private var controlTint: Color {
+        controlActiveState == .inactive
+            ? Color(nsColor: .tertiaryLabelColor)
+            : .accentColor
+    }
+
     var body: some View {
         TabView {
             ThemeSettingsView()
@@ -24,6 +33,7 @@ struct RepriseSettingsView: View {
                     Label("시스템 정보", systemImage: "info.square")
                 }
         }
+        .tint(controlTint)
         .frame(width: 500, height: 480)
     }
 }
