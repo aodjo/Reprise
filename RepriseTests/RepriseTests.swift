@@ -4,6 +4,7 @@
 //
 
 import CoreGraphics
+import Foundation
 import Testing
 @testable import Reprise
 
@@ -72,6 +73,79 @@ struct RepriseTests {
         )
 
         #expect(origin.x == PlayerPanelLayout.screenMargin)
+    }
+
+    @Test
+    func marqueePreferencesArePersistedAndReadBack() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+        defaults.set(
+            false,
+            forKey: ReprisePreferenceKey.automaticallyScrollTitles
+        )
+        defaults.set(
+            MarqueeSpeed.fast.rawValue,
+            forKey: ReprisePreferenceKey.marqueeSpeed
+        )
+        defaults.set(
+            false,
+            forKey: ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens
+        )
+        defaults.set(
+            PlayerPanelTheme.black.rawValue,
+            forKey: ReprisePreferenceKey.playerPanelTheme
+        )
+
+        let preferences = MarqueePreferences.current(defaults: defaults)
+
+        #expect(!preferences.automaticallyScrollsTitles)
+        #expect(preferences.pointsPerSecond == CGFloat(MarqueeSpeed.fast.rawValue))
+        #expect(!preferences.resetsMenuTitleWhenPanelOpens)
+        #expect(
+            defaults.string(
+                forKey: ReprisePreferenceKey.playerPanelTheme
+            ) == PlayerPanelTheme.black.rawValue
+        )
+    }
+
+    @Test
+    func liquidIsTheDefaultPlayerPanelTheme() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            defaults.string(
+                forKey: ReprisePreferenceKey.playerPanelTheme
+            ) == PlayerPanelTheme.liquid.rawValue
+        )
+    }
+
+    @Test
+    func marqueeFadeUsesAFixedWidthAtTheTrailingEdge() {
+        #expect(
+            abs(
+                MarqueeFade.startLocation(
+                    viewportWidth: 200,
+                    fadeWidth: 10
+                ) - 0.95
+            ) < 0.0001
+        )
+        #expect(
+            MarqueeFade.startLocation(
+                viewportWidth: 5,
+                fadeWidth: 10
+            ) == 0
+        )
     }
 
     @Test

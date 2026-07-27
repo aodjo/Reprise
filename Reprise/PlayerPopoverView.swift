@@ -6,10 +6,38 @@
 import SwiftUI
 
 struct PlayerPopoverView: View {
+    @Environment(\.openSettings) private var openSettings
+    @AppStorage(ReprisePreferenceKey.automaticallyScrollTitles)
+    private var automaticallyScrollTitles = true
+    @AppStorage(ReprisePreferenceKey.marqueeSpeed)
+    private var marqueeSpeed = MarqueeSpeed.normal.rawValue
+    @AppStorage(ReprisePreferenceKey.playerPanelTheme)
+    private var playerPanelTheme = PlayerPanelTheme.liquid.rawValue
     @Bindable var store: NowPlayingStore
+    let onOpenSettings: () -> Void
+
+    init(
+        store: NowPlayingStore,
+        onOpenSettings: @escaping () -> Void = {}
+    ) {
+        self.store = store
+        self.onOpenSettings = onOpenSettings
+    }
 
     private var snapshot: PlayerSnapshot {
         store.activeSnapshot
+    }
+
+    private var theme: PlayerPanelTheme {
+        PlayerPanelTheme(rawValue: playerPanelTheme) ?? .liquid
+    }
+
+    private var preferredColorScheme: ColorScheme? {
+        switch theme {
+        case .white: .light
+        case .black: .dark
+        case .liquid, .system: nil
+        }
     }
 
     var body: some View {
@@ -29,9 +57,34 @@ struct PlayerPopoverView: View {
             }
         }
         .frame(width: 360)
-        .background(.regularMaterial)
+        .background {
+            panelBackground
+        }
+        .preferredColorScheme(preferredColorScheme)
         .task {
             await store.refresh()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .openRepriseSettings
+            )
+        ) { _ in
+            presentSettings()
+        }
+    }
+
+    @ViewBuilder
+    private var panelBackground: some View {
+        switch theme {
+        case .white:
+            Color.white
+        case .black:
+            Color.black
+        case .liquid:
+            Rectangle()
+                .fill(.regularMaterial)
+        case .system:
+            Color(nsColor: .windowBackgroundColor)
         }
     }
 
@@ -47,7 +100,11 @@ struct PlayerPopoverView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        PanelTitleMarqueeView(title: track.title)
+                        PanelTitleMarqueeView(
+                            title: track.title,
+                            automaticallyScrolls: automaticallyScrollTitles,
+                            pointsPerSecond: CGFloat(marqueeSpeed)
+                        )
                             .frame(height: 17)
                             .accessibilityLabel("곡 \(track.title)")
 
@@ -59,6 +116,8 @@ struct PlayerPopoverView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+
+                    settingsButton
 
                     PlayerLogoView(player: snapshot.player)
                 }
@@ -123,6 +182,26 @@ struct PlayerPopoverView: View {
         }
         .frame(maxWidth: .infinity)
         .disabled(!snapshot.isRunning || snapshot.errorMessage != nil)
+    }
+
+    private var settingsButton: some View {
+        Button {
+            presentSettings()
+        } label: {
+            Image(systemName: "gearshape")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 19, height: 19)
+        }
+        .buttonStyle(.plain)
+        .help("설정 열기")
+        .accessibilityLabel("설정 열기")
+        .accessibilityIdentifier("settingsButton")
+    }
+
+    private func presentSettings() {
+        onOpenSettings()
+        openSettings()
     }
 
     private func controlButton(
@@ -210,8 +289,10 @@ private struct PlayerLogoView: View {
         switch player {
         case .spotify:
             Image("SpotifyLogo")
+                .renderingMode(.template)
                 .resizable()
                 .scaledToFit()
+                .foregroundStyle(.primary)
                 .frame(width: 21, height: 21)
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Spotify 로고")
@@ -221,7 +302,7 @@ private struct PlayerLogoView: View {
             Image(systemName: "music.note")
                 .font(.system(size: 17, weight: .bold))
                 .symbolRenderingMode(.monochrome)
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
                 .frame(width: 19, height: 19)
                 .accessibilityLabel("Apple Music 로고")
                 .accessibilityIdentifier("playerLogo")
@@ -231,4 +312,10 @@ private struct PlayerLogoView: View {
 
 #Preview {
     PlayerPopoverView(store: NowPlayingStore())
+}
+
+extension Notification.Name {
+    static let openRepriseSettings = Notification.Name(
+        "dev.junx.Reprise.openSettings"
+    )
 }

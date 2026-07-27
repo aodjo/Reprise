@@ -4,8 +4,43 @@
 //
 
 import AppKit
+import Carbon
 import CoreText
 import SwiftUI
+
+private let settingsHotKeySignature: OSType = 0x5250_5253
+private let settingsHotKeyIdentifier: UInt32 = 1
+
+private let settingsHotKeyEventHandler: EventHandlerUPP = {
+    _, event, userData in
+    guard let event, let userData else {
+        return OSStatus(eventNotHandledErr)
+    }
+
+    var hotKeyID = EventHotKeyID()
+    let status = GetEventParameter(
+        event,
+        EventParamName(kEventParamDirectObject),
+        EventParamType(typeEventHotKeyID),
+        nil,
+        MemoryLayout<EventHotKeyID>.size,
+        nil,
+        &hotKeyID
+    )
+    guard status == noErr,
+          hotKeyID.signature == settingsHotKeySignature,
+          hotKeyID.id == settingsHotKeyIdentifier else {
+        return OSStatus(eventNotHandledErr)
+    }
+
+    let appDelegate = Unmanaged<RepriseAppDelegate>
+        .fromOpaque(userData)
+        .takeUnretainedValue()
+    Task { @MainActor in
+        appDelegate.openSettingsFromHotKey()
+    }
+    return noErr
+}
 
 @MainActor
 final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
@@ -15,6 +50,8 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     private var playerPanel: PlayerPanel?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var settingsHotKey: EventHotKeyRef?
+    private var settingsHotKeyHandler: EventHandlerRef?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit-test hosts also load the app target. Avoid creating a status
@@ -33,7 +70,11 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         button.sendAction(on: [.leftMouseUp])
 
         let contentController = NSHostingController(
-            rootView: PlayerPopoverView(store: store)
+            rootView: PlayerPopoverView(
+                store: store
+            ) { [weak self] in
+                self?.closePlayerPanel()
+            }
         )
         let playerPanel = PlayerPanel(contentViewController: contentController)
         configurePanelAppearance(
@@ -49,12 +90,15 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] in
             self?.togglePopover()
         }
+        installSettingsHotKeyHandler()
         store.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         renderer?.invalidate()
         removeEventMonitors()
+        unregisterSettingsHotKey()
+        removeSettingsHotKeyHandler()
     }
 
     @objc
@@ -134,12 +178,18 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
             object: panel
         )
         installEventMonitors()
+        registerSettingsHotKey()
     }
 
     private func closePlayerPanel() {
         playerPanel?.orderOut(nil)
+        NotificationCenter.default.post(
+            name: .playerPanelDidHide,
+            object: playerPanel
+        )
         renderer?.setPanelVisible(false)
         removeEventMonitors()
+        unregisterSettingsHotKey()
     }
 
     private func installEventMonitors() {
@@ -179,6 +229,64 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
             NSEvent.removeMonitor(globalEventMonitor)
             self.globalEventMonitor = nil
         }
+    }
+
+    private func installSettingsHotKeyHandler() {
+        guard settingsHotKeyHandler == nil else { return }
+
+        var eventType = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: OSType(kEventHotKeyPressed)
+        )
+        let userData = Unmanaged.passUnretained(self).toOpaque()
+        InstallEventHandler(
+            GetApplicationEventTarget(),
+            settingsHotKeyEventHandler,
+            1,
+            &eventType,
+            userData,
+            &settingsHotKeyHandler
+        )
+    }
+
+    private func removeSettingsHotKeyHandler() {
+        guard let settingsHotKeyHandler else { return }
+        RemoveEventHandler(settingsHotKeyHandler)
+        self.settingsHotKeyHandler = nil
+    }
+
+    private func registerSettingsHotKey() {
+        guard settingsHotKey == nil else { return }
+
+        var hotKey: EventHotKeyRef?
+        let hotKeyID = EventHotKeyID(
+            signature: settingsHotKeySignature,
+            id: settingsHotKeyIdentifier
+        )
+        let status = RegisterEventHotKey(
+            UInt32(kVK_ANSI_Comma),
+            UInt32(cmdKey),
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKey
+        )
+        guard status == noErr else { return }
+        settingsHotKey = hotKey
+    }
+
+    private func unregisterSettingsHotKey() {
+        guard let settingsHotKey else { return }
+        UnregisterEventHotKey(settingsHotKey)
+        self.settingsHotKey = nil
+    }
+
+    fileprivate func openSettingsFromHotKey() {
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(
+            name: .openRepriseSettings,
+            object: nil
+        )
     }
 }
 
@@ -236,6 +344,7 @@ private final class MenuBarStatusRenderer: NSObject {
     private let marqueeView = MenuBarMarqueeView()
     private var updateTimer: Timer?
     private var lastContentKey = ""
+    private var isPanelVisible = false
 
     init(
         statusItem: NSStatusItem,
@@ -279,7 +388,11 @@ private final class MenuBarStatusRenderer: NSObject {
     }
 
     func setPanelVisible(_ isVisible: Bool) {
-        marqueeView.setPaused(isVisible)
+        isPanelVisible = isVisible
+        let preferences = MarqueePreferences.current()
+        marqueeView.setPaused(
+            isVisible && preferences.resetsMenuTitleWhenPanelOpens
+        )
     }
 
     @objc
@@ -288,14 +401,24 @@ private final class MenuBarStatusRenderer: NSObject {
 
         let title = store.menuBarTitle
         let snapshot = store.menuBarSnapshot
-        let contentKey = Self.contentKey(title: title, snapshot: snapshot)
+        let preferences = MarqueePreferences.current()
+        let contentKey = Self.contentKey(
+            title: title,
+            snapshot: snapshot,
+            preferences: preferences
+        )
         guard contentKey != lastContentKey else { return }
         lastContentKey = contentKey
 
         let contentWidth = marqueeView.update(
             title: title,
             artworkData: snapshot?.track?.artworkData,
-            symbolName: snapshot?.player.symbolName ?? "music.note"
+            symbolName: snapshot?.player.symbolName ?? "music.note",
+            preferences: preferences
+        )
+        marqueeView.setPaused(
+            isPanelVisible
+                && preferences.resetsMenuTitleWhenPanelOpens
         )
         button.setAccessibilityElement(true)
         button.setAccessibilityLabel(store.menuBarAccessibilityLabel)
@@ -306,10 +429,17 @@ private final class MenuBarStatusRenderer: NSObject {
 
     private static func contentKey(
         title: String,
-        snapshot: PlayerSnapshot?
+        snapshot: PlayerSnapshot?,
+        preferences: MarqueePreferences
     ) -> String {
         guard let snapshot, let track = snapshot.track else {
-            return "none|\(title)"
+            return [
+                "none",
+                title,
+                String(preferences.automaticallyScrollsTitles),
+                String(describing: preferences.pointsPerSecond),
+                String(preferences.resetsMenuTitleWhenPanelOpens),
+            ].joined(separator: "|")
         }
         return [
             snapshot.player.rawValue,
@@ -317,6 +447,9 @@ private final class MenuBarStatusRenderer: NSObject {
             track.album,
             track.artist,
             String(track.artworkData?.count ?? 0),
+            String(preferences.automaticallyScrollsTitles),
+            String(describing: preferences.pointsPerSecond),
+            String(preferences.resetsMenuTitleWhenPanelOpens),
         ].joined(separator: "|")
     }
 }
@@ -327,10 +460,15 @@ private final class MenuBarMarqueeView: NSView {
 
     private let artworkLayer = CALayer()
     private let textViewportLayer = CALayer()
+    private let fadeMaskLayer = CAGradientLayer()
     private let scrollingLayer = CALayer()
     private let firstTitleLayer = CALayer()
     private let secondTitleLayer = CALayer()
-    private var pendingAnimation: (distance: CGFloat, scale: CGFloat)?
+    private var pendingAnimation: (
+        distance: CGFloat,
+        scale: CGFloat,
+        pointsPerSecond: CGFloat
+    )?
     private var marqueeStartedAt: CFTimeInterval?
     private var isPaused = false
 
@@ -371,7 +509,8 @@ private final class MenuBarMarqueeView: NSView {
     func update(
         title: String,
         artworkData: Data?,
-        symbolName: String
+        symbolName: String,
+        preferences: MarqueePreferences
     ) -> CGFloat {
         let titleWidth = MenuBarMarquee.textWidth(title)
         let viewportWidth = MenuBarMarquee.viewportWidth(for: titleWidth)
@@ -408,6 +547,17 @@ private final class MenuBarMarqueeView: NSView {
             width: viewportWidth,
             height: availableHeight
         )
+        MarqueeFade.update(
+            contentLayer: textViewportLayer,
+            maskLayer: fadeMaskLayer,
+            size: CGSize(
+                width: viewportWidth,
+                height: availableHeight
+            ),
+            showsFade: MenuBarMarquee.requiresScrolling(
+                titleWidth: titleWidth
+            )
+        )
         scrollingLayer.frame = CGRect(
             x: 0,
             y: 0,
@@ -428,15 +578,18 @@ private final class MenuBarMarqueeView: NSView {
         )
 
         stopAnimation()
-        if MenuBarMarquee.requiresScrolling(titleWidth: titleWidth) {
+        if preferences.automaticallyScrollsTitles,
+           MenuBarMarquee.requiresScrolling(titleWidth: titleWidth) {
             pendingAnimation = (
                 titleWidth + MenuBarMarquee.titleGap,
-                scale
+                scale,
+                preferences.pointsPerSecond
             )
             if !isPaused {
                 startAnimation(
                     distance: titleWidth + MenuBarMarquee.titleGap,
-                    scale: scale
+                    scale: scale,
+                    pointsPerSecond: preferences.pointsPerSecond
                 )
             }
         } else {
@@ -468,7 +621,8 @@ private final class MenuBarMarqueeView: NSView {
         guard let pendingAnimation else { return }
         startAnimation(
             distance: pendingAnimation.distance,
-            scale: pendingAnimation.scale
+            scale: pendingAnimation.scale,
+            pointsPerSecond: pendingAnimation.pointsPerSecond
         )
     }
 
@@ -520,7 +674,7 @@ private final class MenuBarMarqueeView: NSView {
 
         let distance = pendingAnimation.distance
         let travelDuration = TimeInterval(
-            distance / MenuBarMarquee.pointsPerSecond
+            distance / pendingAnimation.pointsPerSecond
         )
         let cycleDuration = MenuBarMarquee.initialPause + travelDuration
         let elapsed = max(CACurrentMediaTime() - marqueeStartedAt, 0)
@@ -532,14 +686,15 @@ private final class MenuBarMarqueeView: NSView {
 
     private func startAnimation(
         distance: CGFloat,
-        scale: CGFloat
+        scale: CGFloat,
+        pointsPerSecond: CGFloat
     ) {
         scrollingLayer.add(
             PixelAlignedMarquee.animation(
                 distance: distance,
                 scale: scale,
                 initialPause: MenuBarMarquee.initialPause,
-                pointsPerSecond: MenuBarMarquee.pointsPerSecond
+                pointsPerSecond: pointsPerSecond
             ),
             forKey: "marquee"
         )

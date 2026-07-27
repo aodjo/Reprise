@@ -9,6 +9,8 @@ import SwiftUI
 
 struct PanelTitleMarqueeView: NSViewRepresentable {
     let title: String
+    let automaticallyScrolls: Bool
+    let pointsPerSecond: CGFloat
 
     func makeNSView(context: Context) -> PanelTitleMarqueeNSView {
         PanelTitleMarqueeNSView()
@@ -18,25 +20,29 @@ struct PanelTitleMarqueeView: NSViewRepresentable {
         _ nsView: PanelTitleMarqueeNSView,
         context: Context
     ) {
-        nsView.title = title
+        nsView.update(
+            title: title,
+            automaticallyScrolls: automaticallyScrolls,
+            pointsPerSecond: pointsPerSecond
+        )
     }
 }
 
 @MainActor
 final class PanelTitleMarqueeNSView: NSView {
-    var title = "" {
-        didSet {
-            guard title != oldValue else { return }
-            refresh(force: true)
-        }
-    }
+    private var title = ""
+    private var automaticallyScrolls = true
+    private var pointsPerSecond = CGFloat(MarqueeSpeed.normal.rawValue)
 
     private let scrollingLayer = CALayer()
     private let firstTitleLayer = CALayer()
     private let secondTitleLayer = CALayer()
+    private let fadeMaskLayer = CAGradientLayer()
     private var renderedSize = CGSize.zero
     private var renderedScale: CGFloat = 0
     private var renderedTitle = ""
+    private var isHovering = false
+    private var titleTrackingArea: NSTrackingArea?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -56,6 +62,12 @@ final class PanelTitleMarqueeNSView: NSView {
             name: .playerPanelDidShow,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerPanelDidHide),
+            name: .playerPanelDidHide,
+            object: nil
+        )
     }
 
     @available(*, unavailable)
@@ -72,8 +84,57 @@ final class PanelTitleMarqueeNSView: NSView {
         refresh(force: false)
     }
 
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+
+        if let titleTrackingArea {
+            removeTrackingArea(titleTrackingArea)
+        }
+
+        let trackingArea = NSTrackingArea(
+            rect: .zero,
+            options: [
+                .mouseEnteredAndExited,
+                .activeAlways,
+                .inVisibleRect,
+            ],
+            owner: self
+        )
+        addTrackingArea(trackingArea)
+        titleTrackingArea = trackingArea
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        guard !automaticallyScrolls else { return }
+        isHovering = true
+        refresh(force: true)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard isHovering else { return }
+        isHovering = false
+        refresh(force: true)
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        refresh(force: true)
+    }
+
+    func update(
+        title: String,
+        automaticallyScrolls: Bool,
+        pointsPerSecond: CGFloat
+    ) {
+        guard title != self.title
+                || automaticallyScrolls != self.automaticallyScrolls
+                || pointsPerSecond != self.pointsPerSecond else {
+            return
+        }
+
+        self.title = title
+        self.automaticallyScrolls = automaticallyScrolls
+        self.pointsPerSecond = pointsPerSecond
         refresh(force: true)
     }
 
@@ -82,9 +143,16 @@ final class PanelTitleMarqueeNSView: NSView {
         refresh(force: true)
     }
 
+    @objc
+    private func playerPanelDidHide() {
+        isHovering = false
+        stopAnimation()
+    }
+
     private func refresh(force: Bool) {
         guard bounds.width > 0, bounds.height > 0, !title.isEmpty else {
             stopAnimation()
+            layer?.mask = nil
             firstTitleLayer.contents = nil
             secondTitleLayer.contents = nil
             return
@@ -106,6 +174,12 @@ final class PanelTitleMarqueeNSView: NSView {
         renderedScale = scale
 
         let titleWidth = Self.textWidth(title)
+        MarqueeFade.update(
+            contentLayer: layer,
+            maskLayer: fadeMaskLayer,
+            size: bounds.size,
+            showsFade: titleWidth > bounds.width
+        )
         let bitmap = Self.titleBitmap(title, scale: scale)
         let titleHeight = bitmap?.pointSize.height ?? Self.font.pointSize
         let titleY = Self.titleOriginY(
@@ -141,18 +215,22 @@ final class PanelTitleMarqueeNSView: NSView {
         )
 
         stopAnimation()
-        guard titleWidth > bounds.width else {
+        guard titleWidth > bounds.width,
+              automaticallyScrolls || isHovering else {
             secondTitleLayer.isHidden = true
             return
         }
 
         let distance = titleWidth + Self.titleGap
+        let initialPause = automaticallyScrolls
+            ? Self.initialPause
+            : Self.hoverInitialPause
         scrollingLayer.add(
             PixelAlignedMarquee.animation(
                 distance: distance,
                 scale: scale,
-                initialPause: Self.initialPause,
-                pointsPerSecond: Self.pointsPerSecond
+                initialPause: initialPause,
+                pointsPerSecond: pointsPerSecond
             ),
             forKey: "marquee"
         )
@@ -239,7 +317,54 @@ final class PanelTitleMarqueeNSView: NSView {
     )
     private static let titleGap: CGFloat = 24
     private static let initialPause: TimeInterval = 1.4
-    private static let pointsPerSecond: CGFloat = 30
+    private static let hoverInitialPause: TimeInterval = 0.25
+}
+
+enum MarqueeFade {
+    static let width: CGFloat = 10
+
+    static func startLocation(
+        viewportWidth: CGFloat,
+        fadeWidth: CGFloat = width
+    ) -> CGFloat {
+        guard viewportWidth > 0 else { return 0 }
+        return max(0, 1 - fadeWidth / viewportWidth)
+    }
+
+    static func update(
+        contentLayer: CALayer?,
+        maskLayer: CAGradientLayer,
+        size: CGSize,
+        showsFade: Bool
+    ) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        guard showsFade, size.width > 0, size.height > 0 else {
+            contentLayer?.mask = nil
+            return
+        }
+
+        maskLayer.frame = CGRect(origin: .zero, size: size)
+        maskLayer.startPoint = CGPoint(x: 0, y: 0.5)
+        maskLayer.endPoint = CGPoint(x: 1, y: 0.5)
+        maskLayer.colors = [
+            NSColor.black.cgColor,
+            NSColor.black.cgColor,
+            NSColor.clear.cgColor,
+        ]
+        maskLayer.locations = [
+            0,
+            NSNumber(
+                value: startLocation(
+                    viewportWidth: size.width
+                )
+            ),
+            1,
+        ]
+        contentLayer?.mask = maskLayer
+    }
 }
 
 enum PixelAlignedMarquee {
@@ -283,5 +408,8 @@ enum PixelAlignedMarquee {
 extension Notification.Name {
     static let playerPanelDidShow = Notification.Name(
         "dev.junx.Reprise.playerPanelDidShow"
+    )
+    static let playerPanelDidHide = Notification.Name(
+        "dev.junx.Reprise.playerPanelDidHide"
     )
 }
