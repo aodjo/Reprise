@@ -49,18 +49,24 @@ struct PlayerPopoverView: View {
             )
 
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title)
-                        .font(.headline.weight(.semibold))
-                        .lineLimit(1)
-                        .accessibilityLabel("곡 \(track.title)")
-
-                    if !track.artist.isEmpty {
-                        Text(track.artist)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.title)
+                            .font(.headline.weight(.semibold))
                             .lineLimit(1)
+                            .accessibilityLabel("곡 \(track.title)")
+
+                        if !track.artist.isEmpty {
+                            Text(track.artist)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
+
+                    Spacer(minLength: 4)
+
+                    PlayerLogoView(player: snapshot.player)
                 }
 
                 Spacer(minLength: 5)
@@ -231,6 +237,70 @@ private struct CompactControlButtonStyle: ButtonStyle {
             .foregroundStyle(Color.primary.opacity(configuration.isPressed ? 0.55 : 0.72))
             .scaleEffect(configuration.isPressed ? 0.94 : 1)
             .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+private struct PlayerLogoView: View {
+    let player: MediaPlayerKind
+
+    @ViewBuilder
+    var body: some View {
+        switch player {
+        case .spotify:
+            ZStack {
+                Circle()
+                    .fill(.white)
+
+                SpotifyWaves()
+                    .stroke(
+                        Color.black.opacity(0.82),
+                        style: StrokeStyle(lineWidth: 1.45, lineCap: .round)
+                    )
+                    .padding(3.5)
+            }
+            .frame(width: 19, height: 19)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Spotify 로고")
+            .accessibilityIdentifier("playerLogo")
+
+        case .appleMusic:
+            Image(systemName: "music.note")
+                .font(.system(size: 17, weight: .bold))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(.white)
+                .frame(width: 19, height: 19)
+                .accessibilityLabel("Apple Music 로고")
+                .accessibilityIdentifier("playerLogo")
+        }
+    }
+}
+
+private struct SpotifyWaves: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.25))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.42),
+            control1: CGPoint(x: rect.minX + rect.width * 0.33, y: rect.minY),
+            control2: CGPoint(x: rect.minX + rect.width * 0.72, y: rect.minY + rect.height * 0.08)
+        )
+
+        path.move(to: CGPoint(x: rect.minX + rect.width * 0.09, y: rect.minY + rect.height * 0.57))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.7),
+            control1: CGPoint(x: rect.minX + rect.width * 0.37, y: rect.minY + rect.height * 0.39),
+            control2: CGPoint(x: rect.minX + rect.width * 0.69, y: rect.minY + rect.height * 0.45)
+        )
+
+        path.move(to: CGPoint(x: rect.minX + rect.width * 0.2, y: rect.minY + rect.height * 0.84))
+        path.addCurve(
+            to: CGPoint(x: rect.maxX - rect.width * 0.18, y: rect.minY + rect.height * 0.92),
+            control1: CGPoint(x: rect.minX + rect.width * 0.43, y: rect.minY + rect.height * 0.72),
+            control2: CGPoint(x: rect.minX + rect.width * 0.67, y: rect.minY + rect.height * 0.76)
+        )
+
+        return path
     }
 }
 

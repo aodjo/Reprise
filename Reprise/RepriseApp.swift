@@ -24,14 +24,14 @@ struct RepriseApp: App {
         MenuBarExtra {
             PlayerPopoverView(store: store)
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 0) {
                 ArtworkView(
                     data: store.menuBarSnapshot?.track?.artworkData,
                     size: 18,
                     cornerRadius: 4,
                     symbolName: store.menuBarSymbol
                 )
-                Text(store.menuBarTitle)
+                Text("\u{2004}\(store.menuBarTitle)")
                     .lineLimit(1)
             }
             .accessibilityLabel(store.menuBarAccessibilityLabel)
