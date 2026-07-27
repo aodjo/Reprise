@@ -104,6 +104,10 @@ struct RepriseTests {
             MenuBarArtworkStyle.levelIndicator.rawValue,
             forKey: ReprisePreferenceKey.menuBarArtworkStyle
         )
+        defaults.set(
+            MenuBarTitleFormat.artistTitle.rawValue,
+            forKey: ReprisePreferenceKey.menuBarTitleFormat
+        )
 
         let preferences = MarqueePreferences.current(defaults: defaults)
 
@@ -111,10 +115,56 @@ struct RepriseTests {
         #expect(preferences.pointsPerSecond == CGFloat(MarqueeSpeed.fast.rawValue))
         #expect(!preferences.resetsMenuTitleWhenPanelOpens)
         #expect(preferences.menuBarArtworkStyle == .levelIndicator)
+        #expect(preferences.menuBarTitleFormat == .artistTitle)
         #expect(
             defaults.string(
                 forKey: ReprisePreferenceKey.playerPanelTheme
             ) == PlayerPanelTheme.black.rawValue
+        )
+    }
+
+    @Test
+    func menuBarTitleFormatOrdersTitleAndArtist() {
+        #expect(
+            MenuBarTitleFormat.titleOnly.text(
+                title: "Song",
+                artist: "Artist"
+            ) == "Song"
+        )
+        #expect(
+            MenuBarTitleFormat.titleArtist.text(
+                title: "Song",
+                artist: "Artist"
+            ) == "Song - Artist"
+        )
+        #expect(
+            MenuBarTitleFormat.artistTitle.text(
+                title: "Song",
+                artist: "Artist"
+            ) == "Artist - Song"
+        )
+        #expect(
+            MenuBarTitleFormat.artistTitle.text(
+                title: "Song",
+                artist: ""
+            ) == "Song"
+        )
+    }
+
+    @Test
+    func titleOnlyIsTheDefaultMenuBarTitleFormat() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            defaults.string(
+                forKey: ReprisePreferenceKey.menuBarTitleFormat
+            ) == MenuBarTitleFormat.titleOnly.rawValue
         )
     }
 

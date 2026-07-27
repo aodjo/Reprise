@@ -399,9 +399,14 @@ private final class MenuBarStatusRenderer: NSObject {
     private func updateContent() {
         guard let button = statusItem.button else { return }
 
-        let title = store.menuBarTitle
         let snapshot = store.menuBarSnapshot
         let preferences = MarqueePreferences.current()
+        let title = snapshot?.track.map {
+            preferences.menuBarTitleFormat.text(
+                title: $0.title,
+                artist: $0.artist
+            )
+        } ?? store.menuBarTitle
         let contentKey = Self.contentKey(
             title: title,
             snapshot: snapshot,
@@ -442,6 +447,7 @@ private final class MenuBarStatusRenderer: NSObject {
                 String(describing: preferences.pointsPerSecond),
                 String(preferences.resetsMenuTitleWhenPanelOpens),
                 preferences.menuBarArtworkStyle.rawValue,
+                preferences.menuBarTitleFormat.rawValue,
             ].joined(separator: "|")
         }
         return [
@@ -455,6 +461,7 @@ private final class MenuBarStatusRenderer: NSObject {
             String(describing: preferences.pointsPerSecond),
             String(preferences.resetsMenuTitleWhenPanelOpens),
             preferences.menuBarArtworkStyle.rawValue,
+            preferences.menuBarTitleFormat.rawValue,
         ].joined(separator: "|")
     }
 }
