@@ -334,6 +334,58 @@ struct RepriseTests {
         #expect(overrun.remaining == 0)
     }
 
+    @Test
+    func panelTimeStylesFormatBothSides() {
+        #expect(
+            PanelTimeDisplay.leadingText(
+                style: .elapsed,
+                position: 69
+            ) == "1:09"
+        )
+        #expect(
+            PanelTimeDisplay.leadingText(
+                style: .zero,
+                position: 69
+            ) == "00:00"
+        )
+        #expect(
+            PanelTimeDisplay.trailingText(
+                style: .remaining,
+                duration: 193,
+                remaining: 124
+            ) == "-2:04"
+        )
+        #expect(
+            PanelTimeDisplay.trailingText(
+                style: .duration,
+                duration: 193,
+                remaining: 124
+            ) == "3:13"
+        )
+    }
+
+    @Test
+    func elapsedAndRemainingAreTheDefaultPanelTimeStyles() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            defaults.string(
+                forKey: ReprisePreferenceKey.panelLeadingTimeStyle
+            ) == PanelLeadingTimeStyle.elapsed.rawValue
+        )
+        #expect(
+            defaults.string(
+                forKey: ReprisePreferenceKey.panelTrailingTimeStyle
+            ) == PanelTrailingTimeStyle.remaining.rawValue
+        )
+    }
+
     private func makeSnapshot(
         player: MediaPlayerKind,
         state: PlaybackState,

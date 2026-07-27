@@ -11,6 +11,8 @@ enum ReprisePreferenceKey {
     static let marqueeSpeed = "marqueeSpeed"
     static let menuBarArtworkStyle = "menuBarArtworkStyle"
     static let menuBarTitleFormat = "menuBarTitleFormat"
+    static let panelLeadingTimeStyle = "panelLeadingTimeStyle"
+    static let panelTrailingTimeStyle = "panelTrailingTimeStyle"
     static let playerPanelTheme = "playerPanelTheme"
     static let resetsMenuTitleWhenPanelOpens = "resetsMenuTitleWhenPanelOpens"
 }
@@ -68,6 +70,71 @@ enum MenuBarTitleFormat: String, CaseIterable, Identifiable {
                 .filter { !$0.isEmpty }
                 .joined(separator: " - ")
         }
+    }
+}
+
+enum PanelLeadingTimeStyle: String, CaseIterable, Identifiable {
+    case elapsed
+    case zero
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .elapsed: "현재 재생"
+        case .zero: "00:00"
+        }
+    }
+}
+
+enum PanelTrailingTimeStyle: String, CaseIterable, Identifiable {
+    case remaining
+    case duration
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .remaining: "남은 시간"
+        case .duration: "총 길이"
+        }
+    }
+}
+
+enum PanelTimeDisplay {
+    static func leadingText(
+        style: PanelLeadingTimeStyle,
+        position: TimeInterval
+    ) -> String {
+        switch style {
+        case .elapsed:
+            timeString(position)
+        case .zero:
+            "00:00"
+        }
+    }
+
+    static func trailingText(
+        style: PanelTrailingTimeStyle,
+        duration: TimeInterval,
+        remaining: TimeInterval
+    ) -> String {
+        switch style {
+        case .remaining:
+            "-\(timeString(remaining))"
+        case .duration:
+            timeString(duration)
+        }
+    }
+
+    private static func timeString(_ time: TimeInterval) -> String {
+        guard time.isFinite, time > 0 else { return "0:00" }
+        let totalSeconds = Int(time.rounded(.down))
+        return "\(totalSeconds / 60):\(String(format: "%02d", totalSeconds % 60))"
     }
 }
 
@@ -157,6 +224,10 @@ enum ReprisePreferences {
                     MenuBarArtworkStyle.albumArtwork.rawValue,
                 ReprisePreferenceKey.menuBarTitleFormat:
                     MenuBarTitleFormat.titleOnly.rawValue,
+                ReprisePreferenceKey.panelLeadingTimeStyle:
+                    PanelLeadingTimeStyle.elapsed.rawValue,
+                ReprisePreferenceKey.panelTrailingTimeStyle:
+                    PanelTrailingTimeStyle.remaining.rawValue,
                 ReprisePreferenceKey.playerPanelTheme:
                     PlayerPanelTheme.liquid.rawValue,
                 ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens: true,

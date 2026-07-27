@@ -28,6 +28,11 @@ struct RepriseSettingsView: View {
                     Label("메뉴바", systemImage: "menubar.rectangle")
                 }
 
+            PanelSettingsView()
+                .tabItem {
+                    Label("패널", systemImage: "play.rectangle")
+                }
+
             SystemInfoSettingsView()
                 .tabItem {
                     Label("시스템 정보", systemImage: "info.square")
@@ -71,6 +76,12 @@ private struct ThemeSettingsView: View {
 private struct ThemePanelPreview: View {
     @Environment(\.colorScheme) private var systemColorScheme
 
+    @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
+    private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
+
+    @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
+    private var panelTrailingTimeStyle = PanelTrailingTimeStyle.remaining.rawValue
+
     let theme: PlayerPanelTheme
 
     private var previewColorScheme: ColorScheme {
@@ -88,6 +99,14 @@ private struct ThemePanelPreview: View {
         case .liquid, .system:
             systemColorScheme == .dark ? .white : .black
         }
+    }
+
+    private var leadingTimeStyle: PanelLeadingTimeStyle {
+        PanelLeadingTimeStyle(rawValue: panelLeadingTimeStyle) ?? .elapsed
+    }
+
+    private var trailingTimeStyle: PanelTrailingTimeStyle {
+        PanelTrailingTimeStyle(rawValue: panelTrailingTimeStyle) ?? .remaining
     }
 
     var body: some View {
@@ -136,9 +155,20 @@ private struct ThemePanelPreview: View {
                         .tint(.accentColor)
 
                     HStack {
-                        Text("1:09")
+                        Text(
+                            PanelTimeDisplay.leadingText(
+                                style: leadingTimeStyle,
+                                position: 69
+                            )
+                        )
                         Spacer()
-                        Text("-2:04")
+                        Text(
+                            PanelTimeDisplay.trailingText(
+                                style: trailingTimeStyle,
+                                duration: 193,
+                                remaining: 124
+                            )
+                        )
                     }
                     .font(.caption2.monospacedDigit())
                     .foregroundStyle(.secondary)
@@ -174,6 +204,94 @@ private struct ThemePanelPreview: View {
         case .system:
             Color(nsColor: .windowBackgroundColor)
         }
+    }
+}
+
+private struct PanelSettingsView: View {
+    @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
+    private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
+
+    @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
+    private var panelTrailingTimeStyle = PanelTrailingTimeStyle.remaining.rawValue
+
+    private var leadingStyle: PanelLeadingTimeStyle {
+        PanelLeadingTimeStyle(rawValue: panelLeadingTimeStyle) ?? .elapsed
+    }
+
+    private var trailingStyle: PanelTrailingTimeStyle {
+        PanelTrailingTimeStyle(rawValue: panelTrailingTimeStyle) ?? .remaining
+    }
+
+    var body: some View {
+        Form {
+            Section("미리보기") {
+                PanelTimePreview(
+                    leadingStyle: leadingStyle,
+                    trailingStyle: trailingStyle
+                )
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+            }
+
+            Section("시간 표시") {
+                Picker("왼쪽", selection: $panelLeadingTimeStyle) {
+                    ForEach(PanelLeadingTimeStyle.allCases) { style in
+                        Text(style.displayName)
+                            .tag(style.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker("오른쪽", selection: $panelTrailingTimeStyle) {
+                    ForEach(PanelTrailingTimeStyle.allCases) { style in
+                        Text(style.displayName)
+                            .tag(style.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct PanelTimePreview: View {
+    let leadingStyle: PanelLeadingTimeStyle
+    let trailingStyle: PanelTrailingTimeStyle
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ProgressView(value: 0.36)
+                .progressViewStyle(.linear)
+                .tint(.accentColor)
+
+            HStack {
+                Text(
+                    PanelTimeDisplay.leadingText(
+                        style: leadingStyle,
+                        position: 69
+                    )
+                )
+                Spacer()
+                Text(
+                    PanelTimeDisplay.trailingText(
+                        style: trailingStyle,
+                        duration: 193,
+                        remaining: 124
+                    )
+                )
+            }
+            .font(.caption2.monospacedDigit())
+            .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(width: 300)
+        .background(
+            Color(nsColor: .controlBackgroundColor),
+            in: RoundedRectangle(cornerRadius: 10)
+        )
+        .animation(.easeInOut(duration: 0.18), value: leadingStyle)
+        .animation(.easeInOut(duration: 0.18), value: trailingStyle)
     }
 }
 

@@ -15,6 +15,10 @@ struct PlayerPopoverView: View {
     private var marqueeSpeed = MarqueeSpeed.normal.rawValue
     @AppStorage(ReprisePreferenceKey.playerPanelTheme)
     private var playerPanelTheme = PlayerPanelTheme.liquid.rawValue
+    @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
+    private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
+    @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
+    private var panelTrailingTimeStyle = PanelTrailingTimeStyle.remaining.rawValue
     @Bindable var store: NowPlayingStore
     let onOpenSettings: () -> Void
 
@@ -32,6 +36,14 @@ struct PlayerPopoverView: View {
 
     private var theme: PlayerPanelTheme {
         PlayerPanelTheme(rawValue: playerPanelTheme) ?? .liquid
+    }
+
+    private var leadingTimeStyle: PanelLeadingTimeStyle {
+        PanelLeadingTimeStyle(rawValue: panelLeadingTimeStyle) ?? .elapsed
+    }
+
+    private var trailingTimeStyle: PanelTrailingTimeStyle {
+        PanelTrailingTimeStyle(rawValue: panelTrailingTimeStyle) ?? .remaining
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -248,9 +260,20 @@ struct PlayerPopoverView: View {
                 .accessibilityValue("\(Int(track.progress * 100))퍼센트")
 
             HStack {
-                Text(Self.timeString(track.position))
+                Text(
+                    PanelTimeDisplay.leadingText(
+                        style: leadingTimeStyle,
+                        position: track.position
+                    )
+                )
                 Spacer()
-                Text("-\(Self.timeString(track.remaining))")
+                Text(
+                    PanelTimeDisplay.trailingText(
+                        style: trailingTimeStyle,
+                        duration: track.duration,
+                        remaining: track.remaining
+                    )
+                )
             }
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
@@ -279,11 +302,6 @@ struct PlayerPopoverView: View {
         }
     }
 
-    nonisolated private static func timeString(_ time: TimeInterval) -> String {
-        guard time.isFinite, time > 0 else { return "0:00" }
-        let totalSeconds = Int(time.rounded(.down))
-        return "\(totalSeconds / 60):\(String(format: "%02d", totalSeconds % 60))"
-    }
 }
 
 private struct CompactControlButtonStyle: ButtonStyle {
