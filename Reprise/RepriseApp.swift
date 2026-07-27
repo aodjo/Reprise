@@ -2,31 +2,40 @@
 //  RepriseApp.swift
 //  Reprise
 //
-//  Created by aodjo on 7/27/26.
-//
 
 import SwiftUI
-import SwiftData
 
 @main
 struct RepriseApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    @State private var store: NowPlayingStore
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+    init() {
+        let store = NowPlayingStore()
+        _store = State(initialValue: store)
+
+        // Unit-test hosts load the app's entry point too. Avoid sending Apple
+        // Events to the user's media apps as a side effect of running tests.
+        if ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil {
+            store.start()
         }
-    }()
+    }
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
+        MenuBarExtra {
+            PlayerPopoverView(store: store)
+        } label: {
+            HStack(spacing: 4) {
+                ArtworkView(
+                    data: store.menuBarSnapshot?.track?.artworkData,
+                    size: 18,
+                    cornerRadius: 4,
+                    symbolName: store.menuBarSymbol
+                )
+                Text(store.menuBarTitle)
+                    .lineLimit(1)
+            }
+            .accessibilityLabel(store.menuBarAccessibilityLabel)
         }
-        .modelContainer(sharedModelContainer)
+        .menuBarExtraStyle(.window)
     }
 }

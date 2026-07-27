@@ -1,0 +1,286 @@
+//
+//  MediaAutomationService.swift
+//  Reprise
+//
+
+import AppKit
+import Foundation
+
+actor MediaAutomationService {
+    private struct ArtworkCacheEntry {
+        let trackKey: String
+        let data: Data?
+    }
+
+    private var artworkCache: [MediaPlayerKind: ArtworkCacheEntry] = [:]
+    private var snapshotScriptCache: [MediaPlayerKind: NSAppleScript] = [:]
+
+    func snapshots() async -> [MediaPlayerKind: PlayerSnapshot] {
+        var result: [MediaPlayerKind: PlayerSnapshot] = [:]
+
+        for player in MediaPlayerKind.allCases {
+            result[player] = await snapshot(for: player)
+        }
+
+        return result
+    }
+
+    func perform(_ command: PlaybackCommand, on player: MediaPlayerKind) throws {
+        guard isRunning(player) else {
+            throw AutomationError.playerNotRunning(player)
+        }
+
+        let source = """
+        tell application id "\(player.bundleIdentifier)"
+            \(appleScriptCommand(command, for: player))
+        end tell
+        """
+        _ = try execute(source)
+    }
+
+    private func snapshot(for player: MediaPlayerKind) async -> PlayerSnapshot {
+        guard isRunning(player) else {
+            artworkCache[player] = nil
+            return .notRunning(player)
+        }
+
+        do {
+            let descriptor = try executeSnapshotScript(for: player)
+            let values = (1...7).map { descriptor.atIndex($0)?.stringValue ?? "" }
+            let state = PlaybackState(rawValue: values[0]) ?? .stopped
+            let track: Track?
+
+            if values[1].isEmpty {
+                track = nil
+            } else {
+                let rawDuration = Double(values[4]) ?? 0
+                let duration = player == .spotify ? rawDuration / 1_000 : rawDuration
+                let position = Double(values[5]) ?? 0
+                let trackKey = [values[1], values[2], values[3]].joined(separator: "\u{0}")
+                let artwork = await artwork(
+                    for: player,
+                    trackKey: trackKey,
+                    remoteURL: values[6]
+                )
+
+                track = Track(
+                    title: values[1],
+                    album: values[2],
+                    artist: values[3],
+                    duration: duration,
+                    position: position,
+                    artworkData: artwork
+                )
+            }
+
+            return PlayerSnapshot(
+                player: player,
+                isRunning: true,
+                state: state,
+                track: track,
+                errorMessage: nil
+            )
+        } catch {
+            return PlayerSnapshot(
+                player: player,
+                isRunning: true,
+                state: .unavailable,
+                track: nil,
+                errorMessage: Self.userFacingMessage(for: error)
+            )
+        }
+    }
+
+    private func isRunning(_ player: MediaPlayerKind) -> Bool {
+        !NSRunningApplication.runningApplications(
+            withBundleIdentifier: player.bundleIdentifier
+        ).isEmpty
+    }
+
+    private func snapshotScript(for player: MediaPlayerKind) -> String {
+        let artworkURLStatement = switch player {
+        case .spotify:
+            """
+            set artworkLocation to ""
+            try
+                set artworkLocation to artwork url of currentSong as text
+            end try
+            """
+        case .appleMusic:
+            "set artworkLocation to \"\""
+        }
+
+        return """
+        tell application id "\(player.bundleIdentifier)"
+            set currentState to player state
+            if currentState is playing then
+                set stateName to "playing"
+            else if currentState is paused then
+                set stateName to "paused"
+            else
+                set stateName to "stopped"
+            end if
+
+            if stateName is "stopped" then
+                return {stateName, "", "", "", "", "", ""}
+            end if
+
+            set currentSong to current track
+            set songName to name of currentSong as text
+            set albumName to album of currentSong as text
+            set artistName to artist of currentSong as text
+            set durationValue to duration of currentSong as text
+            set positionValue to player position as text
+            \(artworkURLStatement)
+            return {stateName, songName, albumName, artistName, durationValue, positionValue, artworkLocation}
+        end tell
+        """
+    }
+
+    private func executeSnapshotScript(
+        for player: MediaPlayerKind
+    ) throws -> NSAppleEventDescriptor {
+        let script: NSAppleScript
+
+        if let cached = snapshotScriptCache[player] {
+            script = cached
+        } else {
+            guard let compiled = NSAppleScript(source: snapshotScript(for: player)) else {
+                throw AutomationError.invalidScript
+            }
+            snapshotScriptCache[player] = compiled
+            script = compiled
+        }
+
+        return try execute(script)
+    }
+
+    private func artwork(
+        for player: MediaPlayerKind,
+        trackKey: String,
+        remoteURL: String
+    ) async -> Data? {
+        if let cached = artworkCache[player], cached.trackKey == trackKey {
+            return cached.data
+        }
+
+        let data: Data?
+
+        switch player {
+        case .spotify:
+            data = await downloadArtwork(from: remoteURL)
+        case .appleMusic:
+            data = appleMusicArtwork()
+        }
+
+        artworkCache[player] = ArtworkCacheEntry(trackKey: trackKey, data: data)
+        return data
+    }
+
+    private func downloadArtwork(from urlString: String) async -> Data? {
+        guard let url = URL(string: urlString), !urlString.isEmpty else { return nil }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard
+                let response = response as? HTTPURLResponse,
+                (200..<300).contains(response.statusCode),
+                data.count <= 8_000_000,
+                NSImage(data: data) != nil
+            else {
+                return nil
+            }
+            return data
+        } catch {
+            return nil
+        }
+    }
+
+    private func appleMusicArtwork() -> Data? {
+        let source = """
+        tell application id "com.apple.Music"
+            set currentSong to current track
+            if (count of artworks of currentSong) is greater than 0 then
+                return raw data of artwork 1 of currentSong
+            end if
+        end tell
+        """
+
+        guard let descriptor = try? execute(source) else { return nil }
+        let data = descriptor.data
+        return data.isEmpty ? nil : data
+    }
+
+    private func appleScriptCommand(
+        _ command: PlaybackCommand,
+        for player: MediaPlayerKind
+    ) -> String {
+        switch command {
+        case .previous:
+            return "previous track"
+        case .playPause:
+            return "playpause"
+        case .stop:
+            switch player {
+            case .spotify:
+                // Spotify does not expose a native stop command. Rewinding and
+                // pausing gives the user the same observable stop behavior.
+                return """
+                pause
+                set player position to 0
+                """
+            case .appleMusic:
+                return "stop"
+            }
+        case .next:
+            return "next track"
+        }
+    }
+
+    private func execute(_ source: String) throws -> NSAppleEventDescriptor {
+        guard let script = NSAppleScript(source: source) else {
+            throw AutomationError.invalidScript
+        }
+
+        return try execute(script)
+    }
+
+    private func execute(_ script: NSAppleScript) throws -> NSAppleEventDescriptor {
+        var details: NSDictionary?
+        let result = script.executeAndReturnError(&details)
+
+        if let details {
+            let number = details[NSAppleScript.errorNumber] as? Int ?? 0
+            let message = details[NSAppleScript.errorMessage] as? String ?? "알 수 없는 오류"
+            throw AutomationError.appleScript(number: number, message: message)
+        }
+
+        return result
+    }
+
+    nonisolated static func userFacingMessage(for error: Error) -> String {
+        guard let automationError = error as? AutomationError else {
+            return "플레이어 정보를 가져오지 못했습니다."
+        }
+
+        switch automationError {
+        case .appleScript(let number, _) where number == -1743:
+            return "자동화 권한이 필요합니다. 시스템 설정 › 개인정보 보호 및 보안 › 자동화에서 Reprise를 허용해 주세요."
+        case .playerNotRunning(let player):
+            return "\(player.displayName)이(가) 실행 중이 아닙니다."
+        case .appleScript(_, let message):
+            return "플레이어와 통신하지 못했습니다: \(message)"
+        case .invalidScript:
+            return "플레이어 제어 스크립트를 준비하지 못했습니다."
+        }
+    }
+}
+
+enum AutomationError: LocalizedError {
+    case playerNotRunning(MediaPlayerKind)
+    case invalidScript
+    case appleScript(number: Int, message: String)
+}
