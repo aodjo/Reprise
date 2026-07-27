@@ -401,12 +401,16 @@ private final class MenuBarStatusRenderer: NSObject {
 
         let snapshot = store.menuBarSnapshot
         let preferences = MarqueePreferences.current()
-        let title = snapshot?.track.map {
-            preferences.menuBarTitleFormat.text(
-                title: $0.title,
-                artist: $0.artist
-            )
-        } ?? store.menuBarTitle
+        let title = if preferences.menuBarTitleFormat == .hidden {
+            ""
+        } else {
+            snapshot?.track.map {
+                preferences.menuBarTitleFormat.text(
+                    title: $0.title,
+                    artist: $0.artist
+                )
+            } ?? store.menuBarTitle
+        }
         let contentKey = Self.contentKey(
             title: title,
             snapshot: snapshot,
@@ -430,7 +434,9 @@ private final class MenuBarStatusRenderer: NSObject {
         button.setAccessibilityElement(true)
         button.setAccessibilityLabel(store.menuBarAccessibilityLabel)
         button.setAccessibilityTitle(store.menuBarAccessibilityLabel)
-        button.toolTip = title
+        button.toolTip = title.isEmpty
+            ? store.menuBarAccessibilityLabel
+            : title
         statusItem.length = contentWidth + MenuBarMarquee.horizontalPadding
     }
 
@@ -545,7 +551,9 @@ private final class MenuBarMarqueeView: NSView {
         )
         let availableHeight = max(bounds.height, NSStatusBar.system.thickness)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
-        let titleBitmap = Self.titleBitmap(title, scale: scale)
+        let titleBitmap = title.isEmpty
+            ? nil
+            : Self.titleBitmap(title, scale: scale)
         let titleHeight = titleBitmap?.pointSize.height ?? MenuBarMarquee.font.pointSize
         let titleY = MenuBarMarquee.titleOriginY(
             availableHeight: availableHeight,
@@ -574,7 +582,8 @@ private final class MenuBarMarqueeView: NSView {
         )
 
         let textOrigin = MenuBarMarquee.leadingVisualWidth(
-            for: artworkStyle
+            for: artworkStyle,
+            titleWidth: titleWidth
         )
         textViewportLayer.frame = CGRect(
             x: textOrigin,
@@ -975,17 +984,21 @@ enum MenuBarMarquee {
     }
 
     static func leadingVisualWidth(
-        for artworkStyle: MenuBarArtworkStyle
+        for artworkStyle: MenuBarArtworkStyle,
+        titleWidth: CGFloat
     ) -> CGFloat {
         guard artworkStyle != .hidden else { return 0 }
-        return artworkSize + artworkTitleSpacing
+        return artworkSize + (titleWidth > 0 ? artworkTitleSpacing : 0)
     }
 
     static func totalWidth(
         for titleWidth: CGFloat,
         artworkStyle: MenuBarArtworkStyle = .albumArtwork
     ) -> CGFloat {
-        leadingVisualWidth(for: artworkStyle) + viewportWidth(for: titleWidth)
+        leadingVisualWidth(
+            for: artworkStyle,
+            titleWidth: titleWidth
+        ) + viewportWidth(for: titleWidth)
     }
 
     static func titleOriginY(

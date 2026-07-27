@@ -41,6 +41,7 @@ enum MenuBarTitleFormat: String, CaseIterable, Identifiable {
     case titleOnly
     case titleArtist
     case artistTitle
+    case hidden
 
     var id: String {
         rawValue
@@ -51,6 +52,7 @@ enum MenuBarTitleFormat: String, CaseIterable, Identifiable {
         case .titleOnly: "제목만"
         case .titleArtist: "제목 - 아티스트"
         case .artistTitle: "아티스트 - 제목"
+        case .hidden: "없음"
         }
     }
 
@@ -69,6 +71,8 @@ enum MenuBarTitleFormat: String, CaseIterable, Identifiable {
             return [artist, title]
                 .filter { !$0.isEmpty }
                 .joined(separator: " - ")
+        case .hidden:
+            return ""
         }
     }
 }
@@ -186,6 +190,17 @@ struct MarqueePreferences: Equatable {
     static func current(
         defaults: UserDefaults = .standard
     ) -> MarqueePreferences {
+        let artworkStyle = MenuBarArtworkStyle(
+            rawValue: defaults.string(
+                forKey: ReprisePreferenceKey.menuBarArtworkStyle
+            ) ?? ""
+        ) ?? .albumArtwork
+        let titleFormat = MenuBarTitleFormat(
+            rawValue: defaults.string(
+                forKey: ReprisePreferenceKey.menuBarTitleFormat
+            ) ?? ""
+        ) ?? .titleOnly
+
         return MarqueePreferences(
             automaticallyScrollsTitles: defaults.bool(
                 forKey: ReprisePreferenceKey.automaticallyScrollTitles
@@ -198,16 +213,11 @@ struct MarqueePreferences: Equatable {
             resetsMenuTitleWhenPanelOpens: defaults.bool(
                 forKey: ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens
             ),
-            menuBarArtworkStyle: MenuBarArtworkStyle(
-                rawValue: defaults.string(
-                    forKey: ReprisePreferenceKey.menuBarArtworkStyle
-                ) ?? ""
-            ) ?? .albumArtwork,
-            menuBarTitleFormat: MenuBarTitleFormat(
-                rawValue: defaults.string(
-                    forKey: ReprisePreferenceKey.menuBarTitleFormat
-                ) ?? ""
-            ) ?? .titleOnly
+            menuBarArtworkStyle:
+                artworkStyle == .hidden && titleFormat == .hidden
+                    ? .albumArtwork
+                    : artworkStyle,
+            menuBarTitleFormat: titleFormat
         )
     }
 }

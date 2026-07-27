@@ -149,6 +149,12 @@ struct RepriseTests {
                 artist: ""
             ) == "Song"
         )
+        #expect(
+            MenuBarTitleFormat.hidden.text(
+                title: "Song",
+                artist: "Artist"
+            ).isEmpty
+        )
     }
 
     @Test
@@ -203,6 +209,39 @@ struct RepriseTests {
                 + MenuBarMarquee.artworkSize
                 + MenuBarMarquee.artworkTitleSpacing
         )
+    }
+
+    @Test
+    func hiddenMenuBarTextLeavesOnlyTheArtworkWidth() {
+        #expect(
+            MenuBarMarquee.totalWidth(
+                for: 0,
+                artworkStyle: .albumArtwork
+            ) == MenuBarMarquee.artworkSize
+        )
+    }
+
+    @Test
+    func atLeastOneMenuBarElementRemainsVisible() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(
+            MenuBarArtworkStyle.hidden.rawValue,
+            forKey: ReprisePreferenceKey.menuBarArtworkStyle
+        )
+        defaults.set(
+            MenuBarTitleFormat.hidden.rawValue,
+            forKey: ReprisePreferenceKey.menuBarTitleFormat
+        )
+
+        let preferences = MarqueePreferences.current(defaults: defaults)
+
+        #expect(preferences.menuBarArtworkStyle == .albumArtwork)
+        #expect(preferences.menuBarTitleFormat == .hidden)
     }
 
     @Test

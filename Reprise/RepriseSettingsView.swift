@@ -375,8 +375,28 @@ private struct MenuBarSettingsView: View {
                 )
                 .disabled(!automaticallyScrollTitles)
             }
+            .disabled(titleFormat == .hidden)
         }
         .formStyle(.grouped)
+        .onAppear {
+            if artworkStyle == .hidden, titleFormat == .hidden {
+                menuBarArtworkStyle = MenuBarArtworkStyle.albumArtwork.rawValue
+            }
+        }
+        .onChange(of: menuBarTitleFormat) { newValue in
+            guard newValue == MenuBarTitleFormat.hidden.rawValue,
+                  artworkStyle == .hidden else {
+                return
+            }
+            menuBarArtworkStyle = MenuBarArtworkStyle.albumArtwork.rawValue
+        }
+        .onChange(of: menuBarArtworkStyle) { newValue in
+            guard newValue == MenuBarArtworkStyle.hidden.rawValue,
+                  titleFormat == .hidden else {
+                return
+            }
+            menuBarTitleFormat = MenuBarTitleFormat.titleOnly.rawValue
+        }
     }
 }
 
@@ -400,16 +420,18 @@ private struct MenuBarArtworkPreview: View {
                     .frame(width: 18, height: 18)
             }
 
-            PanelTitleMarqueeView(
-                title: previewTitle,
-                automaticallyScrolls: automaticallyScrolls,
-                pointsPerSecond: pointsPerSecond,
-                foregroundColor: .white
-            )
-            .frame(
-                width: MenuBarMarquee.maximumTextWidth,
-                height: 30
-            )
+            if titleFormat != .hidden {
+                PanelTitleMarqueeView(
+                    title: previewTitle,
+                    automaticallyScrolls: automaticallyScrolls,
+                    pointsPerSecond: pointsPerSecond,
+                    foregroundColor: .white
+                )
+                .frame(
+                    width: MenuBarMarquee.maximumTextWidth,
+                    height: 30
+                )
+            }
         }
         .foregroundStyle(.white)
         .padding(.horizontal, 10)
@@ -428,6 +450,7 @@ private struct MenuBarArtworkPreview: View {
                 )
         }
         .animation(.easeInOut(duration: 0.18), value: style)
+        .animation(.easeInOut(duration: 0.18), value: titleFormat)
     }
 }
 
