@@ -96,6 +96,27 @@ final class NowPlayingStore {
         }
     }
 
+    func setVolume(_ volume: Int, for player: MediaPlayerKind) async {
+        commandError = nil
+        let previousSnapshot = snapshot(for: player)
+        let volume = PlayerVolume.clamped(volume)
+        updateSnapshot(previousSnapshot.withVolume(volume), for: player)
+
+        do {
+            let actualVolume = try await automation.setVolume(
+                volume,
+                on: player
+            )
+            updateSnapshot(
+                previousSnapshot.withVolume(actualVolume),
+                for: player
+            )
+        } catch {
+            updateSnapshot(previousSnapshot, for: player)
+            commandError = MediaAutomationService.userFacingMessage(for: error)
+        }
+    }
+
     func snapshot(for player: MediaPlayerKind) -> PlayerSnapshot {
         switch player {
         case .spotify: spotify
@@ -130,5 +151,30 @@ final class NowPlayingStore {
         return MediaPlayerKind.allCases
             .compactMap({ snapshots[$0] })
             .first(where: { $0.track != nil })
+    }
+
+    private func updateSnapshot(
+        _ snapshot: PlayerSnapshot,
+        for player: MediaPlayerKind
+    ) {
+        switch player {
+        case .spotify:
+            spotify = snapshot
+        case .appleMusic:
+            appleMusic = snapshot
+        }
+    }
+}
+
+private extension PlayerSnapshot {
+    func withVolume(_ volume: Int) -> PlayerSnapshot {
+        PlayerSnapshot(
+            player: player,
+            isRunning: isRunning,
+            state: state,
+            track: track,
+            volume: volume,
+            errorMessage: errorMessage
+        )
     }
 }

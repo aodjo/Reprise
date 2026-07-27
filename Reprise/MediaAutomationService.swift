@@ -38,6 +38,24 @@ actor MediaAutomationService {
         _ = try execute(source)
     }
 
+    func setVolume(_ volume: Int, on player: MediaPlayerKind) throws -> Int {
+        guard isRunning(player) else {
+            throw AutomationError.playerNotRunning(player)
+        }
+
+        let volume = PlayerVolume.clamped(volume)
+        let source = """
+        tell application id "\(player.bundleIdentifier)"
+            set sound volume to \(volume)
+            return sound volume as text
+        end tell
+        """
+        let descriptor = try execute(source)
+        return Int(descriptor.stringValue ?? "")
+            .map(PlayerVolume.clamped)
+            ?? volume
+    }
+
     private func snapshot(for player: MediaPlayerKind) async -> PlayerSnapshot {
         guard isRunning(player) else {
             artworkCache[player] = nil
@@ -46,8 +64,9 @@ actor MediaAutomationService {
 
         do {
             let descriptor = try executeSnapshotScript(for: player)
-            let values = (1...7).map { descriptor.atIndex($0)?.stringValue ?? "" }
+            let values = (1...8).map { descriptor.atIndex($0)?.stringValue ?? "" }
             let state = PlaybackState(rawValue: values[0]) ?? .stopped
+            let volume = Int(values[7]).map(PlayerVolume.clamped)
             let track: Track?
 
             if values[1].isEmpty {
@@ -78,6 +97,7 @@ actor MediaAutomationService {
                 isRunning: true,
                 state: state,
                 track: track,
+                volume: volume,
                 errorMessage: nil
             )
         } catch {
@@ -113,6 +133,7 @@ actor MediaAutomationService {
         return """
         tell application id "\(player.bundleIdentifier)"
             set currentState to player state
+            set volumeValue to sound volume as text
             if currentState is playing then
                 set stateName to "playing"
             else if currentState is paused then
@@ -122,7 +143,7 @@ actor MediaAutomationService {
             end if
 
             if stateName is "stopped" then
-                return {stateName, "", "", "", "", "", ""}
+                return {stateName, "", "", "", "", "", "", volumeValue}
             end if
 
             set currentSong to current track
@@ -132,7 +153,7 @@ actor MediaAutomationService {
             set durationValue to duration of currentSong as text
             set positionValue to player position as text
             \(artworkURLStatement)
-            return {stateName, songName, albumName, artistName, durationValue, positionValue, artworkLocation}
+            return {stateName, songName, albumName, artistName, durationValue, positionValue, artworkLocation, volumeValue}
         end tell
         """
     }

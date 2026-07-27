@@ -19,6 +19,9 @@ struct PlayerPopoverView: View {
     private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
     @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
     private var panelTrailingTimeStyle = PanelTrailingTimeStyle.remaining.rawValue
+    @State private var volume = 100.0
+    @State private var showsVolumeSlider = false
+    @State private var volumeUpdateTask: Task<Void, Never>?
     @Bindable var store: NowPlayingStore
     let onOpenSettings: () -> Void
 
@@ -80,6 +83,8 @@ struct PlayerPopoverView: View {
                     .padding(.horizontal, 14)
                     .padding(.bottom, 14)
             }
+
+            footer
         }
         .frame(width: 360)
         .background {
@@ -88,6 +93,17 @@ struct PlayerPopoverView: View {
         .preferredColorScheme(preferredColorScheme)
         .task {
             await store.refresh()
+            syncVolume()
+        }
+        .onChange(of: snapshot.volume) {
+            syncVolume()
+        }
+        .onChange(of: snapshot.player) {
+            showsVolumeSlider = false
+            syncVolume()
+        }
+        .onDisappear {
+            volumeUpdateTask?.cancel()
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -142,8 +158,6 @@ struct PlayerPopoverView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-
-                    settingsButton
 
                     PlayerLogoView(player: snapshot.player)
                 }
@@ -223,6 +237,157 @@ struct PlayerPopoverView: View {
         .help("설정 열기")
         .accessibilityLabel("설정 열기")
         .accessibilityIdentifier("settingsButton")
+    }
+
+    private var footer: some View {
+        HStack(spacing: 8) {
+            Text(appVersionText)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+
+            Spacer(minLength: 8)
+
+            volumeButton
+
+            settingsButton
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 30)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.primary.opacity(0.14))
+                .frame(height: 0.5)
+        }
+        .zIndex(3)
+    }
+
+    private var appVersionText: String {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "-"
+        let build = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleVersion"
+        ) as? String ?? "-"
+
+        return "Reprise v\(version) (\(build))"
+    }
+
+    private var volumeButton: some View {
+        Button {
+            withAnimation(.easeOut(duration: 0.14)) {
+                showsVolumeSlider.toggle()
+            }
+        } label: {
+            Image(systemName: volumeSymbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 19, height: 19)
+        }
+        .buttonStyle(.plain)
+        .disabled(snapshot.volume == nil || !snapshot.isRunning)
+        .help("\(snapshot.player.displayName) 음량 \(Int(volume.rounded()))%")
+        .accessibilityLabel("\(snapshot.player.displayName) 음량")
+        .accessibilityValue("\(Int(volume.rounded()))퍼센트")
+        .accessibilityIdentifier("volumeButton")
+        .overlay(alignment: .topTrailing) {
+            if showsVolumeSlider {
+                volumeSlider
+                    .offset(x: 27, y: -42)
+                    .transition(
+                        .opacity.combined(
+                            with: .scale(
+                                scale: 0.94,
+                                anchor: .topTrailing
+                            )
+                        )
+                    )
+            }
+        }
+        .zIndex(showsVolumeSlider ? 2 : 0)
+    }
+
+    private var volumeSlider: some View {
+        HStack(spacing: 8) {
+            Image(systemName: volumeSymbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 13)
+
+            Slider(
+                value: Binding(
+                    get: { volume },
+                    set: { newValue in
+                        volume = newValue
+                        scheduleVolumeUpdate()
+                    }
+                ),
+                in: 0...100,
+                step: 1
+            ) { isEditing in
+                if !isEditing {
+                    scheduleVolumeUpdate(immediately: true)
+                }
+            }
+            .controlSize(.small)
+            .accessibilityLabel("\(snapshot.player.displayName) 음량")
+            .accessibilityValue("\(Int(volume.rounded()))퍼센트")
+
+            Text("\(Int(volume.rounded()))")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 23, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 160, height: 36)
+        .background(
+            .regularMaterial,
+            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(.primary.opacity(0.14), lineWidth: 0.5)
+        }
+        .shadow(color: .black.opacity(0.22), radius: 7, y: 3)
+    }
+
+    private var volumeSymbol: String {
+        switch volume {
+        case ...0:
+            "speaker.slash.fill"
+        case ..<34:
+            "speaker.wave.1.fill"
+        case ..<67:
+            "speaker.wave.2.fill"
+        default:
+            "speaker.wave.3.fill"
+        }
+    }
+
+    private func syncVolume() {
+        guard volumeUpdateTask == nil,
+              let snapshotVolume = snapshot.volume else {
+            return
+        }
+        volume = Double(snapshotVolume)
+    }
+
+    private func scheduleVolumeUpdate(immediately: Bool = false) {
+        volumeUpdateTask?.cancel()
+        let level = PlayerVolume.clamped(Int(volume.rounded()))
+        let player = snapshot.player
+
+        volumeUpdateTask = Task {
+            if !immediately {
+                try? await Task.sleep(for: .milliseconds(80))
+            }
+            guard !Task.isCancelled else { return }
+            await store.setVolume(level, for: player)
+            guard !Task.isCancelled else { return }
+            volumeUpdateTask = nil
+            if let actualVolume = store.snapshot(for: player).volume {
+                volume = Double(actualVolume)
+            }
+        }
     }
 
     private func presentSettings() {

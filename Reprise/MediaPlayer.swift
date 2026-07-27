@@ -81,7 +81,24 @@ struct PlayerSnapshot: Equatable, Sendable {
     let isRunning: Bool
     let state: PlaybackState
     let track: Track?
+    let volume: Int?
     let errorMessage: String?
+
+    nonisolated init(
+        player: MediaPlayerKind,
+        isRunning: Bool,
+        state: PlaybackState,
+        track: Track?,
+        volume: Int? = nil,
+        errorMessage: String?
+    ) {
+        self.player = player
+        self.isRunning = isRunning
+        self.state = state
+        self.track = track
+        self.volume = volume
+        self.errorMessage = errorMessage
+    }
 
     nonisolated static func notRunning(_ player: MediaPlayerKind) -> PlayerSnapshot {
         PlayerSnapshot(
@@ -95,6 +112,14 @@ struct PlayerSnapshot: Equatable, Sendable {
 
     var menuBarTitle: String? {
         track?.title
+    }
+}
+
+enum PlayerVolume {
+    nonisolated static let range = 0...100
+
+    nonisolated static func clamped(_ value: Int) -> Int {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 }
 

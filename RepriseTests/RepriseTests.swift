@@ -374,6 +374,13 @@ struct RepriseTests {
     }
 
     @Test
+    func playerVolumeIsClampedToTheSupportedRange() {
+        #expect(PlayerVolume.clamped(-1) == 0)
+        #expect(PlayerVolume.clamped(42) == 42)
+        #expect(PlayerVolume.clamped(101) == 100)
+    }
+
+    @Test
     func panelTimeStylesFormatBothSides() {
         #expect(
             PanelTimeDisplay.leadingText(
