@@ -872,6 +872,7 @@ private final class MenuBarMarqueeView: NSView {
             attributes: [
                 .font: MenuBarMarquee.font,
                 .foregroundColor: NSColor.white,
+                .kern: MenuBarMarquee.characterSpacing,
             ]
         )
         let line = CTLineCreateWithAttributedString(attributedTitle)
@@ -951,11 +952,15 @@ enum MenuBarMarquee {
     static let returnGlideDistance: CGFloat = 4
     static let returnTransitionDuration: TimeInterval = 0.24
     static let font = NSFont.menuBarFont(ofSize: 0)
+    static let characterSpacing: CGFloat = 0
 
     static func textWidth(_ text: String) -> CGFloat {
         let attributedText = NSAttributedString(
             string: text,
-            attributes: [.font: font]
+            attributes: [
+                .font: font,
+                .kern: characterSpacing,
+            ]
         )
         let line = CTLineCreateWithAttributedString(attributedText)
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))

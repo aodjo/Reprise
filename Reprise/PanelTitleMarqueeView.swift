@@ -255,7 +255,10 @@ final class PanelTitleMarqueeNSView: NSView {
     private static func textWidth(_ text: String) -> CGFloat {
         let attributedText = NSAttributedString(
             string: text,
-            attributes: [.font: font]
+            attributes: [
+                .font: font,
+                .kern: characterSpacing,
+            ]
         )
         let line = CTLineCreateWithAttributedString(attributedText)
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
@@ -281,6 +284,7 @@ final class PanelTitleMarqueeNSView: NSView {
             attributes: [
                 .font: font,
                 .foregroundColor: foregroundColor,
+                .kern: characterSpacing,
             ]
         )
         let line = CTLineCreateWithAttributedString(attributedTitle)
@@ -326,6 +330,7 @@ final class PanelTitleMarqueeNSView: NSView {
         ofSize: NSFont.systemFontSize,
         weight: .semibold
     )
+    private static let characterSpacing: CGFloat = 0
     private static let titleGap: CGFloat = 24
     private static let initialPause: TimeInterval = 1.4
     private static let hoverInitialPause: TimeInterval = 0.25
