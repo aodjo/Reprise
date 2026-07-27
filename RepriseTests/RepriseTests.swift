@@ -51,6 +51,28 @@ struct RepriseTests {
     }
 
     @Test
+    func playerPanelIsCenteredBelowTheStatusItem() {
+        let origin = PlayerPanelLayout.origin(
+            anchorFrame: CGRect(x: 300, y: 900, width: 100, height: 22),
+            panelSize: CGSize(width: 360, height: 140),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        )
+
+        #expect(origin == CGPoint(x: 170, y: 755))
+    }
+
+    @Test
+    func playerPanelStaysInsideTheVisibleScreenWidth() {
+        let origin = PlayerPanelLayout.origin(
+            anchorFrame: CGRect(x: 0, y: 900, width: 20, height: 22),
+            panelSize: CGSize(width: 360, height: 140),
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+        )
+
+        #expect(origin.x == PlayerPanelLayout.screenMargin)
+    }
+
+    @Test
     func playingPlayerWinsOverSelectedPausedPlayer() {
         let spotify = makeSnapshot(
             player: .spotify,

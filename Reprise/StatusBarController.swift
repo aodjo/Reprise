@@ -12,7 +12,9 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     private let store = NowPlayingStore()
     private var statusItem: NSStatusItem?
     private var renderer: MenuBarStatusRenderer?
-    private let popover = NSPopover()
+    private var playerPanel: PlayerPanel?
+    private var localEventMonitor: Any?
+    private var globalEventMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit-test hosts also load the app target. Avoid creating a status
@@ -33,12 +35,14 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         let contentController = NSHostingController(
             rootView: PlayerPopoverView(store: store)
         )
-        popover.contentViewController = contentController
-        popover.contentSize = NSSize(width: 360, height: 140)
-        popover.behavior = .transient
-        popover.animates = false
+        let playerPanel = PlayerPanel(contentViewController: contentController)
+        configurePanelAppearance(
+            playerPanel,
+            contentView: contentController.view
+        )
 
         self.statusItem = statusItem
+        self.playerPanel = playerPanel
         renderer = MenuBarStatusRenderer(
             statusItem: statusItem,
             store: store
@@ -50,21 +54,167 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         renderer?.invalidate()
+        removeEventMonitors()
     }
 
     @objc
     private func togglePopover() {
-        guard let button = statusItem?.button else { return }
-
-        if popover.isShown {
-            popover.performClose(nil)
-        } else {
-            popover.show(
-                relativeTo: button.bounds,
-                of: button,
-                preferredEdge: .minY
-            )
+        guard let button = statusItem?.button,
+              let playerPanel else {
+            return
         }
+
+        if playerPanel.isVisible {
+            closePlayerPanel()
+        } else {
+            showPlayerPanel(playerPanel, below: button)
+        }
+    }
+
+    private func configurePanelAppearance(
+        _ panel: PlayerPanel,
+        contentView: NSView
+    ) {
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.isReleasedWhenClosed = false
+        panel.animationBehavior = .none
+        panel.collectionBehavior = [
+            .canJoinAllSpaces,
+            .fullScreenAuxiliary,
+            .transient,
+            .ignoresCycle,
+        ]
+
+        contentView.wantsLayer = true
+        contentView.layer?.cornerRadius = PlayerPanelLayout.cornerRadius
+        contentView.layer?.cornerCurve = .continuous
+        contentView.layer?.masksToBounds = true
+        contentView.layer?.borderWidth = 1
+        contentView.layer?.borderColor = NSColor.separatorColor.cgColor
+    }
+
+    private func showPlayerPanel(
+        _ panel: PlayerPanel,
+        below button: NSStatusBarButton
+    ) {
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let fittingSize = panel.contentView?.fittingSize
+            ?? PlayerPanelLayout.defaultSize
+        panel.setContentSize(
+            NSSize(
+                width: PlayerPanelLayout.defaultSize.width,
+                height: max(
+                    fittingSize.height,
+                    PlayerPanelLayout.defaultSize.height
+                )
+            )
+        )
+
+        guard let buttonWindow = button.window else { return }
+        let buttonFrameInWindow = button.convert(button.bounds, to: nil)
+        let buttonFrameOnScreen = buttonWindow.convertToScreen(buttonFrameInWindow)
+        let visibleFrame = buttonWindow.screen?.visibleFrame
+            ?? NSScreen.main?.visibleFrame
+            ?? buttonFrameOnScreen
+        let origin = PlayerPanelLayout.origin(
+            anchorFrame: buttonFrameOnScreen,
+            panelSize: panel.frame.size,
+            visibleFrame: visibleFrame
+        )
+
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
+        installEventMonitors()
+    }
+
+    private func closePlayerPanel() {
+        playerPanel?.orderOut(nil)
+        removeEventMonitors()
+    }
+
+    private func installEventMonitors() {
+        removeEventMonitors()
+
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] event in
+            guard let self,
+                  let panel = self.playerPanel,
+                  panel.isVisible else {
+                return event
+            }
+
+            if event.window !== panel,
+               event.window !== self.statusItem?.button?.window {
+                self.closePlayerPanel()
+            }
+            return event
+        }
+
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.closePlayerPanel()
+            }
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let localEventMonitor {
+            NSEvent.removeMonitor(localEventMonitor)
+            self.localEventMonitor = nil
+        }
+        if let globalEventMonitor {
+            NSEvent.removeMonitor(globalEventMonitor)
+            self.globalEventMonitor = nil
+        }
+    }
+}
+
+@MainActor
+private final class PlayerPanel: NSPanel {
+    init(contentViewController: NSViewController) {
+        super.init(
+            contentRect: NSRect(origin: .zero, size: PlayerPanelLayout.defaultSize),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        self.contentViewController = contentViewController
+        isFloatingPanel = true
+        becomesKeyOnlyIfNeeded = true
+    }
+
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        false
+    }
+}
+
+enum PlayerPanelLayout {
+    static let defaultSize = NSSize(width: 360, height: 140)
+    static let cornerRadius: CGFloat = 16
+    static let anchorSpacing: CGFloat = 5
+    static let screenMargin: CGFloat = 6
+
+    static func origin(
+        anchorFrame: NSRect,
+        panelSize: NSSize,
+        visibleFrame: NSRect
+    ) -> NSPoint {
+        let centeredX = anchorFrame.midX - panelSize.width / 2
+        let minimumX = visibleFrame.minX + screenMargin
+        let maximumX = visibleFrame.maxX - panelSize.width - screenMargin
+        let x = min(max(centeredX, minimumX), max(minimumX, maximumX))
+        let y = anchorFrame.minY - panelSize.height - anchorSpacing
+        return NSPoint(x: x.rounded(), y: y.rounded())
     }
 }
 
