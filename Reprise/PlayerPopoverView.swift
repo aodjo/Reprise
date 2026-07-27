@@ -47,9 +47,8 @@ struct PlayerPopoverView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 8) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(track.title)
-                            .font(.headline.weight(.semibold))
-                            .lineLimit(1)
+                        PanelTitleMarqueeView(title: track.title)
+                            .frame(height: 17)
                             .accessibilityLabel("곡 \(track.title)")
 
                         if !track.artist.isEmpty {
@@ -59,8 +58,7 @@ struct PlayerPopoverView: View {
                                 .lineLimit(1)
                         }
                     }
-
-                    Spacer(minLength: 4)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                     PlayerLogoView(player: snapshot.player)
                 }

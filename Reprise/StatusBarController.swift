@@ -116,22 +116,29 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         guard let buttonWindow = button.window else { return }
         let buttonFrameInWindow = button.convert(button.bounds, to: nil)
         let buttonFrameOnScreen = buttonWindow.convertToScreen(buttonFrameInWindow)
-        let visibleFrame = buttonWindow.screen?.visibleFrame
-            ?? NSScreen.main?.visibleFrame
+        let screen = buttonWindow.screen ?? NSScreen.main
+        let visibleFrame = screen?.visibleFrame
             ?? buttonFrameOnScreen
         let origin = PlayerPanelLayout.origin(
             anchorFrame: buttonFrameOnScreen,
             panelSize: panel.frame.size,
-            visibleFrame: visibleFrame
+            visibleFrame: visibleFrame,
+            backingScale: screen?.backingScaleFactor ?? 1
         )
 
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
+        renderer?.setPanelVisible(true)
+        NotificationCenter.default.post(
+            name: .playerPanelDidShow,
+            object: panel
+        )
         installEventMonitors()
     }
 
     private func closePlayerPanel() {
         playerPanel?.orderOut(nil)
+        renderer?.setPanelVisible(false)
         removeEventMonitors()
     }
 
@@ -207,14 +214,18 @@ enum PlayerPanelLayout {
     static func origin(
         anchorFrame: NSRect,
         panelSize: NSSize,
-        visibleFrame: NSRect
+        visibleFrame: NSRect,
+        backingScale: CGFloat
     ) -> NSPoint {
-        let centeredX = anchorFrame.midX - panelSize.width / 2
         let minimumX = visibleFrame.minX + screenMargin
         let maximumX = visibleFrame.maxX - panelSize.width - screenMargin
-        let x = min(max(centeredX, minimumX), max(minimumX, maximumX))
+        let unclampedX = min(
+            max(anchorFrame.minX, minimumX),
+            max(minimumX, maximumX)
+        )
+        let x = floor(unclampedX * backingScale) / backingScale
         let y = anchorFrame.minY - panelSize.height - anchorSpacing
-        return NSPoint(x: x.rounded(), y: y.rounded())
+        return NSPoint(x: x, y: y.rounded())
     }
 }
 
@@ -267,6 +278,10 @@ private final class MenuBarStatusRenderer: NSObject {
         marqueeView.stopAnimation()
     }
 
+    func setPanelVisible(_ isVisible: Bool) {
+        marqueeView.setPaused(isVisible)
+    }
+
     @objc
     private func updateContent() {
         guard let button = statusItem.button else { return }
@@ -315,6 +330,9 @@ private final class MenuBarMarqueeView: NSView {
     private let scrollingLayer = CALayer()
     private let firstTitleLayer = CALayer()
     private let secondTitleLayer = CALayer()
+    private var pendingAnimation: (distance: CGFloat, scale: CGFloat)?
+    private var marqueeStartedAt: CFTimeInterval?
+    private var isPaused = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -411,11 +429,18 @@ private final class MenuBarMarqueeView: NSView {
 
         stopAnimation()
         if MenuBarMarquee.requiresScrolling(titleWidth: titleWidth) {
-            startAnimation(
-                distance: titleWidth + MenuBarMarquee.titleGap,
-                scale: scale
+            pendingAnimation = (
+                titleWidth + MenuBarMarquee.titleGap,
+                scale
             )
+            if !isPaused {
+                startAnimation(
+                    distance: titleWidth + MenuBarMarquee.titleGap,
+                    scale: scale
+                )
+            }
         } else {
+            pendingAnimation = nil
             secondTitleLayer.isHidden = true
         }
 
@@ -424,40 +449,101 @@ private final class MenuBarMarqueeView: NSView {
 
     func stopAnimation() {
         scrollingLayer.removeAnimation(forKey: "marquee")
+        scrollingLayer.removeAnimation(forKey: "returnToStart")
         scrollingLayer.setAffineTransform(.identity)
         secondTitleLayer.isHidden = false
+        marqueeStartedAt = nil
+    }
+
+    func setPaused(_ paused: Bool) {
+        guard isPaused != paused else { return }
+        isPaused = paused
+
+        if paused {
+            returnToStart()
+            return
+        }
+
+        stopAnimation()
+        guard let pendingAnimation else { return }
+        startAnimation(
+            distance: pendingAnimation.distance,
+            scale: pendingAnimation.scale
+        )
+    }
+
+    private func returnToStart() {
+        let wasMoving = isMarqueeInMotion
+        let currentX = CGFloat((
+            scrollingLayer.presentation()?.value(
+                forKeyPath: "transform.translation.x"
+            ) as? NSNumber
+        )?.doubleValue ?? 0)
+
+        scrollingLayer.removeAnimation(forKey: "marquee")
+        scrollingLayer.removeAnimation(forKey: "returnToStart")
+        scrollingLayer.setAffineTransform(.identity)
+        marqueeStartedAt = nil
+
+        guard wasMoving, abs(currentX) > 0.5 else { return }
+
+        let opacity = CAKeyframeAnimation(keyPath: "opacity")
+        opacity.values = [1, 0, 0, 1]
+        opacity.keyTimes = [0, 0.35, 0.45, 1]
+
+        let translation = CAKeyframeAnimation(
+            keyPath: "transform.translation.x"
+        )
+        translation.values = [
+            currentX,
+            currentX - MenuBarMarquee.returnGlideDistance,
+            0,
+            0,
+        ]
+        translation.keyTimes = [0, 0.4, 0.4001, 1]
+        translation.calculationMode = .linear
+
+        let transition = CAAnimationGroup()
+        transition.animations = [opacity, translation]
+        transition.duration = MenuBarMarquee.returnTransitionDuration
+        transition.timingFunction = CAMediaTimingFunction(
+            name: .easeOut
+        )
+        scrollingLayer.add(transition, forKey: "returnToStart")
+    }
+
+    private var isMarqueeInMotion: Bool {
+        guard let marqueeStartedAt,
+              let pendingAnimation else {
+            return false
+        }
+
+        let distance = pendingAnimation.distance
+        let travelDuration = TimeInterval(
+            distance / MenuBarMarquee.pointsPerSecond
+        )
+        let cycleDuration = MenuBarMarquee.initialPause + travelDuration
+        let elapsed = max(CACurrentMediaTime() - marqueeStartedAt, 0)
+        let cycleTime = elapsed.truncatingRemainder(
+            dividingBy: cycleDuration
+        )
+        return cycleTime > MenuBarMarquee.initialPause
     }
 
     private func startAnimation(
         distance: CGFloat,
         scale: CGFloat
     ) {
-        let travelDuration = TimeInterval(distance / MenuBarMarquee.pointsPerSecond)
-        let totalDuration = MenuBarMarquee.initialPause + travelDuration
-        let pauseRatio = NSNumber(value: MenuBarMarquee.initialPause / totalDuration)
-        let stepCount = max(Int(ceil(distance * scale)), 1)
-        var values: [CGFloat] = [0, 0]
-        var keyTimes: [NSNumber] = [0, pauseRatio]
-
-        values.reserveCapacity(stepCount + 2)
-        keyTimes.reserveCapacity(stepCount + 2)
-
-        for step in 1...stepCount {
-            let traveled = min(CGFloat(step) / scale, distance)
-            let elapsed = MenuBarMarquee.initialPause
-                + TimeInterval(traveled / MenuBarMarquee.pointsPerSecond)
-            values.append(-traveled)
-            keyTimes.append(NSNumber(value: elapsed / totalDuration))
-        }
-
-        let animation = CAKeyframeAnimation(keyPath: "transform.translation.x")
-        animation.values = values
-        animation.keyTimes = keyTimes
-        animation.duration = totalDuration
-        animation.repeatCount = .infinity
-        animation.calculationMode = .discrete
-        animation.isRemovedOnCompletion = false
-        scrollingLayer.add(animation, forKey: "marquee")
+        scrollingLayer.add(
+            PixelAlignedMarquee.animation(
+                distance: distance,
+                scale: scale,
+                initialPause: MenuBarMarquee.initialPause,
+                pointsPerSecond: MenuBarMarquee.pointsPerSecond
+            ),
+            forKey: "marquee"
+        )
+        marqueeStartedAt = CACurrentMediaTime()
     }
 
     private static func titleBitmap(
@@ -539,6 +625,8 @@ enum MenuBarMarquee {
     static let initialPause: TimeInterval = 1.4
     static let pointsPerSecond: CGFloat = 30
     static let titleVerticalAdjustment: CGFloat = 0.5
+    static let returnGlideDistance: CGFloat = 4
+    static let returnTransitionDuration: TimeInterval = 0.24
     static let font = NSFont.menuBarFont(ofSize: 0)
 
     static func textWidth(_ text: String) -> CGFloat {

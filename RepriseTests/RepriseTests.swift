@@ -51,14 +51,15 @@ struct RepriseTests {
     }
 
     @Test
-    func playerPanelIsCenteredBelowTheStatusItem() {
+    func playerPanelStartsAtTheStatusItemLeadingEdge() {
         let origin = PlayerPanelLayout.origin(
-            anchorFrame: CGRect(x: 300, y: 900, width: 100, height: 22),
+            anchorFrame: CGRect(x: 300.5, y: 900, width: 100, height: 22),
             panelSize: CGSize(width: 360, height: 140),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            backingScale: 2
         )
 
-        #expect(origin == CGPoint(x: 170, y: 755))
+        #expect(origin == CGPoint(x: 300.5, y: 755))
     }
 
     @Test
@@ -66,7 +67,8 @@ struct RepriseTests {
         let origin = PlayerPanelLayout.origin(
             anchorFrame: CGRect(x: 0, y: 900, width: 20, height: 22),
             panelSize: CGSize(width: 360, height: 140),
-            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900)
+            visibleFrame: CGRect(x: 0, y: 0, width: 1_440, height: 900),
+            backingScale: 2
         )
 
         #expect(origin.x == PlayerPanelLayout.screenMargin)
