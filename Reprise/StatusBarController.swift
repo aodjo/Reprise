@@ -414,6 +414,8 @@ private final class MenuBarStatusRenderer: NSObject {
             title: title,
             artworkData: snapshot?.track?.artworkData,
             symbolName: snapshot?.player.symbolName ?? "music.note",
+            artworkStyle: preferences.menuBarArtworkStyle,
+            isPlaying: snapshot?.state.isPlaying == true,
             preferences: preferences
         )
         marqueeView.setPaused(
@@ -439,10 +441,12 @@ private final class MenuBarStatusRenderer: NSObject {
                 String(preferences.automaticallyScrollsTitles),
                 String(describing: preferences.pointsPerSecond),
                 String(preferences.resetsMenuTitleWhenPanelOpens),
+                preferences.menuBarArtworkStyle.rawValue,
             ].joined(separator: "|")
         }
         return [
             snapshot.player.rawValue,
+            snapshot.state.rawValue,
             track.title,
             track.album,
             track.artist,
@@ -450,6 +454,7 @@ private final class MenuBarStatusRenderer: NSObject {
             String(preferences.automaticallyScrollsTitles),
             String(describing: preferences.pointsPerSecond),
             String(preferences.resetsMenuTitleWhenPanelOpens),
+            preferences.menuBarArtworkStyle.rawValue,
         ].joined(separator: "|")
     }
 }
@@ -459,6 +464,9 @@ private final class MenuBarMarqueeView: NSView {
     var onClick: (() -> Void)?
 
     private let artworkLayer = CALayer()
+    private let artworkMaskLayer = CAShapeLayer()
+    private let indicatorLayer = CALayer()
+    private let indicatorBars = (0..<4).map { _ in CALayer() }
     private let textViewportLayer = CALayer()
     private let fadeMaskLayer = CAGradientLayer()
     private let scrollingLayer = CALayer()
@@ -482,6 +490,14 @@ private final class MenuBarMarqueeView: NSView {
         artworkLayer.masksToBounds = true
         artworkLayer.contentsGravity = .resizeAspectFill
         layer?.addSublayer(artworkLayer)
+
+        indicatorLayer.masksToBounds = false
+        layer?.addSublayer(indicatorLayer)
+        for bar in indicatorBars {
+            bar.backgroundColor = NSColor.white.cgColor
+            bar.cornerRadius = 1
+            indicatorLayer.addSublayer(bar)
+        }
 
         textViewportLayer.masksToBounds = true
         layer?.addSublayer(textViewportLayer)
@@ -510,11 +526,16 @@ private final class MenuBarMarqueeView: NSView {
         title: String,
         artworkData: Data?,
         symbolName: String,
+        artworkStyle: MenuBarArtworkStyle,
+        isPlaying: Bool,
         preferences: MarqueePreferences
     ) -> CGFloat {
         let titleWidth = MenuBarMarquee.textWidth(title)
         let viewportWidth = MenuBarMarquee.viewportWidth(for: titleWidth)
-        let contentWidth = MenuBarMarquee.totalWidth(for: titleWidth)
+        let contentWidth = MenuBarMarquee.totalWidth(
+            for: titleWidth,
+            artworkStyle: artworkStyle
+        )
         let availableHeight = max(bounds.height, NSStatusBar.system.thickness)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         let titleBitmap = Self.titleBitmap(title, scale: scale)
@@ -539,8 +560,15 @@ private final class MenuBarMarqueeView: NSView {
             data: artworkData,
             symbolName: symbolName
         )
+        updateLeadingVisual(
+            style: artworkStyle,
+            availableHeight: availableHeight,
+            isPlaying: isPlaying
+        )
 
-        let textOrigin = MenuBarMarquee.artworkSize + MenuBarMarquee.artworkTitleSpacing
+        let textOrigin = MenuBarMarquee.leadingVisualWidth(
+            for: artworkStyle
+        )
         textViewportLayer.frame = CGRect(
             x: textOrigin,
             y: 0,
@@ -598,6 +626,133 @@ private final class MenuBarMarqueeView: NSView {
         }
 
         return contentWidth
+    }
+
+    private func updateLeadingVisual(
+        style: MenuBarArtworkStyle,
+        availableHeight: CGFloat,
+        isPlaying: Bool
+    ) {
+        artworkLayer.isHidden = style == .levelIndicator || style == .hidden
+        indicatorLayer.isHidden = style != .levelIndicator
+
+        switch style {
+        case .albumArtwork:
+            artworkLayer.mask = nil
+            artworkLayer.cornerRadius = 4
+            stopDiscAnimation()
+            stopIndicatorAnimation()
+        case .compactDisc:
+            artworkLayer.cornerRadius = MenuBarMarquee.artworkSize / 2
+            updateDiscMask()
+            updateDiscAnimation(isPlaying: isPlaying)
+            stopIndicatorAnimation()
+        case .levelIndicator:
+            artworkLayer.mask = nil
+            stopDiscAnimation()
+            layoutIndicator(availableHeight: availableHeight)
+            updateIndicatorAnimation(isPlaying: isPlaying)
+        case .hidden:
+            artworkLayer.mask = nil
+            stopDiscAnimation()
+            stopIndicatorAnimation()
+        }
+    }
+
+    private func updateDiscMask() {
+        let bounds = CGRect(
+            origin: .zero,
+            size: CGSize(
+                width: MenuBarMarquee.artworkSize,
+                height: MenuBarMarquee.artworkSize
+            )
+        )
+        let path = CGMutablePath()
+        path.addEllipse(in: bounds)
+        path.addEllipse(
+            in: bounds.insetBy(
+                dx: MenuBarMarquee.discHoleInset,
+                dy: MenuBarMarquee.discHoleInset
+            )
+        )
+        artworkMaskLayer.frame = bounds
+        artworkMaskLayer.path = path
+        artworkMaskLayer.fillRule = .evenOdd
+        artworkMaskLayer.fillColor = NSColor.black.cgColor
+        artworkLayer.mask = artworkMaskLayer
+    }
+
+    private func updateDiscAnimation(isPlaying: Bool) {
+        guard isPlaying else {
+            stopDiscAnimation()
+            return
+        }
+        guard artworkLayer.animation(forKey: "discRotation") == nil else {
+            return
+        }
+
+        let animation = CABasicAnimation(keyPath: "transform.rotation.z")
+        animation.fromValue = 0
+        animation.toValue = CGFloat.pi * 2
+        animation.duration = MenuBarMarquee.discRotationDuration
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .linear)
+        animation.isRemovedOnCompletion = false
+        artworkLayer.add(animation, forKey: "discRotation")
+    }
+
+    private func stopDiscAnimation() {
+        artworkLayer.removeAnimation(forKey: "discRotation")
+        artworkLayer.setAffineTransform(.identity)
+    }
+
+    private func layoutIndicator(availableHeight: CGFloat) {
+        indicatorLayer.frame = CGRect(
+            x: 0,
+            y: (availableHeight - MenuBarMarquee.artworkSize) / 2,
+            width: MenuBarMarquee.artworkSize,
+            height: MenuBarMarquee.artworkSize
+        )
+
+        for (index, bar) in indicatorBars.enumerated() {
+            let height = MenuBarMarquee.indicatorBarHeights[index]
+            bar.frame = CGRect(
+                x: MenuBarMarquee.indicatorHorizontalInset
+                    + CGFloat(index)
+                    * (
+                        MenuBarMarquee.indicatorBarWidth
+                            + MenuBarMarquee.indicatorBarSpacing
+                    ),
+                y: (MenuBarMarquee.artworkSize - height) / 2,
+                width: MenuBarMarquee.indicatorBarWidth,
+                height: height
+            )
+        }
+    }
+
+    private func updateIndicatorAnimation(isPlaying: Bool) {
+        guard isPlaying else {
+            stopIndicatorAnimation()
+            return
+        }
+
+        for (index, bar) in indicatorBars.enumerated() {
+            guard bar.animation(forKey: "level") == nil else { continue }
+            let animation = CAKeyframeAnimation(keyPath: "transform.scale.y")
+            animation.values = [0.55, 1, 0.7, 0.4, 0.85, 0.55]
+            animation.keyTimes = [0, 0.2, 0.4, 0.6, 0.82, 1]
+            animation.duration = 0.68 + Double(index) * 0.07
+            animation.beginTime = CACurrentMediaTime() + Double(index) * 0.06
+            animation.repeatCount = .infinity
+            animation.isRemovedOnCompletion = false
+            bar.add(animation, forKey: "level")
+        }
+    }
+
+    private func stopIndicatorAnimation() {
+        for bar in indicatorBars {
+            bar.removeAnimation(forKey: "level")
+        }
     }
 
     func stopAnimation() {
@@ -775,6 +930,12 @@ enum MenuBarMarquee {
     static let maximumTextWidth: CGFloat = 170
     static let artworkSize: CGFloat = 18
     static let artworkTitleSpacing: CGFloat = 5
+    static let discHoleInset: CGFloat = 7
+    static let discRotationDuration: TimeInterval = 4
+    static let indicatorBarWidth: CGFloat = 2
+    static let indicatorBarSpacing: CGFloat = 2
+    static let indicatorHorizontalInset: CGFloat = 2
+    static let indicatorBarHeights: [CGFloat] = [8, 13, 10, 15]
     static let horizontalPadding: CGFloat = 8
     static let titleGap: CGFloat = 28
     static let initialPause: TimeInterval = 1.4
@@ -801,8 +962,18 @@ enum MenuBarMarquee {
         min(titleWidth, maximumTextWidth)
     }
 
-    static func totalWidth(for titleWidth: CGFloat) -> CGFloat {
-        artworkSize + artworkTitleSpacing + viewportWidth(for: titleWidth)
+    static func leadingVisualWidth(
+        for artworkStyle: MenuBarArtworkStyle
+    ) -> CGFloat {
+        guard artworkStyle != .hidden else { return 0 }
+        return artworkSize + artworkTitleSpacing
+    }
+
+    static func totalWidth(
+        for titleWidth: CGFloat,
+        artworkStyle: MenuBarArtworkStyle = .albumArtwork
+    ) -> CGFloat {
+        leadingVisualWidth(for: artworkStyle) + viewportWidth(for: titleWidth)
     }
 
     static func titleOriginY(

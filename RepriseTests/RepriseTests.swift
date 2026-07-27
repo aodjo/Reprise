@@ -100,16 +100,58 @@ struct RepriseTests {
             PlayerPanelTheme.black.rawValue,
             forKey: ReprisePreferenceKey.playerPanelTheme
         )
+        defaults.set(
+            MenuBarArtworkStyle.levelIndicator.rawValue,
+            forKey: ReprisePreferenceKey.menuBarArtworkStyle
+        )
 
         let preferences = MarqueePreferences.current(defaults: defaults)
 
         #expect(!preferences.automaticallyScrollsTitles)
         #expect(preferences.pointsPerSecond == CGFloat(MarqueeSpeed.fast.rawValue))
         #expect(!preferences.resetsMenuTitleWhenPanelOpens)
+        #expect(preferences.menuBarArtworkStyle == .levelIndicator)
         #expect(
             defaults.string(
                 forKey: ReprisePreferenceKey.playerPanelTheme
             ) == PlayerPanelTheme.black.rawValue
+        )
+    }
+
+    @Test
+    func albumArtworkIsTheDefaultMenuBarArtworkStyle() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            defaults.string(
+                forKey: ReprisePreferenceKey.menuBarArtworkStyle
+            ) == MenuBarArtworkStyle.albumArtwork.rawValue
+        )
+    }
+
+    @Test
+    func hiddenMenuBarArtworkRemovesItsSpacing() {
+        let titleWidth: CGFloat = 80
+
+        #expect(
+            MenuBarMarquee.totalWidth(
+                for: titleWidth,
+                artworkStyle: .hidden
+            ) == titleWidth
+        )
+        #expect(
+            MenuBarMarquee.totalWidth(
+                for: titleWidth,
+                artworkStyle: .compactDisc
+            ) == titleWidth
+                + MenuBarMarquee.artworkSize
+                + MenuBarMarquee.artworkTitleSpacing
         )
     }
 

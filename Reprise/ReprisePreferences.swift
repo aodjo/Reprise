@@ -9,8 +9,29 @@ import Foundation
 enum ReprisePreferenceKey {
     static let automaticallyScrollTitles = "automaticallyScrollTitles"
     static let marqueeSpeed = "marqueeSpeed"
+    static let menuBarArtworkStyle = "menuBarArtworkStyle"
     static let playerPanelTheme = "playerPanelTheme"
     static let resetsMenuTitleWhenPanelOpens = "resetsMenuTitleWhenPanelOpens"
+}
+
+enum MenuBarArtworkStyle: String, CaseIterable, Identifiable {
+    case albumArtwork
+    case compactDisc
+    case levelIndicator
+    case hidden
+
+    var id: String {
+        rawValue
+    }
+
+    var displayName: String {
+        switch self {
+        case .albumArtwork: "앨범"
+        case .compactDisc: "CD"
+        case .levelIndicator: "인디케이터"
+        case .hidden: "없음"
+        }
+    }
 }
 
 enum PlayerPanelTheme: String, CaseIterable, Identifiable {
@@ -55,6 +76,7 @@ struct MarqueePreferences: Equatable {
     let automaticallyScrollsTitles: Bool
     let pointsPerSecond: CGFloat
     let resetsMenuTitleWhenPanelOpens: Bool
+    let menuBarArtworkStyle: MenuBarArtworkStyle
 
     static func current(
         defaults: UserDefaults = .standard
@@ -70,7 +92,12 @@ struct MarqueePreferences: Equatable {
             ),
             resetsMenuTitleWhenPanelOpens: defaults.bool(
                 forKey: ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens
-            )
+            ),
+            menuBarArtworkStyle: MenuBarArtworkStyle(
+                rawValue: defaults.string(
+                    forKey: ReprisePreferenceKey.menuBarArtworkStyle
+                ) ?? ""
+            ) ?? .albumArtwork
         )
     }
 }
@@ -83,6 +110,8 @@ enum ReprisePreferences {
             defaults: [
                 ReprisePreferenceKey.automaticallyScrollTitles: true,
                 ReprisePreferenceKey.marqueeSpeed: MarqueeSpeed.normal.rawValue,
+                ReprisePreferenceKey.menuBarArtworkStyle:
+                    MenuBarArtworkStyle.albumArtwork.rawValue,
                 ReprisePreferenceKey.playerPanelTheme:
                     PlayerPanelTheme.liquid.rawValue,
                 ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens: true,
