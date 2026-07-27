@@ -11,6 +11,7 @@ struct PanelTitleMarqueeView: NSViewRepresentable {
     let title: String
     let automaticallyScrolls: Bool
     let pointsPerSecond: CGFloat
+    let foregroundColor: NSColor
 
     func makeNSView(context: Context) -> PanelTitleMarqueeNSView {
         PanelTitleMarqueeNSView()
@@ -23,7 +24,8 @@ struct PanelTitleMarqueeView: NSViewRepresentable {
         nsView.update(
             title: title,
             automaticallyScrolls: automaticallyScrolls,
-            pointsPerSecond: pointsPerSecond
+            pointsPerSecond: pointsPerSecond,
+            foregroundColor: foregroundColor
         )
     }
 }
@@ -33,6 +35,7 @@ final class PanelTitleMarqueeNSView: NSView {
     private var title = ""
     private var automaticallyScrolls = true
     private var pointsPerSecond = CGFloat(MarqueeSpeed.normal.rawValue)
+    private var foregroundColor = NSColor.labelColor
 
     private let scrollingLayer = CALayer()
     private let firstTitleLayer = CALayer()
@@ -124,17 +127,20 @@ final class PanelTitleMarqueeNSView: NSView {
     func update(
         title: String,
         automaticallyScrolls: Bool,
-        pointsPerSecond: CGFloat
+        pointsPerSecond: CGFloat,
+        foregroundColor: NSColor
     ) {
         guard title != self.title
                 || automaticallyScrolls != self.automaticallyScrolls
-                || pointsPerSecond != self.pointsPerSecond else {
+                || pointsPerSecond != self.pointsPerSecond
+                || foregroundColor != self.foregroundColor else {
             return
         }
 
         self.title = title
         self.automaticallyScrolls = automaticallyScrolls
         self.pointsPerSecond = pointsPerSecond
+        self.foregroundColor = foregroundColor
         refresh(force: true)
     }
 
@@ -180,7 +186,11 @@ final class PanelTitleMarqueeNSView: NSView {
             size: bounds.size,
             showsFade: titleWidth > bounds.width
         )
-        let bitmap = Self.titleBitmap(title, scale: scale)
+        let bitmap = Self.titleBitmap(
+            title,
+            scale: scale,
+            foregroundColor: foregroundColor
+        )
         let titleHeight = bitmap?.pointSize.height ?? Self.font.pointSize
         let titleY = Self.titleOriginY(
             availableHeight: bounds.height,
@@ -263,13 +273,14 @@ final class PanelTitleMarqueeNSView: NSView {
 
     private static func titleBitmap(
         _ title: String,
-        scale: CGFloat
+        scale: CGFloat,
+        foregroundColor: NSColor
     ) -> (image: CGImage, pointSize: CGSize)? {
         let attributedTitle = NSAttributedString(
             string: title,
             attributes: [
                 .font: font,
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: foregroundColor,
             ]
         )
         let line = CTLineCreateWithAttributedString(attributedTitle)

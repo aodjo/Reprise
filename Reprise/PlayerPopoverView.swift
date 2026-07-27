@@ -3,9 +3,11 @@
 //  Reprise
 //
 
+import AppKit
 import SwiftUI
 
 struct PlayerPopoverView: View {
+    @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.openSettings) private var openSettings
     @AppStorage(ReprisePreferenceKey.automaticallyScrollTitles)
     private var automaticallyScrollTitles = true
@@ -37,6 +39,17 @@ struct PlayerPopoverView: View {
         case .white: .light
         case .black: .dark
         case .liquid, .system: nil
+        }
+    }
+
+    private var panelTitleColor: NSColor {
+        switch theme {
+        case .white:
+            .black
+        case .black:
+            .white
+        case .liquid, .system:
+            systemColorScheme == .dark ? .white : .black
         }
     }
 
@@ -103,7 +116,8 @@ struct PlayerPopoverView: View {
                         PanelTitleMarqueeView(
                             title: track.title,
                             automaticallyScrolls: automaticallyScrollTitles,
-                            pointsPerSecond: CGFloat(marqueeSpeed)
+                            pointsPerSecond: CGFloat(marqueeSpeed),
+                            foregroundColor: panelTitleColor
                         )
                             .frame(height: 17)
                             .accessibilityLabel("곡 \(track.title)")
