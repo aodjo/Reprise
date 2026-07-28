@@ -117,9 +117,23 @@ struct PlayerSnapshot: Equatable, Sendable {
 
 enum PlayerVolume {
     nonisolated static let range = 0...100
+    nonisolated static let defaultAudibleLevel = 50
 
     nonisolated static func clamped(_ value: Int) -> Int {
         min(max(value, range.lowerBound), range.upperBound)
+    }
+
+    nonisolated static func muteToggleTarget(
+        current: Int,
+        lastAudible: Int?
+    ) -> Int {
+        let current = clamped(current)
+        guard current == 0 else {
+            return 0
+        }
+
+        let restored = lastAudible.map(clamped) ?? defaultAudibleLevel
+        return restored > 0 ? restored : defaultAudibleLevel
     }
 }
 

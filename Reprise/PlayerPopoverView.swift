@@ -22,6 +22,7 @@ struct PlayerPopoverView: View {
     @State private var volume = 100.0
     @State private var showsVolumeSlider = false
     @State private var volumeUpdateTask: Task<Void, Never>?
+    @State private var lastAudibleVolumes: [String: Int] = [:]
     @Bindable var store: NowPlayingStore
 
     init(store: NowPlayingStore) {
@@ -303,6 +304,9 @@ struct PlayerPopoverView: View {
                 },
                 onEditingEnded: {
                     scheduleVolumeUpdate(immediately: true)
+                },
+                onToggleMute: {
+                    toggleMute()
                 }
             )
         }
@@ -328,12 +332,14 @@ struct PlayerPopoverView: View {
             return
         }
         volume = Double(snapshotVolume)
+        rememberAudibleVolume(snapshotVolume, for: snapshot.player)
     }
 
     private func scheduleVolumeUpdate(immediately: Bool = false) {
         volumeUpdateTask?.cancel()
         let level = PlayerVolume.clamped(Int(volume.rounded()))
         let player = snapshot.player
+        rememberAudibleVolume(level, for: player)
 
         volumeUpdateTask = Task {
             if !immediately {
@@ -345,8 +351,32 @@ struct PlayerPopoverView: View {
             volumeUpdateTask = nil
             if let actualVolume = store.snapshot(for: player).volume {
                 volume = Double(actualVolume)
+                rememberAudibleVolume(actualVolume, for: player)
             }
         }
+    }
+
+    private func toggleMute() {
+        let player = snapshot.player
+        let currentVolume = PlayerVolume.clamped(Int(volume.rounded()))
+        rememberAudibleVolume(currentVolume, for: player)
+
+        volume = Double(
+            PlayerVolume.muteToggleTarget(
+                current: currentVolume,
+                lastAudible: lastAudibleVolumes[player.rawValue]
+            )
+        )
+        scheduleVolumeUpdate(immediately: true)
+    }
+
+    private func rememberAudibleVolume(
+        _ volume: Int,
+        for player: MediaPlayerKind
+    ) {
+        let volume = PlayerVolume.clamped(volume)
+        guard volume > 0 else { return }
+        lastAudibleVolumes[player.rawValue] = volume
     }
 
     private func presentSettings() {
@@ -473,6 +503,7 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
     let colorScheme: ColorScheme?
     let onVolumeChanged: () -> Void
     let onEditingEnded: () -> Void
+    let onToggleMute: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -489,7 +520,8 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
             playerName: playerName,
             colorScheme: colorScheme,
             onVolumeChanged: onVolumeChanged,
-            onEditingEnded: onEditingEnded
+            onEditingEnded: onEditingEnded,
+            onToggleMute: onToggleMute
         )
 
         context.coordinator.update(
@@ -656,13 +688,20 @@ private struct VolumeSliderPanelContent: View {
     let colorScheme: ColorScheme?
     let onVolumeChanged: () -> Void
     let onEditingEnded: () -> Void
+    let onToggleMute: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 13)
+            Button(action: onToggleMute) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(volume > 0 ? "음소거" : "음소거 해제")
+            .accessibilityLabel(volume > 0 ? "음소거" : "음소거 해제")
 
             Slider(
                 value: Binding(

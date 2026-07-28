@@ -381,6 +381,28 @@ struct RepriseTests {
     }
 
     @Test
+    func muteToggleRestoresTheLastAudibleVolume() {
+        #expect(
+            PlayerVolume.muteToggleTarget(
+                current: 73,
+                lastAudible: 42
+            ) == 0
+        )
+        #expect(
+            PlayerVolume.muteToggleTarget(
+                current: 0,
+                lastAudible: 73
+            ) == 73
+        )
+        #expect(
+            PlayerVolume.muteToggleTarget(
+                current: 0,
+                lastAudible: nil
+            ) == PlayerVolume.defaultAudibleLevel
+        )
+    }
+
+    @Test
     func panelTimeStylesFormatBothSides() {
         #expect(
             PanelTimeDisplay.leadingText(
