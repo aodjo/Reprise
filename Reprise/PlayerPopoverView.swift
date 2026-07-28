@@ -380,7 +380,12 @@ struct PlayerPopoverView: View {
     }
 
     private func presentSettings() {
+        NSApp.activate(ignoringOtherApps: true)
         openSettings()
+
+        Task { @MainActor in
+            await SettingsWindowFocus.bringToFront()
+        }
     }
 
     private func controlButton(
@@ -455,6 +460,30 @@ struct PlayerPopoverView: View {
         }
     }
 
+}
+
+@MainActor
+private enum SettingsWindowFocus {
+    static func bringToFront() async {
+        for _ in 0..<10 {
+            if let window = NSApp.windows.first(where: isSettingsWindow) {
+                if window.isMiniaturized {
+                    window.deminiaturize(nil)
+                }
+                NSApp.activate(ignoringOtherApps: true)
+                window.makeKeyAndOrderFront(nil)
+                return
+            }
+
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    private static func isSettingsWindow(_ window: NSWindow) -> Bool {
+        !(window is NSPanel)
+            && window.styleMask.contains(.titled)
+            && window.canBecomeKey
+    }
 }
 
 private struct CompactControlButtonStyle: ButtonStyle {
