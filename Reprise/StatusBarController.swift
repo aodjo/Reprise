@@ -70,11 +70,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         button.sendAction(on: [.leftMouseUp])
 
         let contentController = NSHostingController(
-            rootView: PlayerPopoverView(
-                store: store
-            ) { [weak self] in
-                self?.closePlayerPanel()
-            }
+            rootView: PlayerPopoverView(store: store)
         )
         let playerPanel = PlayerPanel(contentViewController: contentController)
         configurePanelAppearance(
@@ -204,8 +200,10 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
                 return event
             }
 
-            if event.window !== panel,
-               event.window !== self.statusItem?.button?.window {
+            // Keep the player visible while interacting with another Reprise
+            // window, such as Settings. Clicks in other apps are handled by the
+            // global monitor below.
+            if event.window == nil {
                 self.closePlayerPanel()
             }
             return event
@@ -213,10 +211,25 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
 
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] _ in
+        ) { [weak self] event in
+            let screenLocation = event.locationInWindow
             Task { @MainActor in
-                self?.closePlayerPanel()
+                guard let self,
+                      !self.isPointInsideRepriseWindow(screenLocation) else {
+                    return
+                }
+                self.closePlayerPanel()
             }
+        }
+    }
+
+    private func isPointInsideRepriseWindow(_ point: NSPoint) -> Bool {
+        let statusBarWindow = statusItem?.button?.window
+
+        return NSApp.windows.contains { window in
+            window !== statusBarWindow
+                && window.isVisible
+                && window.frame.contains(point)
         }
     }
 

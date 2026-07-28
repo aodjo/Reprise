@@ -23,14 +23,9 @@ struct PlayerPopoverView: View {
     @State private var showsVolumeSlider = false
     @State private var volumeUpdateTask: Task<Void, Never>?
     @Bindable var store: NowPlayingStore
-    let onOpenSettings: () -> Void
 
-    init(
-        store: NowPlayingStore,
-        onOpenSettings: @escaping () -> Void = {}
-    ) {
+    init(store: NowPlayingStore) {
         self.store = store
-        self.onOpenSettings = onOpenSettings
     }
 
     private var snapshot: PlayerSnapshot {
@@ -104,6 +99,13 @@ struct PlayerPopoverView: View {
         }
         .onDisappear {
             volumeUpdateTask?.cancel()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: .playerPanelDidHide
+            )
+        ) { _ in
+            showsVolumeSlider = false
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -289,65 +291,22 @@ struct PlayerPopoverView: View {
         .accessibilityLabel("\(snapshot.player.displayName) 음량")
         .accessibilityValue("\(Int(volume.rounded()))퍼센트")
         .accessibilityIdentifier("volumeButton")
-        .overlay(alignment: .topTrailing) {
-            if showsVolumeSlider {
-                volumeSlider
-                    .offset(x: 27, y: -42)
-                    .transition(
-                        .opacity.combined(
-                            with: .scale(
-                                scale: 0.94,
-                                anchor: .topTrailing
-                            )
-                        )
-                    )
-            }
-        }
-        .zIndex(showsVolumeSlider ? 2 : 0)
-    }
-
-    private var volumeSlider: some View {
-        HStack(spacing: 8) {
-            Image(systemName: volumeSymbol)
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 13)
-
-            Slider(
-                value: Binding(
-                    get: { volume },
-                    set: { newValue in
-                        volume = newValue
-                        scheduleVolumeUpdate()
-                    }
-                ),
-                in: 0...100,
-                step: 1
-            ) { isEditing in
-                if !isEditing {
+        .background {
+            VolumeSliderPanelPresenter(
+                isPresented: $showsVolumeSlider,
+                volume: $volume,
+                symbol: volumeSymbol,
+                playerName: snapshot.player.displayName,
+                colorScheme: preferredColorScheme,
+                onVolumeChanged: {
+                    scheduleVolumeUpdate()
+                },
+                onEditingEnded: {
                     scheduleVolumeUpdate(immediately: true)
                 }
-            }
-            .controlSize(.small)
-            .accessibilityLabel("\(snapshot.player.displayName) 음량")
-            .accessibilityValue("\(Int(volume.rounded()))퍼센트")
-
-            Text("\(Int(volume.rounded()))")
-                .font(.caption2.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 23, alignment: .trailing)
+            )
         }
-        .padding(.horizontal, 10)
-        .frame(width: 160, height: 36)
-        .background(
-            .regularMaterial,
-            in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(.primary.opacity(0.14), lineWidth: 0.5)
-        }
-        .shadow(color: .black.opacity(0.22), radius: 7, y: 3)
+        .zIndex(showsVolumeSlider ? 2 : 0)
     }
 
     private var volumeSymbol: String {
@@ -391,7 +350,6 @@ struct PlayerPopoverView: View {
     }
 
     private func presentSettings() {
-        onOpenSettings()
         openSettings()
     }
 
@@ -504,6 +462,257 @@ private struct PlayerLogoView: View {
                 .accessibilityLabel("Apple Music 로고")
                 .accessibilityIdentifier("playerLogo")
         }
+    }
+}
+
+private struct VolumeSliderPanelPresenter: NSViewRepresentable {
+    @Binding var isPresented: Bool
+    @Binding var volume: Double
+    let symbol: String
+    let playerName: String
+    let colorScheme: ColorScheme?
+    let onVolumeChanged: () -> Void
+    let onEditingEnded: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        let content = VolumeSliderPanelContent(
+            volume: $volume,
+            symbol: symbol,
+            playerName: playerName,
+            colorScheme: colorScheme,
+            onVolumeChanged: onVolumeChanged,
+            onEditingEnded: onEditingEnded
+        )
+
+        context.coordinator.update(
+            anchorView: nsView,
+            isPresented: isPresented,
+            content: content
+        )
+    }
+
+    static func dismantleNSView(
+        _ nsView: NSView,
+        coordinator: Coordinator
+    ) {
+        coordinator.tearDown()
+    }
+
+    @MainActor
+    final class Coordinator {
+        private let panelSize = NSSize(width: 160, height: 36)
+        private let panelSpacing: CGFloat = 6
+        private let parentTrailingInset: CGFloat = 14
+        private var panel: VolumeSliderPanel?
+        private var hostingController:
+            NSHostingController<VolumeSliderPanelContent>?
+        private weak var parentWindow: NSWindow?
+
+        func update(
+            anchorView: NSView,
+            isPresented: Bool,
+            content: VolumeSliderPanelContent
+        ) {
+            if let hostingController {
+                hostingController.rootView = content
+            }
+
+            guard isPresented else {
+                dismiss()
+                return
+            }
+
+            guard let parentWindow = anchorView.window else {
+                return
+            }
+
+            let panel = panel ?? makePanel(content: content)
+            attach(panel, to: parentWindow)
+            position(panel, relativeTo: parentWindow)
+            panel.orderFrontRegardless()
+        }
+
+        func tearDown() {
+            dismiss()
+            panel?.contentViewController = nil
+            panel?.close()
+            panel = nil
+            hostingController = nil
+        }
+
+        private func makePanel(
+            content: VolumeSliderPanelContent
+        ) -> VolumeSliderPanel {
+            let hostingController = NSHostingController(rootView: content)
+            let panel = VolumeSliderPanel(size: panelSize)
+
+            panel.contentViewController = hostingController
+            panel.backgroundColor = .clear
+            panel.isOpaque = false
+            panel.hasShadow = true
+            panel.level = NSWindow.Level(
+                rawValue: NSWindow.Level.popUpMenu.rawValue + 1
+            )
+            panel.isReleasedWhenClosed = false
+            panel.animationBehavior = .none
+            panel.hidesOnDeactivate = false
+            panel.collectionBehavior = [
+                .canJoinAllSpaces,
+                .fullScreenAuxiliary,
+                .transient,
+                .ignoresCycle,
+            ]
+
+            let contentView = hostingController.view
+            contentView.wantsLayer = true
+            contentView.layer?.cornerRadius = 10
+            contentView.layer?.cornerCurve = .continuous
+            contentView.layer?.masksToBounds = true
+            contentView.layer?.borderWidth = 0.5
+            contentView.layer?.borderColor = NSColor.separatorColor.cgColor
+
+            self.panel = panel
+            self.hostingController = hostingController
+            return panel
+        }
+
+        private func attach(
+            _ panel: NSPanel,
+            to parentWindow: NSWindow
+        ) {
+            guard self.parentWindow !== parentWindow else {
+                return
+            }
+
+            if let currentParent = self.parentWindow {
+                currentParent.removeChildWindow(panel)
+            }
+            parentWindow.addChildWindow(panel, ordered: .above)
+            self.parentWindow = parentWindow
+        }
+
+        private func position(
+            _ panel: NSPanel,
+            relativeTo parentWindow: NSWindow
+        ) {
+            let visibleFrame = (
+                parentWindow.screen ?? NSScreen.main
+            )?.visibleFrame ?? parentWindow.frame
+            let unclampedX = parentWindow.frame.maxX
+                - parentTrailingInset
+                - panelSize.width
+            let minimumX = visibleFrame.minX + panelSpacing
+            let maximumX = visibleFrame.maxX
+                - panelSize.width
+                - panelSpacing
+            let x = min(max(unclampedX, minimumX), maximumX)
+
+            let preferredY = parentWindow.frame.minY
+                - panelSize.height
+                - panelSpacing
+            let y: CGFloat
+            if preferredY >= visibleFrame.minY + panelSpacing {
+                y = preferredY
+            } else {
+                y = min(
+                    parentWindow.frame.maxY + panelSpacing,
+                    visibleFrame.maxY - panelSize.height - panelSpacing
+                )
+            }
+
+            let scale = parentWindow.screen?.backingScaleFactor ?? 1
+            panel.setFrameOrigin(
+                NSPoint(
+                    x: (x * scale).rounded() / scale,
+                    y: (y * scale).rounded() / scale
+                )
+            )
+        }
+
+        private func dismiss() {
+            guard let panel else { return }
+
+            if let parentWindow {
+                parentWindow.removeChildWindow(panel)
+            }
+            panel.orderOut(nil)
+            parentWindow = nil
+        }
+    }
+}
+
+private struct VolumeSliderPanelContent: View {
+    @Binding var volume: Double
+    let symbol: String
+    let playerName: String
+    let colorScheme: ColorScheme?
+    let onVolumeChanged: () -> Void
+    let onEditingEnded: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 13)
+
+            Slider(
+                value: Binding(
+                    get: { volume },
+                    set: { newValue in
+                        volume = newValue
+                        onVolumeChanged()
+                    }
+                ),
+                in: 0...100
+            ) { isEditing in
+                if !isEditing {
+                    onEditingEnded()
+                }
+            }
+            .controlSize(.small)
+            .accessibilityLabel("\(playerName) 음량")
+            .accessibilityValue("\(Int(volume.rounded()))퍼센트")
+
+            Text("\(Int(volume.rounded()))")
+                .font(.caption2.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: 23, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 160, height: 36)
+        .background(.regularMaterial)
+        .preferredColorScheme(colorScheme)
+    }
+}
+
+@MainActor
+private final class VolumeSliderPanel: NSPanel {
+    init(size: NSSize) {
+        super.init(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        isFloatingPanel = true
+        becomesKeyOnlyIfNeeded = true
+    }
+
+    override var canBecomeKey: Bool {
+        true
+    }
+
+    override var canBecomeMain: Bool {
+        false
     }
 }
 
