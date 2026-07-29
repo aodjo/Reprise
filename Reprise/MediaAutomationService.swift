@@ -170,16 +170,27 @@ actor MediaAutomationService {
     }
 
     private func snapshotScript(for player: MediaPlayerKind) -> String {
-        let artworkURLStatement = switch player {
+        let trackStatements = switch player {
         case .spotify:
             """
+            set currentSong to current track
+            set songName to name of currentSong as text
+            set albumName to album of currentSong as text
+            set artistName to artist of currentSong as text
+            set durationValue to duration of currentSong as text
             set artworkLocation to ""
             try
                 set artworkLocation to artwork url of currentSong as text
             end try
             """
         case .appleMusic:
-            "set artworkLocation to \"\""
+            """
+            set songName to name of current track as text
+            set albumName to album of current track as text
+            set artistName to artist of current track as text
+            set durationValue to duration of current track as text
+            set artworkLocation to ""
+            """
         }
 
         return """
@@ -198,13 +209,8 @@ actor MediaAutomationService {
                 return {stateName, "", "", "", "", "", "", volumeValue}
             end if
 
-            set currentSong to current track
-            set songName to name of currentSong as text
-            set albumName to album of currentSong as text
-            set artistName to artist of currentSong as text
-            set durationValue to duration of currentSong as text
+            \(trackStatements)
             set positionValue to player position as text
-            \(artworkURLStatement)
             return {stateName, songName, albumName, artistName, durationValue, positionValue, artworkLocation, volumeValue}
         end tell
         """
@@ -275,9 +281,8 @@ actor MediaAutomationService {
     private func appleMusicArtwork() -> Data? {
         let source = """
         tell application id "com.apple.Music"
-            set currentSong to current track
-            if (count of artworks of currentSong) is greater than 0 then
-                return raw data of artwork 1 of currentSong
+            if (count of artworks of current track) is greater than 0 then
+                return raw data of artwork 1 of current track
             end if
         end tell
         """
