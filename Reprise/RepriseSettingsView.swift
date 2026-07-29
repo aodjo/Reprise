@@ -527,7 +527,7 @@ private struct RotatingDiscPreview: View {
                     .linear(duration: MenuBarMarquee.discRotationDuration)
                         .repeatForever(autoreverses: false)
                 ) {
-                    rotation = 360
+                    rotation = -360
                 }
             }
     }
