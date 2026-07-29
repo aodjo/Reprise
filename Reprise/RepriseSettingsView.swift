@@ -151,12 +151,12 @@ private struct ThemePanelPreview: View {
                 Spacer(minLength: 5)
 
                 VStack(spacing: 1) {
-                    Slider(
+                    SettingsPreviewSlider(
                         value: $previewPosition,
-                        in: 0...193
+                        range: 0...193
                     )
-                        .controlSize(.small)
-                        .tint(.accentColor)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 14)
 
                     HStack {
                         Text(
@@ -267,12 +267,12 @@ private struct PanelTimePreview: View {
 
     var body: some View {
         VStack(spacing: 1) {
-            Slider(
+            SettingsPreviewSlider(
                 value: $previewPosition,
-                in: 0...193
+                range: 0...193
             )
-                .controlSize(.small)
-                .tint(.accentColor)
+                .frame(maxWidth: .infinity)
+                .frame(height: 14)
 
             HStack {
                 Text(
@@ -293,14 +293,61 @@ private struct PanelTimePreview: View {
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
         }
+        .frame(width: 276)
         .padding(12)
-        .frame(width: 300)
         .background(
             Color(nsColor: .controlBackgroundColor),
             in: RoundedRectangle(cornerRadius: 10)
         )
         .animation(.easeInOut(duration: 0.18), value: leadingStyle)
         .animation(.easeInOut(duration: 0.18), value: trailingStyle)
+    }
+}
+
+private struct SettingsPreviewSlider: NSViewRepresentable {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(value: $value)
+    }
+
+    func makeNSView(context: Context) -> NSSlider {
+        let slider = NSSlider(
+            value: value,
+            minValue: range.lowerBound,
+            maxValue: range.upperBound,
+            target: context.coordinator,
+            action: #selector(Coordinator.valueChanged(_:))
+        )
+        slider.isContinuous = true
+        slider.controlSize = .small
+        slider.trackFillColor = .controlAccentColor
+        slider.setAccessibilityLabel("재생 위치 미리보기")
+        return slider
+    }
+
+    func updateNSView(_ slider: NSSlider, context: Context) {
+        context.coordinator.value = $value
+        slider.minValue = range.lowerBound
+        slider.maxValue = range.upperBound
+
+        if abs(slider.doubleValue - value) > 0.001 {
+            slider.doubleValue = value
+        }
+    }
+
+    final class Coordinator: NSObject {
+        var value: Binding<Double>
+
+        init(value: Binding<Double>) {
+            self.value = value
+        }
+
+        @objc
+        func valueChanged(_ sender: NSSlider) {
+            value.wrappedValue = sender.doubleValue
+        }
     }
 }
 
