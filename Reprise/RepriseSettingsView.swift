@@ -75,6 +75,7 @@ private struct ThemeSettingsView: View {
 
 private struct ThemePanelPreview: View {
     @Environment(\.colorScheme) private var systemColorScheme
+    @State private var previewPosition = 69.0
 
     @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
     private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
@@ -149,16 +150,19 @@ private struct ThemePanelPreview: View {
 
                 Spacer(minLength: 5)
 
-                VStack(spacing: 3) {
-                    ProgressView(value: 0.38)
-                        .progressViewStyle(.linear)
+                VStack(spacing: 1) {
+                    Slider(
+                        value: $previewPosition,
+                        in: 0...193
+                    )
+                        .controlSize(.small)
                         .tint(.accentColor)
 
                     HStack {
                         Text(
                             PanelTimeDisplay.leadingText(
                                 style: leadingTimeStyle,
-                                position: 69
+                                position: previewPosition
                             )
                         )
                         Spacer()
@@ -166,7 +170,7 @@ private struct ThemePanelPreview: View {
                             PanelTimeDisplay.trailingText(
                                 style: trailingTimeStyle,
                                 duration: 193,
-                                remaining: 124
+                                remaining: max(193 - previewPosition, 0)
                             )
                         )
                     }
@@ -256,20 +260,25 @@ private struct PanelSettingsView: View {
 }
 
 private struct PanelTimePreview: View {
+    @State private var previewPosition = 69.0
+
     let leadingStyle: PanelLeadingTimeStyle
     let trailingStyle: PanelTrailingTimeStyle
 
     var body: some View {
-        VStack(spacing: 4) {
-            ProgressView(value: 0.36)
-                .progressViewStyle(.linear)
+        VStack(spacing: 1) {
+            Slider(
+                value: $previewPosition,
+                in: 0...193
+            )
+                .controlSize(.small)
                 .tint(.accentColor)
 
             HStack {
                 Text(
                     PanelTimeDisplay.leadingText(
                         style: leadingStyle,
-                        position: 69
+                        position: previewPosition
                     )
                 )
                 Spacer()
@@ -277,7 +286,7 @@ private struct PanelTimePreview: View {
                     PanelTimeDisplay.trailingText(
                         style: trailingStyle,
                         duration: 193,
-                        remaining: 124
+                        remaining: max(193 - previewPosition, 0)
                     )
                 )
             }
