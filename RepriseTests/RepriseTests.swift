@@ -374,6 +374,41 @@ struct RepriseTests {
     }
 
     @Test
+    func playbackPositionIsClampedToTrackDuration() {
+        #expect(
+            PlaybackPosition.clamped(-1, duration: 200) == 0
+        )
+        #expect(
+            PlaybackPosition.clamped(75, duration: 200) == 75
+        )
+        #expect(
+            PlaybackPosition.clamped(250, duration: 200) == 200
+        )
+        #expect(
+            PlaybackPosition.clamped(.infinity, duration: 200) == 0
+        )
+        #expect(
+            PlaybackPosition.clamped(75, duration: 0) == 0
+        )
+    }
+
+    @Test
+    func seekOnlyCompletesAfterPlayerReportsTheTargetPosition() {
+        #expect(
+            PlaybackPosition.confirmsSeek(
+                actual: 121.2,
+                target: 120
+            )
+        )
+        #expect(
+            !PlaybackPosition.confirmsSeek(
+                actual: 45,
+                target: 120
+            )
+        )
+    }
+
+    @Test
     func playerVolumeIsClampedToTheSupportedRange() {
         #expect(PlayerVolume.clamped(-1) == 0)
         #expect(PlayerVolume.clamped(42) == 42)

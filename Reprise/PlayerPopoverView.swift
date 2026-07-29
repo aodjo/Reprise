@@ -23,6 +23,10 @@ struct PlayerPopoverView: View {
     @State private var showsVolumeSlider = false
     @State private var volumeUpdateTask: Task<Void, Never>?
     @State private var lastAudibleVolumes: [String: Int] = [:]
+    @State private var seekPosition = 0.0
+    @State private var isSeeking = false
+    @State private var pendingSeekPosition: TimeInterval?
+    @State private var seekRequestID: UUID?
     @Bindable var store: NowPlayingStore
 
     init(store: NowPlayingStore) {
@@ -31,6 +35,12 @@ struct PlayerPopoverView: View {
 
     private var snapshot: PlayerSnapshot {
         store.activeSnapshot
+    }
+
+    private var trackIdentity: String? {
+        snapshot.track.map {
+            [$0.title, $0.album, $0.artist].joined(separator: "\u{0}")
+        }
     }
 
     private var theme: PlayerPanelTheme {
@@ -96,7 +106,15 @@ struct PlayerPopoverView: View {
         }
         .onChange(of: snapshot.player) {
             showsVolumeSlider = false
+            isSeeking = false
+            pendingSeekPosition = nil
+            seekRequestID = nil
             syncVolume()
+        }
+        .onChange(of: trackIdentity) {
+            isSeeking = false
+            pendingSeekPosition = nil
+            seekRequestID = nil
         }
         .onDisappear {
             volumeUpdateTask?.cancel()
@@ -410,31 +428,111 @@ struct PlayerPopoverView: View {
     }
 
     private func progress(_ track: Track) -> some View {
-        VStack(spacing: 3) {
-            ProgressView(value: track.progress)
-                .progressViewStyle(.linear)
-                .tint(.accentColor)
-                .accessibilityLabel("재생 진행")
-                .accessibilityValue("\(Int(track.progress * 100))퍼센트")
+        let duration = track.duration.isFinite && track.duration > 0
+            ? track.duration
+            : 0
+        let sliderUpperBound = max(duration, 1)
+        let displayedPosition: TimeInterval
+        if isSeeking {
+            displayedPosition = PlaybackPosition.clamped(
+                seekPosition,
+                duration: duration
+            )
+        } else if let pendingSeekPosition {
+            displayedPosition = PlaybackPosition.clamped(
+                pendingSeekPosition,
+                duration: duration
+            )
+        } else {
+            displayedPosition = PlaybackPosition.clamped(
+                track.position,
+                duration: duration
+            )
+        }
+        let displayedRemaining = max(
+            duration - displayedPosition,
+            0
+        )
+
+        return VStack(spacing: 1) {
+            Slider(
+                value: Binding(
+                    get: {
+                        displayedPosition
+                    },
+                    set: { newValue in
+                        seekPosition = PlaybackPosition.clamped(
+                            newValue,
+                            duration: duration
+                        )
+                        pendingSeekPosition = nil
+                        isSeeking = true
+                    }
+                ),
+                in: 0...sliderUpperBound
+            ) { isEditing in
+                if isEditing {
+                    if !isSeeking {
+                        seekPosition = displayedPosition
+                    }
+                    pendingSeekPosition = nil
+                    seekRequestID = nil
+                    isSeeking = true
+                } else {
+                    finishSeeking(track)
+                }
+            }
+            .controlSize(.small)
+            .tint(.accentColor)
+            .accessibilityLabel("재생 진행")
+            .accessibilityValue(
+                "\(Int((displayedPosition / sliderUpperBound) * 100))퍼센트"
+            )
+            .help("재생 위치 이동")
+            .disabled(duration <= 0 || !snapshot.isRunning)
 
             HStack {
                 Text(
                     PanelTimeDisplay.leadingText(
                         style: leadingTimeStyle,
-                        position: track.position
+                        position: displayedPosition
                     )
                 )
                 Spacer()
                 Text(
                     PanelTimeDisplay.trailingText(
                         style: trailingTimeStyle,
-                        duration: track.duration,
-                        remaining: track.remaining
+                        duration: duration,
+                        remaining: displayedRemaining
                     )
                 )
             }
             .font(.caption2.monospacedDigit())
             .foregroundStyle(.secondary)
+        }
+    }
+
+    private func finishSeeking(_ track: Track) {
+        guard isSeeking else { return }
+
+        let targetPosition = PlaybackPosition.clamped(
+            seekPosition,
+            duration: track.duration
+        )
+        let player = snapshot.player
+        let requestID = UUID()
+        pendingSeekPosition = targetPosition
+        seekRequestID = requestID
+        isSeeking = false
+
+        Task {
+            await store.seek(to: targetPosition, for: player)
+            guard snapshot.player == player,
+                  seekRequestID == requestID else {
+                return
+            }
+            pendingSeekPosition = nil
+            seekRequestID = nil
         }
     }
 

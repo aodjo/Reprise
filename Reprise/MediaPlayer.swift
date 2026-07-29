@@ -76,6 +76,33 @@ struct Track: Equatable, Sendable {
     }
 }
 
+enum PlaybackPosition {
+    nonisolated static let seekConfirmationTolerance: TimeInterval = 1.5
+
+    nonisolated static func clamped(
+        _ position: TimeInterval,
+        duration: TimeInterval
+    ) -> TimeInterval {
+        guard position.isFinite,
+              duration.isFinite,
+              duration > 0 else {
+            return 0
+        }
+        return min(max(position, 0), duration)
+    }
+
+    nonisolated static func confirmsSeek(
+        actual: TimeInterval,
+        target: TimeInterval
+    ) -> Bool {
+        guard actual.isFinite, target.isFinite else {
+            return false
+        }
+
+        return abs(actual - target) <= seekConfirmationTolerance
+    }
+}
+
 struct PlayerSnapshot: Equatable, Sendable {
     let player: MediaPlayerKind
     let isRunning: Bool

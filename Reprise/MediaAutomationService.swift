@@ -56,6 +56,58 @@ actor MediaAutomationService {
             ?? volume
     }
 
+    func setPosition(
+        _ position: TimeInterval,
+        on player: MediaPlayerKind
+    ) async throws -> TimeInterval {
+        guard isRunning(player) else {
+            throw AutomationError.playerNotRunning(player)
+        }
+
+        let position = position.isFinite ? max(position, 0) : 0
+        let setPositionSource = """
+        tell application id "\(player.bundleIdentifier)"
+            set player position to \(position)
+        end tell
+        """
+        _ = try execute(setPositionSource)
+
+        let readPositionSource = """
+        tell application id "\(player.bundleIdentifier)"
+            return player position as text
+        end tell
+        """
+        var lastObservedPosition: TimeInterval?
+
+        // Spotify and Music can briefly report the old position immediately
+        // after accepting a seek. Do not expose that stale value to the UI.
+        for attempt in 0..<12 {
+            if attempt > 0 {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+
+            let descriptor = try execute(readPositionSource)
+            guard let actualPosition = Double(
+                descriptor.stringValue ?? ""
+            ) else {
+                continue
+            }
+            lastObservedPosition = actualPosition
+
+            if PlaybackPosition.confirmsSeek(
+                actual: actualPosition,
+                target: position
+            ) {
+                return actualPosition
+            }
+        }
+
+        throw AutomationError.seekNotConfirmed(
+            requested: position,
+            observed: lastObservedPosition
+        )
+    }
+
     private func snapshot(for player: MediaPlayerKind) async -> PlayerSnapshot {
         guard isRunning(player) else {
             artworkCache[player] = nil
@@ -296,6 +348,8 @@ actor MediaAutomationService {
             return "플레이어와 통신하지 못했습니다: \(message)"
         case .invalidScript:
             return "플레이어 제어 스크립트를 준비하지 못했습니다."
+        case .seekNotConfirmed:
+            return "플레이어가 변경한 재생 위치를 확인하지 못했습니다."
         }
     }
 }
@@ -304,4 +358,8 @@ enum AutomationError: LocalizedError {
     case playerNotRunning(MediaPlayerKind)
     case invalidScript
     case appleScript(number: Int, message: String)
+    case seekNotConfirmed(
+        requested: TimeInterval,
+        observed: TimeInterval?
+    )
 }
