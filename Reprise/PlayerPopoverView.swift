@@ -15,6 +15,9 @@ struct PlayerPopoverView: View {
     private var marqueeSpeed = MarqueeSpeed.normal.rawValue
     @AppStorage(ReprisePreferenceKey.playerPanelTheme)
     private var playerPanelTheme = PlayerPanelTheme.liquid.rawValue
+    @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
+    private var playerDisplayOrder =
+        ReprisePreferences.defaultPlayerDisplayOrder
     @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
     private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
     @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
@@ -34,7 +37,8 @@ struct PlayerPopoverView: View {
     }
 
     private var snapshot: PlayerSnapshot {
-        store.activeSnapshot
+        _ = playerDisplayOrder
+        return store.activeSnapshot
     }
 
     private var trackIdentity: String? {
@@ -596,14 +600,23 @@ private struct CompactControlButtonStyle: ButtonStyle {
 private struct PlayerLogoView: View {
     let player: MediaPlayerKind
 
+    private static let spotifyLogo: NSImage = {
+        guard let source = NSImage(named: "SpotifyLogo"),
+              let image = source.copy() as? NSImage else {
+            return NSImage(size: NSSize(width: 21, height: 21))
+        }
+
+        image.size = NSSize(width: 21, height: 21)
+        image.isTemplate = true
+        return image
+    }()
+
     @ViewBuilder
     var body: some View {
         switch player {
         case .spotify:
-            Image("SpotifyLogo")
+            Image(nsImage: Self.spotifyLogo)
                 .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
                 .foregroundStyle(.primary)
                 .frame(width: 21, height: 21)
                 .accessibilityElement(children: .ignore)

@@ -18,6 +18,11 @@ struct RepriseSettingsView: View {
 
     var body: some View {
         TabView {
+            GeneralSettingsView()
+                .tabItem {
+                    Label("일반", systemImage: "gearshape")
+                }
+
             ThemeSettingsView()
                 .tabItem {
                     Label("테마", systemImage: "paintpalette")
@@ -41,6 +46,185 @@ struct RepriseSettingsView: View {
         .tint(controlTint)
         .frame(width: 500, height: 480)
     }
+}
+
+private struct GeneralSettingsView: View {
+    @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
+    private var playerDisplayOrder =
+        ReprisePreferences.defaultPlayerDisplayOrder
+    @State private var draggedPlayer: MediaPlayerKind?
+    @State private var dragStartIndex: Int?
+    @State private var dragOffset = CGFloat.zero
+
+    private var orderedPlayers: [MediaPlayerKind] {
+        ReprisePreferences.playerDisplayOrder(
+            from: playerDisplayOrder
+        )
+    }
+
+    var body: some View {
+        Form {
+            Section {
+                ForEach(Array(orderedPlayers.enumerated()), id: \.element) {
+                    index,
+                    player in
+                    HStack(spacing: 10) {
+                        Text("\(index + 1)")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .frame(width: 16)
+
+                        playerIcon(for: player)
+                            .frame(width: 18, height: 18)
+
+                        Text(player.displayName)
+
+                        Spacer()
+
+                        Image(systemName: "line.3.horizontal")
+                            .foregroundStyle(.tertiary)
+                            .accessibilityHidden(true)
+                            .onContinuousHover { phase in
+                                switch phase {
+                                case .active:
+                                    NSCursor.resizeUpDown.set()
+                                case .ended:
+                                    NSCursor.arrow.set()
+                                }
+                            }
+                    }
+                    .contentShape(Rectangle())
+                    .offset(
+                        y: draggedPlayer == player
+                            ? dragOffset
+                            : 0
+                    )
+                    .zIndex(draggedPlayer == player ? 1 : 0)
+                    .gesture(
+                        DragGesture(
+                            minimumDistance: 2,
+                            coordinateSpace: .global
+                        )
+                        .onChanged { value in
+                            updateDrag(
+                                for: player,
+                                translation: value.translation.height
+                            )
+                        }
+                        .onEnded { _ in
+                            endDrag()
+                        }
+                    )
+                }
+            } header: {
+                Text("표시 우선순위")
+            } footer: {
+                Text("항목을 드래그하여 표시 순서를 변경할 수 있습니다.")
+            }
+        }
+        .formStyle(.grouped)
+    }
+
+    @ViewBuilder
+    private func playerIcon(
+        for player: MediaPlayerKind
+    ) -> some View {
+        switch player {
+        case .spotify:
+            Image("SpotifyLogo")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+        case .appleMusic:
+            Image(systemName: "music.note")
+                .font(.system(size: 15, weight: .semibold))
+        }
+    }
+
+    private func updateDrag(
+        for player: MediaPlayerKind,
+        translation: CGFloat
+    ) {
+        if draggedPlayer != player {
+            draggedPlayer = player
+            dragStartIndex = orderedPlayers.firstIndex(of: player)
+        }
+
+        guard let startIndex = dragStartIndex else {
+            return
+        }
+
+        let maximumPosition =
+            CGFloat(orderedPlayers.count - 1)
+            * PlayerPriorityDragMetrics.rowStep
+        let draggedPosition = min(
+            max(
+                CGFloat(startIndex)
+                    * PlayerPriorityDragMetrics.rowStep
+                    + translation,
+                0
+            ),
+            maximumPosition
+        )
+        let targetIndex = Int(
+            (
+                draggedPosition
+                    / PlayerPriorityDragMetrics.rowStep
+            ).rounded()
+        )
+
+        if orderedPlayers.firstIndex(of: player) != targetIndex {
+            withAnimation(
+                .interactiveSpring(
+                    response: 0.22,
+                    dampingFraction: 0.86
+                )
+            ) {
+                movePlayer(player, to: targetIndex)
+            }
+        }
+
+        dragOffset =
+            draggedPosition
+            - CGFloat(targetIndex)
+            * PlayerPriorityDragMetrics.rowStep
+    }
+
+    private func endDrag() {
+        withAnimation(
+            .spring(response: 0.22, dampingFraction: 0.86)
+        ) {
+            dragOffset = 0
+            draggedPlayer = nil
+            dragStartIndex = nil
+        }
+    }
+
+    private func movePlayer(
+        _ player: MediaPlayerKind,
+        to targetIndex: Int
+    ) {
+        guard let sourceIndex = orderedPlayers.firstIndex(of: player),
+              sourceIndex != targetIndex else {
+            return
+        }
+
+        var reorderedPlayers = orderedPlayers
+        reorderedPlayers.move(
+            fromOffsets: IndexSet(integer: sourceIndex),
+            toOffset: sourceIndex < targetIndex
+                ? targetIndex + 1
+                : targetIndex
+        )
+        playerDisplayOrder =
+            ReprisePreferences.serializedPlayerDisplayOrder(
+                reorderedPlayers
+            )
+    }
+}
+
+private enum PlayerPriorityDragMetrics {
+    static let rowStep: CGFloat = 39
 }
 
 private struct ThemeSettingsView: View {

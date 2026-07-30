@@ -262,6 +262,54 @@ struct RepriseTests {
     }
 
     @Test
+    func spotifyIsFirstInTheDefaultPlayerDisplayOrder() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            ReprisePreferences.playerDisplayOrder(
+                in: defaults
+            ) == [.spotify, .appleMusic]
+        )
+    }
+
+    @Test
+    func savedPlayerDisplayOrderIsUsed() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        defaults.set(
+            ReprisePreferences.serializedPlayerDisplayOrder(
+                [.appleMusic, .spotify]
+            ),
+            forKey: ReprisePreferenceKey.playerDisplayPriority
+        )
+
+        #expect(
+            ReprisePreferences.playerDisplayOrder(
+                in: defaults
+            ) == [.appleMusic, .spotify]
+        )
+    }
+
+    @Test
+    func legacySinglePlayerPriorityBecomesACompleteOrder() {
+        #expect(
+            ReprisePreferences.playerDisplayOrder(
+                from: MediaPlayerKind.appleMusic.rawValue
+            ) == [.appleMusic, .spotify]
+        )
+    }
+
+    @Test
     func marqueeFadeUsesAFixedWidthAtTheTrailingEdge() {
         #expect(
             abs(
@@ -278,7 +326,7 @@ struct RepriseTests {
     }
 
     @Test
-    func playingPlayerWinsOverSelectedPausedPlayer() {
+    func playingPlayerWinsOverPausedDisplayPriority() {
         let spotify = makeSnapshot(
             player: .spotify,
             state: .paused,
@@ -295,7 +343,7 @@ struct RepriseTests {
         let preferred = NowPlayingStore.preferredSnapshot(
             spotify: spotify,
             appleMusic: appleMusic,
-            selectedPlayer: .spotify
+            displayOrder: [.spotify, .appleMusic]
         )
 
         #expect(preferred?.player == .appleMusic)
@@ -303,7 +351,7 @@ struct RepriseTests {
     }
 
     @Test
-    func selectedPlayerWinsWhenBothArePlaying() {
+    func displayPriorityWinsWhenBothArePlaying() {
         let spotify = makeSnapshot(
             player: .spotify,
             state: .playing,
@@ -320,7 +368,7 @@ struct RepriseTests {
         let preferred = NowPlayingStore.preferredSnapshot(
             spotify: spotify,
             appleMusic: appleMusic,
-            selectedPlayer: .appleMusic
+            displayOrder: [.appleMusic, .spotify]
         )
 
         #expect(preferred?.player == .appleMusic)

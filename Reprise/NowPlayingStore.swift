@@ -11,25 +11,28 @@ import Observation
 final class NowPlayingStore {
     private(set) var spotify = PlayerSnapshot.notRunning(.spotify)
     private(set) var appleMusic = PlayerSnapshot.notRunning(.appleMusic)
-    private(set) var selectedPlayer: MediaPlayerKind = .spotify
     private(set) var isRefreshing = false
     private(set) var commandError: String?
 
     private let automation = MediaAutomationService()
     private var pollingTask: Task<Void, Never>?
-    private var hasCompletedInitialRefresh = false
     private var stateMutationRevision = 0
 
     var activeSnapshot: PlayerSnapshot {
-        menuBarSnapshot ?? snapshot(for: selectedPlayer)
+        menuBarSnapshot
+            ?? snapshot(for: playerDisplayOrder.first ?? .spotify)
     }
 
     var menuBarSnapshot: PlayerSnapshot? {
         Self.preferredSnapshot(
             spotify: spotify,
             appleMusic: appleMusic,
-            selectedPlayer: selectedPlayer
+            displayOrder: playerDisplayOrder
         )
+    }
+
+    private var playerDisplayOrder: [MediaPlayerKind] {
+        ReprisePreferences.playerDisplayOrder()
     }
 
     var menuBarTitle: String {
@@ -71,22 +74,6 @@ final class NowPlayingStore {
 
         spotify = snapshots[.spotify] ?? .notRunning(.spotify)
         appleMusic = snapshots[.appleMusic] ?? .notRunning(.appleMusic)
-
-        if !hasCompletedInitialRefresh {
-            if let initiallyPreferred = menuBarSnapshot {
-                selectedPlayer = initiallyPreferred.player
-            } else if let runningPlayer = MediaPlayerKind.allCases.first(
-                where: { snapshot(for: $0).isRunning }
-            ) {
-                selectedPlayer = runningPlayer
-            }
-            hasCompletedInitialRefresh = true
-        } else if !snapshot(for: selectedPlayer).isRunning,
-                  let runningPlayer = MediaPlayerKind.allCases.first(
-                    where: { snapshot(for: $0).isRunning }
-                  ) {
-            selectedPlayer = runningPlayer
-        }
     }
 
     func perform(_ command: PlaybackCommand) async {
@@ -181,28 +168,23 @@ final class NowPlayingStore {
     static func preferredSnapshot(
         spotify: PlayerSnapshot,
         appleMusic: PlayerSnapshot,
-        selectedPlayer: MediaPlayerKind
+        displayOrder: [MediaPlayerKind]
     ) -> PlayerSnapshot? {
         let snapshots: [MediaPlayerKind: PlayerSnapshot] = [
             .spotify: spotify,
             .appleMusic: appleMusic,
         ]
-
-        if let selected = snapshots[selectedPlayer], selected.state == .playing, selected.track != nil {
-            return selected
+        let orderedPlayers = displayOrder + MediaPlayerKind.allCases.filter {
+            !displayOrder.contains($0)
         }
 
-        if let playing = MediaPlayerKind.allCases
+        if let playing = orderedPlayers
             .compactMap({ snapshots[$0] })
             .first(where: { $0.state == .playing && $0.track != nil }) {
             return playing
         }
 
-        if let selected = snapshots[selectedPlayer], selected.track != nil {
-            return selected
-        }
-
-        return MediaPlayerKind.allCases
+        return orderedPlayers
             .compactMap({ snapshots[$0] })
             .first(where: { $0.track != nil })
     }

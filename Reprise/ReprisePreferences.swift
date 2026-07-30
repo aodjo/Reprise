@@ -13,6 +13,7 @@ enum ReprisePreferenceKey {
     static let menuBarTitleFormat = "menuBarTitleFormat"
     static let panelLeadingTimeStyle = "panelLeadingTimeStyle"
     static let panelTrailingTimeStyle = "panelTrailingTimeStyle"
+    static let playerDisplayPriority = "playerDisplayPriority"
     static let playerPanelTheme = "playerPanelTheme"
     static let resetsMenuTitleWhenPanelOpens = "resetsMenuTitleWhenPanelOpens"
 }
@@ -223,6 +224,46 @@ struct MarqueePreferences: Equatable {
 }
 
 enum ReprisePreferences {
+    static let defaultPlayerDisplayOrder = MediaPlayerKind.allCases
+        .map(\.rawValue)
+        .joined(separator: ",")
+
+    static func playerDisplayOrder(
+        in defaults: UserDefaults = .standard
+    ) -> [MediaPlayerKind] {
+        playerDisplayOrder(
+            from: defaults.string(
+                forKey: ReprisePreferenceKey.playerDisplayPriority
+            )
+        )
+    }
+
+    static func playerDisplayOrder(
+        from rawValue: String?
+    ) -> [MediaPlayerKind] {
+        let savedPlayers = (rawValue ?? "")
+            .split(separator: ",")
+            .compactMap { MediaPlayerKind(rawValue: String($0)) }
+
+        var result: [MediaPlayerKind] = []
+        for player in savedPlayers + MediaPlayerKind.allCases
+        where !result.contains(player) {
+            result.append(player)
+        }
+        return result
+    }
+
+    static func serializedPlayerDisplayOrder(
+        _ players: [MediaPlayerKind]
+    ) -> String {
+        let orderedPlayers = players + MediaPlayerKind.allCases.filter {
+            !players.contains($0)
+        }
+        return orderedPlayers
+            .map(\.rawValue)
+            .joined(separator: ",")
+    }
+
     static func registerDefaults(
         in defaults: UserDefaults = .standard
     ) {
@@ -238,6 +279,8 @@ enum ReprisePreferences {
                     PanelLeadingTimeStyle.elapsed.rawValue,
                 ReprisePreferenceKey.panelTrailingTimeStyle:
                     PanelTrailingTimeStyle.remaining.rawValue,
+                ReprisePreferenceKey.playerDisplayPriority:
+                    defaultPlayerDisplayOrder,
                 ReprisePreferenceKey.playerPanelTheme:
                     PlayerPanelTheme.liquid.rawValue,
                 ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens: true,
