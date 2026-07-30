@@ -6,6 +6,7 @@
 import AppKit
 import Carbon
 import CoreText
+import Darwin
 import SwiftUI
 
 private let settingsHotKeySignature: OSType = 0x5250_5253
@@ -52,6 +53,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     private var globalEventMonitor: Any?
     private var settingsHotKey: EventHotKeyRef?
     private var settingsHotKeyHandler: EventHandlerRef?
+    private var instanceLock: RepriseInstanceLock?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit-test hosts also load the app target. Avoid creating a status
@@ -59,6 +61,12 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else {
             return
         }
+
+        guard let instanceLock = RepriseInstanceLock() else {
+            NSApp.terminate(nil)
+            return
+        }
+        self.instanceLock = instanceLock
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }
@@ -86,6 +94,12 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] in
             self?.togglePopover()
         }
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerPanelContentSizeDidChange),
+            name: .playerPanelContentSizeDidChange,
+            object: nil
+        )
         installSettingsHotKeyHandler()
         store.start()
     }
@@ -93,6 +107,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         renderer?.invalidate()
         removeEventMonitors()
+        NotificationCenter.default.removeObserver(self)
         unregisterSettingsHotKey()
         removeSettingsHotKeyHandler()
     }
@@ -140,6 +155,21 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         _ panel: PlayerPanel,
         below button: NSStatusBarButton
     ) {
+        layoutPlayerPanel(panel, below: button)
+        panel.orderFrontRegardless()
+        renderer?.setPanelVisible(true)
+        NotificationCenter.default.post(
+            name: .playerPanelDidShow,
+            object: panel
+        )
+        installEventMonitors()
+        registerSettingsHotKey()
+    }
+
+    private func layoutPlayerPanel(
+        _ panel: PlayerPanel,
+        below button: NSStatusBarButton
+    ) {
         panel.contentView?.layoutSubtreeIfNeeded()
         let fittingSize = panel.contentView?.fittingSize
             ?? PlayerPanelLayout.defaultSize
@@ -167,14 +197,26 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         )
 
         panel.setFrameOrigin(origin)
-        panel.orderFrontRegardless()
-        renderer?.setPanelVisible(true)
-        NotificationCenter.default.post(
-            name: .playerPanelDidShow,
-            object: panel
-        )
-        installEventMonitors()
-        registerSettingsHotKey()
+    }
+
+    @objc
+    private func playerPanelContentSizeDidChange() {
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            self?.resizePlayerPanelIfVisible()
+            try? await Task.sleep(for: .milliseconds(280))
+            guard !Task.isCancelled else { return }
+            self?.resizePlayerPanelIfVisible()
+        }
+    }
+
+    private func resizePlayerPanelIfVisible() {
+        guard let playerPanel,
+              playerPanel.isVisible,
+              let button = statusItem?.button else {
+            return
+        }
+        layoutPlayerPanel(playerPanel, below: button)
     }
 
     private func closePlayerPanel() {
@@ -303,6 +345,31 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+private final class RepriseInstanceLock {
+    private let fileDescriptor: Int32
+
+    init?() {
+        let lockURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("dev.junx.Reprise.instance.lock")
+        let fileDescriptor = Darwin.open(
+            lockURL.path,
+            O_CREAT | O_RDWR,
+            S_IRUSR | S_IWUSR
+        )
+        guard fileDescriptor >= 0 else { return nil }
+        guard flock(fileDescriptor, LOCK_EX | LOCK_NB) == 0 else {
+            Darwin.close(fileDescriptor)
+            return nil
+        }
+        self.fileDescriptor = fileDescriptor
+    }
+
+    deinit {
+        flock(fileDescriptor, LOCK_UN)
+        Darwin.close(fileDescriptor)
+    }
+}
+
 @MainActor
 private final class PlayerPanel: NSPanel {
     init(contentViewController: NSViewController) {
@@ -355,7 +422,6 @@ private final class MenuBarStatusRenderer: NSObject {
     private let statusItem: NSStatusItem
     private let store: NowPlayingStore
     private let marqueeView = MenuBarMarqueeView()
-    private var updateTimer: Timer?
     private var lastContentKey = ""
     private var isPanelVisible = false
 
@@ -382,21 +448,28 @@ private final class MenuBarStatusRenderer: NSObject {
             marqueeView.bottomAnchor.constraint(equalTo: button.bottomAnchor),
         ])
 
-        let timer = Timer(
-            timeInterval: 0.25,
-            target: self,
-            selector: #selector(updateContent),
-            userInfo: nil,
-            repeats: true
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshRequested(_:)),
+            name: .displayedLyricDidChange,
+            object: store
         )
-        RunLoop.main.add(timer, forMode: .common)
-        updateTimer = timer
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshRequested(_:)),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
+
+        store.onMenuBarContentChange = { [weak self] in
+            self?.updateContent()
+        }
         updateContent()
     }
 
     func invalidate() {
-        updateTimer?.invalidate()
-        updateTimer = nil
+        NotificationCenter.default.removeObserver(self)
+        store.onMenuBarContentChange = nil
         marqueeView.stopAnimation()
     }
 
@@ -412,10 +485,14 @@ private final class MenuBarStatusRenderer: NSObject {
     private func updateContent() {
         guard let button = statusItem.button else { return }
 
+        store.ensureLyricsForActiveTrack()
         let snapshot = store.menuBarSnapshot
         let preferences = MarqueePreferences.current()
         let title = if preferences.menuBarTitleFormat == .hidden {
             ""
+        } else if preferences.menuBarShowsLyrics,
+                  let lyric = store.displayedLyricText {
+            lyric
         } else {
             snapshot?.track.map {
                 preferences.menuBarTitleFormat.text(
@@ -453,6 +530,11 @@ private final class MenuBarStatusRenderer: NSObject {
         statusItem.length = contentWidth + MenuBarMarquee.horizontalPadding
     }
 
+    @objc
+    private func refreshRequested(_ notification: Notification) {
+        updateContent()
+    }
+
     private static func contentKey(
         title: String,
         snapshot: PlayerSnapshot?,
@@ -466,12 +548,17 @@ private final class MenuBarStatusRenderer: NSObject {
                 String(describing: preferences.pointsPerSecond),
                 String(preferences.resetsMenuTitleWhenPanelOpens),
                 preferences.menuBarArtworkStyle.rawValue,
+                String(preferences.menuBarShowsLyrics),
                 preferences.menuBarTitleFormat.rawValue,
             ].joined(separator: "|")
         }
         return [
             snapshot.player.rawValue,
             snapshot.state.rawValue,
+            // Synced lyrics change independently of the track metadata.
+            // Include the rendered title so every lyric line invalidates
+            // the menu bar content.
+            title,
             track.title,
             track.album,
             track.artist,
@@ -480,6 +567,7 @@ private final class MenuBarStatusRenderer: NSObject {
             String(describing: preferences.pointsPerSecond),
             String(preferences.resetsMenuTitleWhenPanelOpens),
             preferences.menuBarArtworkStyle.rawValue,
+            String(preferences.menuBarShowsLyrics),
             preferences.menuBarTitleFormat.rawValue,
         ].joined(separator: "|")
     }

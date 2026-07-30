@@ -709,6 +709,141 @@ struct RepriseTests {
         )
     }
 
+    @Test
+    func lyricsDisplayPreferencesUseExpectedDefaults() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            !defaults.bool(
+                forKey: ReprisePreferenceKey.menuBarShowsLyrics
+            )
+        )
+        #expect(!MarqueePreferences.current(defaults: defaults).menuBarShowsLyrics)
+    }
+
+    @Test
+    func vibeSearchParsesAndMatchesArtistAliases() throws {
+        let xml = """
+        <response><result><tracks>
+          <tracks>
+            <trackId>50639387</trackId>
+            <trackTitle>Antifreeze</trackTitle>
+            <artists><artists><artistName>백예린(Yerin Baek)</artistName></artists></artists>
+            <album><albumTitle>선물</albumTitle></album>
+            <hasSyncLyric>true</hasSyncLyric>
+            <isAdult>false</isAdult>
+            <playTime>04:05</playTime>
+          </tracks>
+          <tracks>
+            <trackId>wrong</trackId>
+            <trackTitle>Antifreeze</trackTitle>
+            <artists><artists><artistName>Another Artist</artistName></artists></artists>
+            <album><albumTitle>Another Album</albumTitle></album>
+            <hasSyncLyric>true</hasSyncLyric>
+            <isAdult>false</isAdult>
+            <playTime>02:00</playTime>
+          </tracks>
+        </tracks></result></response>
+        """
+        let candidates = try LyricsService.parseVibeSearch(Data(xml.utf8))
+        let query = LyricsTrackQuery(
+            track: Track(
+                title: "Antifreeze",
+                album: "선물",
+                artist: "Yerin Baek",
+                duration: 245
+            )
+        )
+
+        #expect(candidates.count == 2)
+        #expect(
+            LyricsService.bestVibeCandidate(
+                for: query,
+                candidates: candidates
+            )?.trackID == "50639387"
+        )
+    }
+
+    @Test
+    func vibeSyncedLyricsUseDefaultLanguageAndEndTimes() throws {
+        let xml = """
+        <response><result><lyric>
+          <hasSyncLyric>true</hasSyncLyric>
+          <syncLyric>
+            <startTimeIndex>
+              <startTimeIndex>1.3</startTimeIndex>
+              <startTimeIndex>9.0</startTimeIndex>
+            </startTimeIndex>
+            <endTimeIndex>
+              <endTimeIndex>8.0</endTimeIndex>
+              <endTimeIndex>15.3</endTimeIndex>
+            </endTimeIndex>
+            <contents>
+              <contents>
+                <languageType>translation</languageType>
+                <text><text>Translation one</text><text>Translation two</text></text>
+              </contents>
+              <contents>
+                <languageType>default</languageType>
+                <text><text>첫 번째 줄</text><text>두 번째 줄</text></text>
+              </contents>
+            </contents>
+          </syncLyric>
+        </lyric></result></response>
+        """
+
+        let lyrics = try LyricsService.parseVibeLyrics(Data(xml.utf8))
+
+        #expect(lyrics?.source == .vibe)
+        #expect(lyrics?.lines.count == 2)
+        #expect(lyrics?.lines[0].text == "첫 번째 줄")
+        #expect(lyrics?.lines[0].startTime == 1.3)
+        #expect(lyrics?.lines[0].endTime == 8.0)
+    }
+
+    @Test
+    func lrcParserSupportsOffsetsAndMultipleTimestamps() {
+        let lrc = """
+        [offset:200]
+        [00:01.00][00:03.50]같은 가사
+        [00:06.25]다음 가사
+        [ar:Artist]
+        """
+
+        let lines = LyricsService.parseLRC(lrc, duration: 10)
+
+        #expect(lines.count == 3)
+        #expect(abs(lines[0].startTime - 1.2) < 0.001)
+        #expect(abs(lines[1].startTime - 3.7) < 0.001)
+        #expect(lines[0].text == "같은 가사")
+        #expect(lines[2].text == "다음 가사")
+        #expect(lines[2].endTime == 10)
+    }
+
+    @Test
+    func syncedLyricsReturnNoLineOutsideVibeTiming() {
+        let lyrics = SyncedLyrics(
+            source: .vibe,
+            lines: [
+                LyricLine(startTime: 2, endTime: 5, text: "첫 줄"),
+                LyricLine(startTime: 8, endTime: 11, text: "둘째 줄"),
+            ]
+        )
+
+        #expect(lyrics.line(at: 1) == nil)
+        #expect(lyrics.line(at: 3)?.text == "첫 줄")
+        #expect(lyrics.line(at: 6) == nil)
+        #expect(lyrics.focusedLineIndex(at: 6) == 0)
+        #expect(lyrics.line(at: 9)?.text == "둘째 줄")
+        #expect(lyrics.line(at: 12) == nil)
+    }
+
     private func makeSnapshot(
         player: MediaPlayerKind,
         state: PlaybackState,

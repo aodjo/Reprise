@@ -51,6 +51,8 @@ struct RepriseSettingsView: View {
 private struct GeneralSettingsView: View {
     @AppStorage(ReprisePreferenceKey.automaticallyPausesOtherPlayer)
     private var automaticallyPausesOtherPlayer = false
+    @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
+    private var menuBarShowsLyrics = false
     @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
     private var playerDisplayOrder =
         ReprisePreferences.defaultPlayerDisplayOrder
@@ -77,6 +79,17 @@ private struct GeneralSettingsView: View {
                 Text(
                     "한 플레이어가 재생을 시작하면 기존에 재생 중이던 다른 플레이어를 일시 정지합니다."
                 )
+            }
+
+            Section {
+                Toggle(
+                    "가사 표시",
+                    isOn: $menuBarShowsLyrics
+                )
+            } header: {
+                Text("제어 목록")
+            } footer: {
+                Text("현재 동기화 가사를 상단 제어 막대의 곡 제목 위치에 표시합니다.")
             }
 
             Section {
@@ -563,6 +576,9 @@ private struct MenuBarSettingsView: View {
     @AppStorage(ReprisePreferenceKey.menuBarArtworkStyle)
     private var menuBarArtworkStyle = MenuBarArtworkStyle.albumArtwork.rawValue
 
+    @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
+    private var menuBarShowsLyrics = false
+
     @AppStorage(ReprisePreferenceKey.menuBarTitleFormat)
     private var menuBarTitleFormat = MenuBarTitleFormat.titleOnly.rawValue
 
@@ -584,6 +600,7 @@ private struct MenuBarSettingsView: View {
                 MenuBarArtworkPreview(
                     style: artworkStyle,
                     titleFormat: titleFormat,
+                    showsLyrics: menuBarShowsLyrics,
                     automaticallyScrolls: automaticallyScrollTitles,
                     pointsPerSecond: carouselSpeed
                 )
@@ -607,6 +624,7 @@ private struct MenuBarSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+
             }
 
             Section("캐러셀") {
@@ -658,11 +676,15 @@ private struct MenuBarSettingsView: View {
 private struct MenuBarArtworkPreview: View {
     let style: MenuBarArtworkStyle
     let titleFormat: MenuBarTitleFormat
+    let showsLyrics: Bool
     let automaticallyScrolls: Bool
     let pointsPerSecond: CGFloat
 
     private var previewTitle: String {
-        titleFormat.text(
+        if showsLyrics, titleFormat != .hidden {
+            return "우리는 음악 속에서 다시 만나요"
+        }
+        return titleFormat.text(
             title: "여기에 재생 중인 음악 제목이 표시됩니다",
             artist: "미리보기 아티스트"
         )

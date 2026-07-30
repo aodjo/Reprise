@@ -12,6 +12,7 @@ enum ReprisePreferenceKey {
     static let automaticallyScrollTitles = "automaticallyScrollTitles"
     static let marqueeSpeed = "marqueeSpeed"
     static let menuBarArtworkStyle = "menuBarArtworkStyle"
+    static let menuBarShowsLyrics = "menuBarShowsLyrics"
     static let menuBarTitleFormat = "menuBarTitleFormat"
     static let panelLeadingTimeStyle = "panelLeadingTimeStyle"
     static let panelTrailingTimeStyle = "panelTrailingTimeStyle"
@@ -188,6 +189,7 @@ struct MarqueePreferences: Equatable {
     let pointsPerSecond: CGFloat
     let resetsMenuTitleWhenPanelOpens: Bool
     let menuBarArtworkStyle: MenuBarArtworkStyle
+    let menuBarShowsLyrics: Bool
     let menuBarTitleFormat: MenuBarTitleFormat
 
     static func current(
@@ -220,6 +222,9 @@ struct MarqueePreferences: Equatable {
                 artworkStyle == .hidden && titleFormat == .hidden
                     ? .albumArtwork
                     : artworkStyle,
+            menuBarShowsLyrics: defaults.bool(
+                forKey: ReprisePreferenceKey.menuBarShowsLyrics
+            ),
             menuBarTitleFormat: titleFormat
         )
     }
@@ -286,6 +291,7 @@ enum ReprisePreferences {
                 ReprisePreferenceKey.marqueeSpeed: MarqueeSpeed.normal.rawValue,
                 ReprisePreferenceKey.menuBarArtworkStyle:
                     MenuBarArtworkStyle.albumArtwork.rawValue,
+                ReprisePreferenceKey.menuBarShowsLyrics: false,
                 ReprisePreferenceKey.menuBarTitleFormat:
                     MenuBarTitleFormat.titleOnly.rawValue,
                 ReprisePreferenceKey.panelLeadingTimeStyle:

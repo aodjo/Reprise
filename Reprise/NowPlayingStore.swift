@@ -13,11 +13,25 @@ final class NowPlayingStore {
     private(set) var appleMusic = PlayerSnapshot.notRunning(.appleMusic)
     private(set) var isRefreshing = false
     private(set) var commandError: String?
+    private(set) var lyricsState = LyricsLoadState.idle
+    private(set) var displayedLyricText: String?
+    @ObservationIgnored
+    var onMenuBarContentChange: (() -> Void)?
 
     private let automation = MediaAutomationService()
+    private let lyricsService: LyricsService
     private var pollingTask: Task<Void, Never>?
+    private var lyricsTask: Task<Void, Never>?
+    private var lyricsDisplayTask: Task<Void, Never>?
     private var hasCompletedInitialRefresh = false
     private var stateMutationRevision = 0
+    private var lyricsQuery: LyricsTrackQuery?
+    private var lyricsCache: [LyricsTrackQuery: LyricsCacheEntry] = [:]
+    private var playbackAnchor: PlaybackAnchor?
+
+    init(lyricsService: LyricsService = LyricsService()) {
+        self.lyricsService = lyricsService
+    }
 
     var activeSnapshot: PlayerSnapshot {
         menuBarSnapshot
@@ -55,8 +69,70 @@ final class NowPlayingStore {
         return "\(snapshot.player.displayName), \(track.title)"
     }
 
+    var syncedLyrics: SyncedLyrics? {
+        lyricsState.lyrics
+    }
+
+    func estimatedPlaybackPosition(
+        at date: Date = Date()
+    ) -> TimeInterval {
+        guard let snapshot = menuBarSnapshot,
+              let track = snapshot.track else {
+            return 0
+        }
+        let query = LyricsTrackQuery(track: track)
+        guard let playbackAnchor,
+              playbackAnchor.query == query else {
+            return PlaybackPosition.clamped(
+                track.position,
+                duration: track.duration
+            )
+        }
+
+        let elapsed = playbackAnchor.state.isPlaying
+            ? max(date.timeIntervalSince(playbackAnchor.observedAt), 0)
+            : 0
+        return PlaybackPosition.clamped(
+            playbackAnchor.position + elapsed,
+            duration: playbackAnchor.duration
+        )
+    }
+
+    func currentLyricLine(
+        at date: Date = Date()
+    ) -> LyricLine? {
+        guard let syncedLyrics,
+              let index = syncedLyrics.focusedLineIndex(
+                  at: estimatedPlaybackPosition(at: date)
+              ) else {
+            return nil
+        }
+        return syncedLyrics.lines[index]
+    }
+
+    func currentLyricLineIndex(
+        at date: Date = Date()
+    ) -> Int? {
+        syncedLyrics?.focusedLineIndex(
+            at: estimatedPlaybackPosition(at: date)
+        )
+    }
+
+    func focusedLyricLineIndex(
+        at date: Date = Date()
+    ) -> Int? {
+        currentLyricLineIndex(at: date)
+    }
+
     func start() {
         guard pollingTask == nil else { return }
+
+        lyricsDisplayTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.updateDisplayedLyric()
+                try? await Task.sleep(for: .milliseconds(100))
+            }
+        }
 
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -86,6 +162,8 @@ final class NowPlayingStore {
 
         spotify = currentSpotify
         appleMusic = currentAppleMusic
+        synchronizeLyricsWithActiveTrack(observedAt: Date())
+        onMenuBarContentChange?()
 
         guard hasCompletedInitialRefresh else {
             hasCompletedInitialRefresh = true
@@ -161,6 +239,7 @@ final class NowPlayingStore {
             previousSnapshot.withPosition(position),
             for: player
         )
+        synchronizeLyricsWithActiveTrack(observedAt: Date())
 
         do {
             let actualPosition = try await automation.setPosition(
@@ -180,11 +259,17 @@ final class NowPlayingStore {
                 ),
                 for: player
             )
+            synchronizeLyricsWithActiveTrack(observedAt: Date())
         } catch {
             stateMutationRevision &+= 1
             updateSnapshot(previousSnapshot, for: player)
+            synchronizeLyricsWithActiveTrack(observedAt: Date())
             commandError = MediaAutomationService.userFacingMessage(for: error)
         }
+    }
+
+    func ensureLyricsForActiveTrack() {
+        synchronizeLyricsWithActiveTrack(observedAt: nil)
     }
 
     func snapshot(for player: MediaPlayerKind) -> PlayerSnapshot {
@@ -284,6 +369,101 @@ final class NowPlayingStore {
             appleMusic = snapshot
         }
     }
+
+    private func synchronizeLyricsWithActiveTrack(
+        observedAt: Date?
+    ) {
+        guard let snapshot = menuBarSnapshot,
+              let track = snapshot.track else {
+            lyricsTask?.cancel()
+            lyricsTask = nil
+            lyricsQuery = nil
+            playbackAnchor = nil
+            lyricsState = .idle
+            updateDisplayedLyric()
+            return
+        }
+
+        let query = LyricsTrackQuery(track: track)
+        let anchorDate = observedAt
+            ?? (playbackAnchor?.query == query ? nil : Date())
+        if let anchorDate {
+            playbackAnchor = PlaybackAnchor(
+                query: query,
+                position: track.position,
+                duration: track.duration,
+                state: snapshot.state,
+                observedAt: anchorDate
+            )
+        }
+
+        guard lyricsQuery != query else { return }
+        lyricsTask?.cancel()
+        lyricsQuery = query
+        lyricsState = .loading
+        updateDisplayedLyric()
+
+        if let cached = lyricsCache[query] {
+            lyricsState = cached.state
+            updateDisplayedLyric()
+            return
+        }
+
+        let service = lyricsService
+        lyricsTask = Task { [weak self] in
+            let lyrics = await service.fetchSyncedLyrics(for: query)
+            guard !Task.isCancelled, let self else { return }
+            let entry = LyricsCacheEntry(lyrics: lyrics)
+            lyricsCache[query] = entry
+            guard lyricsQuery == query else { return }
+            lyricsState = entry.state
+            updateDisplayedLyric()
+            lyricsTask = nil
+        }
+    }
+
+    private func updateDisplayedLyric(
+        at date: Date = Date()
+    ) {
+        let text = currentLyricLine(at: date)?.text
+        guard displayedLyricText != text else { return }
+        displayedLyricText = text
+        NotificationCenter.default.post(
+            name: .displayedLyricDidChange,
+            object: self
+        )
+        onMenuBarContentChange?()
+    }
+}
+
+private struct PlaybackAnchor {
+    let query: LyricsTrackQuery
+    let position: TimeInterval
+    let duration: TimeInterval
+    let state: PlaybackState
+    let observedAt: Date
+}
+
+private enum LyricsCacheEntry {
+    case available(SyncedLyrics)
+    case unavailable
+
+    init(lyrics: SyncedLyrics?) {
+        if let lyrics {
+            self = .available(lyrics)
+        } else {
+            self = .unavailable
+        }
+    }
+
+    var state: LyricsLoadState {
+        switch self {
+        case let .available(lyrics):
+            .available(lyrics)
+        case .unavailable:
+            .unavailable
+        }
+    }
 }
 
 private extension PlayerSnapshot {
@@ -332,4 +512,10 @@ private extension PlayerSnapshot {
             errorMessage: errorMessage
         )
     }
+}
+
+extension Notification.Name {
+    static let displayedLyricDidChange = Notification.Name(
+        "dev.junx.Reprise.displayedLyricDidChange"
+    )
 }

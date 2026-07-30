@@ -83,6 +83,13 @@ struct PlayerPopoverView: View {
             if let track = snapshot.track {
                 playerCard(track)
                     .padding(14)
+
+                if store.syncedLyrics != nil {
+                    InlineLyricsView(store: store)
+                        .transition(
+                            .move(edge: .top).combined(with: .opacity)
+                        )
+                }
             } else {
                 emptyPlayer
                     .padding(16)
@@ -119,6 +126,9 @@ struct PlayerPopoverView: View {
             isSeeking = false
             pendingSeekPosition = nil
             seekRequestID = nil
+        }
+        .onChange(of: store.lyricsState) {
+            notifyPanelContentSizeChanged()
         }
         .onDisappear {
             volumeUpdateTask?.cancel()
@@ -410,6 +420,13 @@ struct PlayerPopoverView: View {
         }
     }
 
+    private func notifyPanelContentSizeChanged() {
+        NotificationCenter.default.post(
+            name: .playerPanelContentSizeDidChange,
+            object: nil
+        )
+    }
+
     private func controlButton(
         command: PlaybackCommand,
         symbol: String,
@@ -633,6 +650,105 @@ private struct PlayerLogoView: View {
                 .accessibilityLabel("Apple Music 로고")
                 .accessibilityIdentifier("playerLogo")
         }
+    }
+}
+
+private struct InlineLyricsView: View {
+    @Bindable var store: NowPlayingStore
+    private let rowHeight: CGFloat = 34
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                lyricsBody(at: context.date)
+            }
+            .frame(height: 100)
+            .mask {
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.18),
+                        .init(color: .black, location: 0.82),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            }
+            .clipped()
+
+            HStack {
+                Spacer()
+                if let source = store.syncedLyrics?.source {
+                    Text(source.rawValue)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 16)
+        }
+        .frame(height: 116)
+        .overlay(alignment: .top) {
+            Rectangle()
+                .fill(.primary.opacity(0.14))
+                .frame(height: 0.5)
+        }
+    }
+
+    private func lyricsBody(at date: Date) -> some View {
+        let lyrics = store.syncedLyrics
+        let currentIndex = store.currentLyricLineIndex(at: date)
+        let focusedIndex =
+            store.focusedLyricLineIndex(at: date) ?? 0
+
+        return GeometryReader { proxy in
+            if let lyrics {
+                VStack(spacing: 0) {
+                    ForEach(lyrics.lines.indices, id: \.self) { index in
+                        lyricRow(
+                            lyrics.lines[index].text,
+                            isCurrent: currentIndex == index
+                        )
+                        .frame(height: rowHeight)
+                    }
+                }
+                .offset(
+                    y: proxy.size.height / 2
+                        - rowHeight / 2
+                        - CGFloat(focusedIndex) * rowHeight
+                )
+                .animation(
+                    .smooth(duration: 0.48),
+                    value: focusedIndex
+                )
+                .animation(
+                    .easeInOut(duration: 0.24),
+                    value: currentIndex
+                )
+            }
+        }
+    }
+
+    private func lyricRow(
+        _ text: String?,
+        isCurrent: Bool
+    ) -> some View {
+        Text(text ?? "")
+            .font(
+                .system(
+                    size: isCurrent ? 16 : 12,
+                    weight: isCurrent ? .semibold : .regular
+                )
+            )
+            .foregroundStyle(.primary)
+            .opacity(isCurrent ? 1 : 0.42)
+            .scaleEffect(isCurrent ? 1 : 0.96)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 18)
+            .contentTransition(.opacity)
     }
 }
 
@@ -977,5 +1093,8 @@ private final class VolumeSliderPanel: NSPanel {
 extension Notification.Name {
     static let openRepriseSettings = Notification.Name(
         "dev.junx.Reprise.openSettings"
+    )
+    static let playerPanelContentSizeDidChange = Notification.Name(
+        "dev.junx.Reprise.playerPanelContentSizeDidChange"
     )
 }
