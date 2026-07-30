@@ -654,15 +654,21 @@ private struct PlayerLogoView: View {
 }
 
 private struct InlineLyricsView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var store: NowPlayingStore
-    private let rowHeight: CGFloat = 34
+    private let rowHeight: CGFloat = 29
+    private let lyricsViewportHeight: CGFloat = 120
+    private let sourceHeight: CGFloat = 16
+    private let previousLineTopInset: CGFloat = 2
+    private let maximumCascadeStep = 3
+    private let cascadeDelay = 0.045
 
     var body: some View {
         VStack(spacing: 0) {
             TimelineView(.periodic(from: .now, by: 0.25)) { context in
                 lyricsBody(at: context.date)
             }
-            .frame(height: 100)
+            .frame(height: lyricsViewportHeight)
             .mask {
                 LinearGradient(
                     stops: [
@@ -686,9 +692,9 @@ private struct InlineLyricsView: View {
                 }
             }
             .padding(.horizontal, 14)
-            .frame(height: 16)
+            .frame(height: sourceHeight)
         }
-        .frame(height: 116)
+        .frame(height: lyricsViewportHeight + sourceHeight)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(.primary.opacity(0.14))
@@ -702,30 +708,31 @@ private struct InlineLyricsView: View {
         let focusedIndex =
             store.focusedLyricLineIndex(at: date) ?? 0
 
-        return GeometryReader { proxy in
+        return GeometryReader { _ in
             if let lyrics {
-                VStack(spacing: 0) {
+                ZStack(alignment: .top) {
                     ForEach(lyrics.lines.indices, id: \.self) { index in
+                        let relativeIndex = index - focusedIndex
+                        let isCurrent = currentIndex == index
+
                         lyricRow(
                             lyrics.lines[index].text,
-                            isCurrent: currentIndex == index
+                            isCurrent: isCurrent
                         )
                         .frame(height: rowHeight)
+                        .offset(
+                            y: previousLineTopInset
+                                + CGFloat(relativeIndex + 1) * rowHeight
+                        )
+                        .animation(
+                            movementAnimation(
+                                relativeIndex: relativeIndex
+                            ),
+                            value: focusedIndex
+                        )
+                        .zIndex(isCurrent ? 1 : 0)
                     }
                 }
-                .offset(
-                    y: proxy.size.height / 2
-                        - rowHeight / 2
-                        - CGFloat(focusedIndex) * rowHeight
-                )
-                .animation(
-                    .smooth(duration: 0.48),
-                    value: focusedIndex
-                )
-                .animation(
-                    .easeInOut(duration: 0.24),
-                    value: currentIndex
-                )
             }
         }
     }
@@ -735,20 +742,36 @@ private struct InlineLyricsView: View {
         isCurrent: Bool
     ) -> some View {
         Text(text ?? "")
-            .font(
-                .system(
-                    size: isCurrent ? 16 : 12,
-                    weight: isCurrent ? .semibold : .regular
-                )
-            )
+            .font(.system(size: 15, weight: .semibold))
             .foregroundStyle(.primary)
-            .opacity(isCurrent ? 1 : 0.42)
-            .scaleEffect(isCurrent ? 1 : 0.96)
+            .opacity(isCurrent ? 1 : 0.38)
             .lineLimit(1)
             .truncationMode(.tail)
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 18)
             .contentTransition(.opacity)
+            .animation(
+                reduceMotion
+                    ? .easeOut(duration: 0.15)
+                    : .easeInOut(duration: 0.22),
+                value: isCurrent
+            )
+    }
+
+    private func movementAnimation(
+        relativeIndex: Int
+    ) -> Animation {
+        if reduceMotion {
+            return .easeOut(duration: 0.18)
+        }
+
+        let cascadeStep = min(
+            max(relativeIndex, 0),
+            maximumCascadeStep
+        )
+
+        return .spring(duration: 0.56, bounce: 0.24)
+            .delay(Double(cascadeStep) * cascadeDelay)
     }
 }
 
