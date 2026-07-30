@@ -119,7 +119,7 @@ private struct GeneralSettingsView: View {
             } header: {
                 Text("표시 우선순위")
             } footer: {
-                Text("항목을 드래그하여 표시 순서를 변경할 수 있습니다.")
+                Text("동시 재생시 표시할 플레이어의 우선순위를 정합니다. 항목을 드래그하여 우선순위를 변경할 수 있습니다.")
             }
         }
         .formStyle(.grouped)
