@@ -53,6 +53,8 @@ private struct GeneralSettingsView: View {
     private var automaticallyPausesOtherPlayer = false
     @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
     private var menuBarShowsLyrics = false
+    @AppStorage(ReprisePreferenceKey.menuBarReservesLyricsWidth)
+    private var menuBarReservesLyricsWidth = true
     @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
     private var playerDisplayOrder =
         ReprisePreferences.defaultPlayerDisplayOrder
@@ -86,10 +88,18 @@ private struct GeneralSettingsView: View {
                     "가사 표시",
                     isOn: $menuBarShowsLyrics
                 )
+
+                Toggle(
+                    "가사 공간 확보",
+                    isOn: $menuBarReservesLyricsWidth
+                )
+                .disabled(!menuBarShowsLyrics)
             } header: {
                 Text("제어 목록")
             } footer: {
-                Text("현재 동기화 가사를 상단 제어 막대의 곡 제목 위치에 표시합니다.")
+                Text(
+                    "공간 확보를 켜면 가사 길이가 달라져도 메뉴바 너비를 고정해 주변 항목이 움직이지 않게 합니다."
+                )
             }
 
             Section {
@@ -579,6 +589,9 @@ private struct MenuBarSettingsView: View {
     @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
     private var menuBarShowsLyrics = false
 
+    @AppStorage(ReprisePreferenceKey.menuBarReservesLyricsWidth)
+    private var menuBarReservesLyricsWidth = true
+
     @AppStorage(ReprisePreferenceKey.menuBarTitleFormat)
     private var menuBarTitleFormat = MenuBarTitleFormat.titleOnly.rawValue
 
@@ -601,6 +614,7 @@ private struct MenuBarSettingsView: View {
                     style: artworkStyle,
                     titleFormat: titleFormat,
                     showsLyrics: menuBarShowsLyrics,
+                    reservesLyricsWidth: menuBarReservesLyricsWidth,
                     automaticallyScrolls: automaticallyScrollTitles,
                     pointsPerSecond: carouselSpeed
                 )
@@ -677,12 +691,13 @@ private struct MenuBarArtworkPreview: View {
     let style: MenuBarArtworkStyle
     let titleFormat: MenuBarTitleFormat
     let showsLyrics: Bool
+    let reservesLyricsWidth: Bool
     let automaticallyScrolls: Bool
     let pointsPerSecond: CGFloat
 
     private var previewTitle: String {
         if showsLyrics, titleFormat != .hidden {
-            return "우리는 음악 속에서 다시 만나요"
+            return "다시 만나요"
         }
         return titleFormat.text(
             title: "여기에 재생 중인 음악 제목이 표시됩니다",
@@ -705,7 +720,11 @@ private struct MenuBarArtworkPreview: View {
                     foregroundColor: .white
                 )
                 .frame(
-                    width: MenuBarMarquee.maximumTextWidth,
+                    width: MenuBarMarquee.viewportWidth(
+                        for: MenuBarMarquee.textWidth(previewTitle),
+                        reservesMaximumTextWidth:
+                            showsLyrics && reservesLyricsWidth
+                    ),
                     height: 30
                 )
             }
@@ -728,6 +747,10 @@ private struct MenuBarArtworkPreview: View {
         }
         .animation(.easeInOut(duration: 0.18), value: style)
         .animation(.easeInOut(duration: 0.18), value: titleFormat)
+        .animation(
+            .easeInOut(duration: 0.18),
+            value: reservesLyricsWidth
+        )
     }
 }
 

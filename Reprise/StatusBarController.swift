@@ -515,6 +515,11 @@ private final class MenuBarStatusRenderer: NSObject {
             symbolName: snapshot?.player.symbolName ?? "music.note",
             artworkStyle: preferences.menuBarArtworkStyle,
             isPlaying: snapshot?.state.isPlaying == true,
+            reservesTextWidth:
+                preferences.menuBarShowsLyrics
+                && preferences.menuBarReservesLyricsWidth
+                && preferences.menuBarTitleFormat != .hidden
+                && snapshot?.track != nil,
             preferences: preferences
         )
         marqueeView.setPaused(
@@ -548,6 +553,7 @@ private final class MenuBarStatusRenderer: NSObject {
                 String(describing: preferences.pointsPerSecond),
                 String(preferences.resetsMenuTitleWhenPanelOpens),
                 preferences.menuBarArtworkStyle.rawValue,
+                String(preferences.menuBarReservesLyricsWidth),
                 String(preferences.menuBarShowsLyrics),
                 preferences.menuBarTitleFormat.rawValue,
             ].joined(separator: "|")
@@ -567,6 +573,7 @@ private final class MenuBarStatusRenderer: NSObject {
             String(describing: preferences.pointsPerSecond),
             String(preferences.resetsMenuTitleWhenPanelOpens),
             preferences.menuBarArtworkStyle.rawValue,
+            String(preferences.menuBarReservesLyricsWidth),
             String(preferences.menuBarShowsLyrics),
             preferences.menuBarTitleFormat.rawValue,
         ].joined(separator: "|")
@@ -642,13 +649,18 @@ private final class MenuBarMarqueeView: NSView {
         symbolName: String,
         artworkStyle: MenuBarArtworkStyle,
         isPlaying: Bool,
+        reservesTextWidth: Bool,
         preferences: MarqueePreferences
     ) -> CGFloat {
         let titleWidth = MenuBarMarquee.textWidth(title)
-        let viewportWidth = MenuBarMarquee.viewportWidth(for: titleWidth)
+        let viewportWidth = MenuBarMarquee.viewportWidth(
+            for: titleWidth,
+            reservesMaximumTextWidth: reservesTextWidth
+        )
         let contentWidth = MenuBarMarquee.totalWidth(
             for: titleWidth,
-            artworkStyle: artworkStyle
+            artworkStyle: artworkStyle,
+            reservesMaximumTextWidth: reservesTextWidth
         )
         let availableHeight = max(bounds.height, NSStatusBar.system.thickness)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
@@ -876,7 +888,7 @@ private final class MenuBarMarqueeView: NSView {
         scrollingLayer.removeAnimation(forKey: "marquee")
         scrollingLayer.removeAnimation(forKey: "returnToStart")
         scrollingLayer.setAffineTransform(.identity)
-        secondTitleLayer.isHidden = false
+        secondTitleLayer.isHidden = true
         marqueeStartedAt = nil
     }
 
@@ -961,6 +973,7 @@ private final class MenuBarMarqueeView: NSView {
         scale: CGFloat,
         pointsPerSecond: CGFloat
     ) {
+        secondTitleLayer.isHidden = false
         scrollingLayer.add(
             PixelAlignedMarquee.animation(
                 distance: distance,
@@ -1080,8 +1093,13 @@ enum MenuBarMarquee {
         titleWidth > maximumTextWidth
     }
 
-    static func viewportWidth(for titleWidth: CGFloat) -> CGFloat {
-        min(titleWidth, maximumTextWidth)
+    static func viewportWidth(
+        for titleWidth: CGFloat,
+        reservesMaximumTextWidth: Bool = false
+    ) -> CGFloat {
+        reservesMaximumTextWidth
+            ? maximumTextWidth
+            : min(titleWidth, maximumTextWidth)
     }
 
     static func leadingVisualWidth(
@@ -1094,12 +1112,16 @@ enum MenuBarMarquee {
 
     static func totalWidth(
         for titleWidth: CGFloat,
-        artworkStyle: MenuBarArtworkStyle = .albumArtwork
+        artworkStyle: MenuBarArtworkStyle = .albumArtwork,
+        reservesMaximumTextWidth: Bool = false
     ) -> CGFloat {
         leadingVisualWidth(
             for: artworkStyle,
             titleWidth: titleWidth
-        ) + viewportWidth(for: titleWidth)
+        ) + viewportWidth(
+            for: titleWidth,
+            reservesMaximumTextWidth: reservesMaximumTextWidth
+        )
     }
 
     static func titleOriginY(

@@ -108,6 +108,10 @@ struct RepriseTests {
             MenuBarTitleFormat.artistTitle.rawValue,
             forKey: ReprisePreferenceKey.menuBarTitleFormat
         )
+        defaults.set(
+            false,
+            forKey: ReprisePreferenceKey.menuBarReservesLyricsWidth
+        )
 
         let preferences = MarqueePreferences.current(defaults: defaults)
 
@@ -116,6 +120,7 @@ struct RepriseTests {
         #expect(!preferences.resetsMenuTitleWhenPanelOpens)
         #expect(preferences.menuBarArtworkStyle == .levelIndicator)
         #expect(preferences.menuBarTitleFormat == .artistTitle)
+        #expect(!preferences.menuBarReservesLyricsWidth)
         #expect(
             defaults.string(
                 forKey: ReprisePreferenceKey.playerPanelTheme
@@ -218,6 +223,27 @@ struct RepriseTests {
                 for: 0,
                 artworkStyle: .albumArtwork
             ) == MenuBarMarquee.artworkSize
+        )
+    }
+
+    @Test
+    func reservedLyricsWidthDoesNotChangeWithShortLines() {
+        let shortLineWidth = MenuBarMarquee.textWidth("짧은 가사")
+        let longerLineWidth = MenuBarMarquee.textWidth(
+            "길이가 조금 더 긴 다음 가사"
+        )
+
+        #expect(
+            MenuBarMarquee.viewportWidth(
+                for: shortLineWidth,
+                reservesMaximumTextWidth: true
+            ) == MenuBarMarquee.maximumTextWidth
+        )
+        #expect(
+            MenuBarMarquee.viewportWidth(
+                for: longerLineWidth,
+                reservesMaximumTextWidth: true
+            ) == MenuBarMarquee.maximumTextWidth
         )
     }
 
@@ -724,7 +750,16 @@ struct RepriseTests {
                 forKey: ReprisePreferenceKey.menuBarShowsLyrics
             )
         )
+        #expect(
+            defaults.bool(
+                forKey: ReprisePreferenceKey.menuBarReservesLyricsWidth
+            )
+        )
         #expect(!MarqueePreferences.current(defaults: defaults).menuBarShowsLyrics)
+        #expect(
+            MarqueePreferences.current(defaults: defaults)
+                .menuBarReservesLyricsWidth
+        )
     }
 
     @Test
