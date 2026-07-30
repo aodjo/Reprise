@@ -591,6 +591,7 @@ private final class MenuBarStatusRenderer: NSObject {
                 String(describing: preferences.pointsPerSecond),
                 String(preferences.resetsMenuTitleWhenPanelOpens),
                 preferences.menuBarArtworkStyle.rawValue,
+                String(describing: preferences.menuBarLyricsWidth),
                 String(preferences.menuBarReservesLyricsWidth),
                 String(preferences.menuBarShowsLyrics),
                 preferences.menuBarTitleFormat.rawValue,
@@ -611,6 +612,7 @@ private final class MenuBarStatusRenderer: NSObject {
             String(describing: preferences.pointsPerSecond),
             String(preferences.resetsMenuTitleWhenPanelOpens),
             preferences.menuBarArtworkStyle.rawValue,
+            String(describing: preferences.menuBarLyricsWidth),
             String(preferences.menuBarReservesLyricsWidth),
             String(preferences.menuBarShowsLyrics),
             preferences.menuBarTitleFormat.rawValue,
@@ -707,14 +709,19 @@ private final class MenuBarMarqueeView: NSView {
         preferences: MarqueePreferences
     ) -> CGFloat {
         let titleWidth = MenuBarMarquee.textWidth(title)
+        let maximumTextWidth = preferences.menuBarShowsLyrics
+            ? preferences.menuBarLyricsWidth
+            : MenuBarMarquee.maximumTextWidth
         let viewportWidth = MenuBarMarquee.viewportWidth(
             for: titleWidth,
-            reservesMaximumTextWidth: reservesTextWidth
+            reservesMaximumTextWidth: reservesTextWidth,
+            maximumWidth: maximumTextWidth
         )
         let contentWidth = MenuBarMarquee.totalWidth(
             for: titleWidth,
             artworkStyle: artworkStyle,
-            reservesMaximumTextWidth: reservesTextWidth
+            reservesMaximumTextWidth: reservesTextWidth,
+            maximumWidth: maximumTextWidth
         )
         let availableHeight = max(bounds.height, NSStatusBar.system.thickness)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
@@ -767,7 +774,8 @@ private final class MenuBarMarqueeView: NSView {
                 height: availableHeight
             ),
             showsFade: MenuBarMarquee.requiresScrolling(
-                titleWidth: titleWidth
+                titleWidth: titleWidth,
+                maximumWidth: maximumTextWidth
             )
         )
         scrollingLayer.frame = CGRect(
@@ -791,7 +799,10 @@ private final class MenuBarMarqueeView: NSView {
 
         stopAnimation()
         if preferences.automaticallyScrollsTitles,
-           MenuBarMarquee.requiresScrolling(titleWidth: titleWidth) {
+           MenuBarMarquee.requiresScrolling(
+               titleWidth: titleWidth,
+               maximumWidth: maximumTextWidth
+           ) {
             pendingAnimation = (
                 titleWidth + MenuBarMarquee.titleGap,
                 scale,
@@ -1134,7 +1145,9 @@ private final class MenuBarMarqueeView: NSView {
 }
 
 enum MenuBarMarquee {
-    static let maximumTextWidth: CGFloat = 170
+    static let maximumTextWidth = CGFloat(
+        MenuBarLyricsWidth.defaultValue
+    )
     static let artworkSize: CGFloat = 18
     static let artworkTitleSpacing: CGFloat = 5
     static let discHoleInset: CGFloat = 7
@@ -1166,17 +1179,21 @@ enum MenuBarMarquee {
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
     }
 
-    static func requiresScrolling(titleWidth: CGFloat) -> Bool {
-        titleWidth > maximumTextWidth
+    static func requiresScrolling(
+        titleWidth: CGFloat,
+        maximumWidth: CGFloat = maximumTextWidth
+    ) -> Bool {
+        titleWidth > maximumWidth
     }
 
     static func viewportWidth(
         for titleWidth: CGFloat,
-        reservesMaximumTextWidth: Bool = false
+        reservesMaximumTextWidth: Bool = false,
+        maximumWidth: CGFloat = maximumTextWidth
     ) -> CGFloat {
         reservesMaximumTextWidth
-            ? maximumTextWidth
-            : min(titleWidth, maximumTextWidth)
+            ? maximumWidth
+            : min(titleWidth, maximumWidth)
     }
 
     static func leadingVisualWidth(
@@ -1190,14 +1207,16 @@ enum MenuBarMarquee {
     static func totalWidth(
         for titleWidth: CGFloat,
         artworkStyle: MenuBarArtworkStyle = .albumArtwork,
-        reservesMaximumTextWidth: Bool = false
+        reservesMaximumTextWidth: Bool = false,
+        maximumWidth: CGFloat = maximumTextWidth
     ) -> CGFloat {
         leadingVisualWidth(
             for: artworkStyle,
             titleWidth: titleWidth
         ) + viewportWidth(
             for: titleWidth,
-            reservesMaximumTextWidth: reservesMaximumTextWidth
+            reservesMaximumTextWidth: reservesMaximumTextWidth,
+            maximumWidth: maximumWidth
         )
     }
 

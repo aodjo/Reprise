@@ -112,6 +112,10 @@ struct RepriseTests {
             false,
             forKey: ReprisePreferenceKey.menuBarReservesLyricsWidth
         )
+        defaults.set(
+            240.0,
+            forKey: ReprisePreferenceKey.menuBarLyricsWidth
+        )
 
         let preferences = MarqueePreferences.current(defaults: defaults)
 
@@ -121,6 +125,7 @@ struct RepriseTests {
         #expect(preferences.menuBarArtworkStyle == .levelIndicator)
         #expect(preferences.menuBarTitleFormat == .artistTitle)
         #expect(!preferences.menuBarReservesLyricsWidth)
+        #expect(preferences.menuBarLyricsWidth == 240)
         #expect(
             defaults.string(
                 forKey: ReprisePreferenceKey.playerPanelTheme
@@ -244,6 +249,31 @@ struct RepriseTests {
                 for: longerLineWidth,
                 reservesMaximumTextWidth: true
             ) == MenuBarMarquee.maximumTextWidth
+        )
+    }
+
+    @Test
+    func configuredLyricsWidthControlsTheMenuBarViewport() {
+        let configuredWidth: CGFloat = 240
+
+        #expect(
+            MenuBarMarquee.viewportWidth(
+                for: 40,
+                reservesMaximumTextWidth: true,
+                maximumWidth: configuredWidth
+            ) == configuredWidth
+        )
+        #expect(
+            MenuBarMarquee.viewportWidth(
+                for: 400,
+                maximumWidth: configuredWidth
+            ) == configuredWidth
+        )
+        #expect(
+            MenuBarMarquee.viewportWidth(
+                for: 40,
+                maximumWidth: configuredWidth
+            ) == 40
         )
     }
 
@@ -786,10 +816,20 @@ struct RepriseTests {
                 forKey: ReprisePreferenceKey.menuBarReservesLyricsWidth
             )
         )
+        #expect(
+            defaults.double(
+                forKey: ReprisePreferenceKey.menuBarLyricsWidth
+            ) == MenuBarLyricsWidth.defaultValue
+        )
         #expect(!MarqueePreferences.current(defaults: defaults).menuBarShowsLyrics)
         #expect(
             MarqueePreferences.current(defaults: defaults)
                 .menuBarReservesLyricsWidth
+        )
+        #expect(
+            MarqueePreferences.current(defaults: defaults)
+                .menuBarLyricsWidth
+                == CGFloat(MenuBarLyricsWidth.defaultValue)
         )
     }
 

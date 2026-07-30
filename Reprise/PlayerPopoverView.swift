@@ -657,8 +657,7 @@ private struct InlineLyricsView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var store: NowPlayingStore
     private let rowHeight: CGFloat = 29
-    private let lyricsViewportHeight: CGFloat = 120
-    private let sourceHeight: CGFloat = 16
+    private let lyricsViewportHeight: CGFloat = 136
     private let previousLineTopInset: CGFloat = 2
     private let maximumCascadeStep = 3
     private let cascadeDelay = 0.045
@@ -682,19 +681,8 @@ private struct InlineLyricsView: View {
                 )
             }
             .clipped()
-
-            HStack {
-                Spacer()
-                if let source = store.syncedLyrics?.source {
-                    Text(source.rawValue)
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(height: sourceHeight)
         }
-        .frame(height: lyricsViewportHeight + sourceHeight)
+        .frame(height: lyricsViewportHeight)
         .overlay(alignment: .top) {
             Rectangle()
                 .fill(.primary.opacity(0.14))

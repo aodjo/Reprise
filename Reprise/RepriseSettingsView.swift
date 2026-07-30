@@ -53,6 +53,8 @@ private struct GeneralSettingsView: View {
     private var automaticallyPausesOtherPlayer = false
     @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
     private var menuBarShowsLyrics = false
+    @AppStorage(ReprisePreferenceKey.menuBarLyricsWidth)
+    private var menuBarLyricsWidth = MenuBarLyricsWidth.defaultValue
     @AppStorage(ReprisePreferenceKey.menuBarReservesLyricsWidth)
     private var menuBarReservesLyricsWidth = true
     @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
@@ -89,6 +91,23 @@ private struct GeneralSettingsView: View {
                     isOn: $menuBarShowsLyrics
                 )
 
+                LabeledContent("가사 영역 너비") {
+                    HStack(spacing: 8) {
+                        Slider(
+                            value: $menuBarLyricsWidth,
+                            in: MenuBarLyricsWidth.range,
+                            step: MenuBarLyricsWidth.step
+                        )
+                        .frame(width: 160)
+
+                        Text("\(Int(menuBarLyricsWidth.rounded()))pt")
+                            .monospacedDigit()
+                            .foregroundStyle(.secondary)
+                            .frame(width: 44, alignment: .trailing)
+                    }
+                }
+                .disabled(!menuBarShowsLyrics)
+
                 Toggle(
                     "가사 공간 확보",
                     isOn: $menuBarReservesLyricsWidth
@@ -98,7 +117,7 @@ private struct GeneralSettingsView: View {
                 Text("제어 목록")
             } footer: {
                 Text(
-                    "공간 확보를 켜면 가사 길이가 달라져도 메뉴바 너비를 고정해 주변 항목이 움직이지 않게 합니다."
+                    "영역 너비는 가사가 차지할 최대 폭입니다. 공간 확보를 켜면 선택한 너비로 고정해 주변 항목이 움직이지 않게 합니다."
                 )
             }
 
@@ -589,6 +608,9 @@ private struct MenuBarSettingsView: View {
     @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
     private var menuBarShowsLyrics = false
 
+    @AppStorage(ReprisePreferenceKey.menuBarLyricsWidth)
+    private var menuBarLyricsWidth = MenuBarLyricsWidth.defaultValue
+
     @AppStorage(ReprisePreferenceKey.menuBarReservesLyricsWidth)
     private var menuBarReservesLyricsWidth = true
 
@@ -614,6 +636,8 @@ private struct MenuBarSettingsView: View {
                     style: artworkStyle,
                     titleFormat: titleFormat,
                     showsLyrics: menuBarShowsLyrics,
+                    lyricsWidth:
+                        MenuBarLyricsWidth.clamped(menuBarLyricsWidth),
                     reservesLyricsWidth: menuBarReservesLyricsWidth,
                     automaticallyScrolls: automaticallyScrollTitles,
                     pointsPerSecond: carouselSpeed
@@ -691,6 +715,7 @@ private struct MenuBarArtworkPreview: View {
     let style: MenuBarArtworkStyle
     let titleFormat: MenuBarTitleFormat
     let showsLyrics: Bool
+    let lyricsWidth: CGFloat
     let reservesLyricsWidth: Bool
     let automaticallyScrolls: Bool
     let pointsPerSecond: CGFloat
@@ -703,6 +728,12 @@ private struct MenuBarArtworkPreview: View {
             title: "여기에 재생 중인 음악 제목이 표시됩니다",
             artist: "미리보기 아티스트"
         )
+    }
+
+    private var maximumTextWidth: CGFloat {
+        showsLyrics
+            ? lyricsWidth
+            : MenuBarMarquee.maximumTextWidth
     }
 
     var body: some View {
@@ -723,7 +754,8 @@ private struct MenuBarArtworkPreview: View {
                     width: MenuBarMarquee.viewportWidth(
                         for: MenuBarMarquee.textWidth(previewTitle),
                         reservesMaximumTextWidth:
-                            showsLyrics && reservesLyricsWidth
+                            showsLyrics && reservesLyricsWidth,
+                        maximumWidth: maximumTextWidth
                     ),
                     height: 30
                 )
@@ -751,6 +783,7 @@ private struct MenuBarArtworkPreview: View {
             .easeInOut(duration: 0.18),
             value: reservesLyricsWidth
         )
+        .animation(.easeInOut(duration: 0.18), value: lyricsWidth)
     }
 }
 

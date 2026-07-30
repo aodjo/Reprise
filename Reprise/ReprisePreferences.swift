@@ -12,6 +12,7 @@ enum ReprisePreferenceKey {
     static let automaticallyScrollTitles = "automaticallyScrollTitles"
     static let marqueeSpeed = "marqueeSpeed"
     static let menuBarArtworkStyle = "menuBarArtworkStyle"
+    static let menuBarLyricsWidth = "menuBarLyricsWidth"
     static let menuBarReservesLyricsWidth = "menuBarReservesLyricsWidth"
     static let menuBarShowsLyrics = "menuBarShowsLyrics"
     static let menuBarTitleFormat = "menuBarTitleFormat"
@@ -185,11 +186,24 @@ enum MarqueeSpeed: Double, CaseIterable, Identifiable {
     }
 }
 
+enum MenuBarLyricsWidth {
+    static let minimum = 80.0
+    static let maximum = 300.0
+    static let defaultValue = 170.0
+    static let step = 10.0
+    static let range = minimum...maximum
+
+    static func clamped(_ value: Double) -> CGFloat {
+        CGFloat(min(max(value, minimum), maximum))
+    }
+}
+
 struct MarqueePreferences: Equatable {
     let automaticallyScrollsTitles: Bool
     let pointsPerSecond: CGFloat
     let resetsMenuTitleWhenPanelOpens: Bool
     let menuBarArtworkStyle: MenuBarArtworkStyle
+    let menuBarLyricsWidth: CGFloat
     let menuBarReservesLyricsWidth: Bool
     let menuBarShowsLyrics: Bool
     let menuBarTitleFormat: MenuBarTitleFormat
@@ -207,6 +221,11 @@ struct MarqueePreferences: Equatable {
                 forKey: ReprisePreferenceKey.menuBarTitleFormat
             ) ?? ""
         ) ?? .titleOnly
+        let storedLyricsWidth = (
+            defaults.object(
+                forKey: ReprisePreferenceKey.menuBarLyricsWidth
+            ) as? NSNumber
+        )?.doubleValue ?? MenuBarLyricsWidth.defaultValue
 
         return MarqueePreferences(
             automaticallyScrollsTitles: defaults.bool(
@@ -224,6 +243,8 @@ struct MarqueePreferences: Equatable {
                 artworkStyle == .hidden && titleFormat == .hidden
                     ? .albumArtwork
                     : artworkStyle,
+            menuBarLyricsWidth:
+                MenuBarLyricsWidth.clamped(storedLyricsWidth),
             menuBarReservesLyricsWidth: defaults.bool(
                 forKey: ReprisePreferenceKey.menuBarReservesLyricsWidth
             ),
@@ -296,6 +317,8 @@ enum ReprisePreferences {
                 ReprisePreferenceKey.marqueeSpeed: MarqueeSpeed.normal.rawValue,
                 ReprisePreferenceKey.menuBarArtworkStyle:
                     MenuBarArtworkStyle.albumArtwork.rawValue,
+                ReprisePreferenceKey.menuBarLyricsWidth:
+                    MenuBarLyricsWidth.defaultValue,
                 ReprisePreferenceKey.menuBarReservesLyricsWidth: true,
                 ReprisePreferenceKey.menuBarShowsLyrics: false,
                 ReprisePreferenceKey.menuBarTitleFormat:
