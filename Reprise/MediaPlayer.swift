@@ -166,6 +166,7 @@ enum PlayerVolume {
 
 enum PlaybackCommand: Sendable {
     case previous
+    case pause
     case playPause
     case stop
     case next

@@ -211,8 +211,8 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
 
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
             matching: [.leftMouseDown, .rightMouseDown]
-        ) { [weak self] event in
-            let screenLocation = event.locationInWindow
+        ) { [weak self] _ in
+            let screenLocation = NSEvent.mouseLocation
             Task { @MainActor in
                 guard let self,
                       !self.isPointInsideRepriseWindow(screenLocation) else {

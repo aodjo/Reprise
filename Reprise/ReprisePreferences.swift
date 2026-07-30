@@ -7,6 +7,8 @@ import CoreGraphics
 import Foundation
 
 enum ReprisePreferenceKey {
+    static let automaticallyPausesOtherPlayer =
+        "automaticallyPausesOtherPlayer"
     static let automaticallyScrollTitles = "automaticallyScrollTitles"
     static let marqueeSpeed = "marqueeSpeed"
     static let menuBarArtworkStyle = "menuBarArtworkStyle"
@@ -264,11 +266,22 @@ enum ReprisePreferences {
             .joined(separator: ",")
     }
 
+    static func automaticallyPausesOtherPlayer(
+        in defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.bool(
+            forKey:
+                ReprisePreferenceKey.automaticallyPausesOtherPlayer
+        )
+    }
+
     static func registerDefaults(
         in defaults: UserDefaults = .standard
     ) {
         defaults.register(
             defaults: [
+                ReprisePreferenceKey.automaticallyPausesOtherPlayer:
+                    false,
                 ReprisePreferenceKey.automaticallyScrollTitles: true,
                 ReprisePreferenceKey.marqueeSpeed: MarqueeSpeed.normal.rawValue,
                 ReprisePreferenceKey.menuBarArtworkStyle:

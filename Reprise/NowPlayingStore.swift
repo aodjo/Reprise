@@ -16,6 +16,7 @@ final class NowPlayingStore {
 
     private let automation = MediaAutomationService()
     private var pollingTask: Task<Void, Never>?
+    private var hasCompletedInitialRefresh = false
     private var stateMutationRevision = 0
 
     var activeSnapshot: PlayerSnapshot {
@@ -33,6 +34,10 @@ final class NowPlayingStore {
 
     private var playerDisplayOrder: [MediaPlayerKind] {
         ReprisePreferences.playerDisplayOrder()
+    }
+
+    private var automaticallyPausesOtherPlayer: Bool {
+        ReprisePreferences.automaticallyPausesOtherPlayer()
     }
 
     var menuBarTitle: String {
@@ -72,8 +77,32 @@ final class NowPlayingStore {
             return
         }
 
-        spotify = snapshots[.spotify] ?? .notRunning(.spotify)
-        appleMusic = snapshots[.appleMusic] ?? .notRunning(.appleMusic)
+        let previousSpotify = spotify
+        let previousAppleMusic = appleMusic
+        let currentSpotify =
+            snapshots[.spotify] ?? .notRunning(.spotify)
+        let currentAppleMusic =
+            snapshots[.appleMusic] ?? .notRunning(.appleMusic)
+
+        spotify = currentSpotify
+        appleMusic = currentAppleMusic
+
+        guard hasCompletedInitialRefresh else {
+            hasCompletedInitialRefresh = true
+            return
+        }
+
+        guard let playerToPause = Self.playerToPause(
+            automaticPauseEnabled: automaticallyPausesOtherPlayer,
+            previousSpotify: previousSpotify,
+            previousAppleMusic: previousAppleMusic,
+            currentSpotify: currentSpotify,
+            currentAppleMusic: currentAppleMusic
+        ) else {
+            return
+        }
+
+        await pauseAutomatically(playerToPause)
     }
 
     func perform(_ command: PlaybackCommand) async {
@@ -189,6 +218,61 @@ final class NowPlayingStore {
             .first(where: { $0.track != nil })
     }
 
+    static func playerToPause(
+        automaticPauseEnabled: Bool,
+        previousSpotify: PlayerSnapshot,
+        previousAppleMusic: PlayerSnapshot,
+        currentSpotify: PlayerSnapshot,
+        currentAppleMusic: PlayerSnapshot
+    ) -> MediaPlayerKind? {
+        guard automaticPauseEnabled else {
+            return nil
+        }
+
+        let previousSnapshots: [MediaPlayerKind: PlayerSnapshot] = [
+            .spotify: previousSpotify,
+            .appleMusic: previousAppleMusic,
+        ]
+        let currentSnapshots: [MediaPlayerKind: PlayerSnapshot] = [
+            .spotify: currentSpotify,
+            .appleMusic: currentAppleMusic,
+        ]
+
+        for newlyPlaying in MediaPlayerKind.allCases {
+            let previouslyPlaying: MediaPlayerKind =
+                newlyPlaying == .spotify ? .appleMusic : .spotify
+
+            guard previousSnapshots[newlyPlaying]?.state != .playing,
+                  currentSnapshots[newlyPlaying]?.state == .playing,
+                  previousSnapshots[previouslyPlaying]?.state == .playing,
+                  currentSnapshots[previouslyPlaying]?.state == .playing else {
+                continue
+            }
+
+            return previouslyPlaying
+        }
+
+        return nil
+    }
+
+    private func pauseAutomatically(
+        _ player: MediaPlayerKind
+    ) async {
+        stateMutationRevision &+= 1
+
+        do {
+            try await automation.perform(.pause, on: player)
+            updateSnapshot(
+                snapshot(for: player).withPlaybackState(.paused),
+                for: player
+            )
+        } catch {
+            commandError = MediaAutomationService.userFacingMessage(
+                for: error
+            )
+        }
+    }
+
     private func updateSnapshot(
         _ snapshot: PlayerSnapshot,
         for player: MediaPlayerKind
@@ -203,6 +287,19 @@ final class NowPlayingStore {
 }
 
 private extension PlayerSnapshot {
+    func withPlaybackState(
+        _ state: PlaybackState
+    ) -> PlayerSnapshot {
+        PlayerSnapshot(
+            player: player,
+            isRunning: isRunning,
+            state: state,
+            track: track,
+            volume: volume,
+            errorMessage: errorMessage
+        )
+    }
+
     func withVolume(_ volume: Int) -> PlayerSnapshot {
         PlayerSnapshot(
             player: player,

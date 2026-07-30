@@ -49,6 +49,8 @@ struct RepriseSettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
+    @AppStorage(ReprisePreferenceKey.automaticallyPausesOtherPlayer)
+    private var automaticallyPausesOtherPlayer = false
     @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
     private var playerDisplayOrder =
         ReprisePreferences.defaultPlayerDisplayOrder
@@ -64,6 +66,19 @@ private struct GeneralSettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                Toggle(
+                    "다른 플레이어 자동 정지",
+                    isOn: $automaticallyPausesOtherPlayer
+                )
+            } header: {
+                Text("재생")
+            } footer: {
+                Text(
+                    "한 플레이어가 재생을 시작하면 기존에 재생 중이던 다른 플레이어를 일시 정지합니다."
+                )
+            }
+
             Section {
                 ForEach(Array(orderedPlayers.enumerated()), id: \.element) {
                     index,

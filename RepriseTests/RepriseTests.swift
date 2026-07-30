@@ -262,6 +262,23 @@ struct RepriseTests {
     }
 
     @Test
+    func automaticallyPausingTheOtherPlayerIsOffByDefault() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            !ReprisePreferences.automaticallyPausesOtherPlayer(
+                in: defaults
+            )
+        )
+    }
+
+    @Test
     func spotifyIsFirstInTheDefaultPlayerDisplayOrder() {
         let suiteName = "RepriseTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -372,6 +389,161 @@ struct RepriseTests {
         )
 
         #expect(preferred?.player == .appleMusic)
+    }
+
+    @Test
+    func appleMusicStartingPausesPreviouslyPlayingSpotify() {
+        let player = NowPlayingStore.playerToPause(
+            automaticPauseEnabled: true,
+            previousSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            previousAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .paused,
+                title: "Music song",
+                album: "Music album"
+            ),
+            currentSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            currentAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .playing,
+                title: "Music song",
+                album: "Music album"
+            )
+        )
+
+        #expect(player == .spotify)
+    }
+
+    @Test
+    func spotifyStartingPausesPreviouslyPlayingAppleMusic() {
+        let player = NowPlayingStore.playerToPause(
+            automaticPauseEnabled: true,
+            previousSpotify: makeSnapshot(
+                player: .spotify,
+                state: .stopped,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            previousAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .playing,
+                title: "Music song",
+                album: "Music album"
+            ),
+            currentSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            currentAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .playing,
+                title: "Music song",
+                album: "Music album"
+            )
+        )
+
+        #expect(player == .appleMusic)
+    }
+
+    @Test
+    func simultaneousInitialPlaybackDoesNotPauseEitherPlayer() {
+        let player = NowPlayingStore.playerToPause(
+            automaticPauseEnabled: true,
+            previousSpotify: .notRunning(.spotify),
+            previousAppleMusic: .notRunning(.appleMusic),
+            currentSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            currentAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .playing,
+                title: "Music song",
+                album: "Music album"
+            )
+        )
+
+        #expect(player == nil)
+    }
+
+    @Test
+    func stoppedPreviousPlayerDoesNotReceiveAnAutomaticPause() {
+        let player = NowPlayingStore.playerToPause(
+            automaticPauseEnabled: true,
+            previousSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            previousAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .paused,
+                title: "Music song",
+                album: "Music album"
+            ),
+            currentSpotify: makeSnapshot(
+                player: .spotify,
+                state: .paused,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            currentAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .playing,
+                title: "Music song",
+                album: "Music album"
+            )
+        )
+
+        #expect(player == nil)
+    }
+
+    @Test
+    func disabledAutomaticPauseIgnoresAPlayerStarting() {
+        let player = NowPlayingStore.playerToPause(
+            automaticPauseEnabled: false,
+            previousSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            previousAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .paused,
+                title: "Music song",
+                album: "Music album"
+            ),
+            currentSpotify: makeSnapshot(
+                player: .spotify,
+                state: .playing,
+                title: "Spotify song",
+                album: "Spotify album"
+            ),
+            currentAppleMusic: makeSnapshot(
+                player: .appleMusic,
+                state: .playing,
+                title: "Music song",
+                album: "Music album"
+            )
+        )
+
+        #expect(player == nil)
     }
 
     @Test

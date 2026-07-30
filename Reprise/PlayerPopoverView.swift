@@ -556,6 +556,7 @@ struct PlayerPopoverView: View {
     private func accessibilityIdentifier(for command: PlaybackCommand) -> String {
         switch command {
         case .previous: "previousButton"
+        case .pause: "pauseButton"
         case .playPause: "playPauseButton"
         case .stop: "stopButton"
         case .next: "nextButton"
@@ -666,7 +667,7 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
 
         context.coordinator.update(
             anchorView: nsView,
-            isPresented: isPresented,
+            isPresented: $isPresented,
             content: content
         )
     }
@@ -687,17 +688,24 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
         private var hostingController:
             NSHostingController<VolumeSliderPanelContent>?
         private weak var parentWindow: NSWindow?
+        private weak var anchorView: NSView?
+        private var presentation: Binding<Bool>?
+        private var localEventMonitor: Any?
+        private var globalEventMonitor: Any?
 
         func update(
             anchorView: NSView,
-            isPresented: Bool,
+            isPresented: Binding<Bool>,
             content: VolumeSliderPanelContent
         ) {
+            self.anchorView = anchorView
+            presentation = isPresented
+
             if let hostingController {
                 hostingController.rootView = content
             }
 
-            guard isPresented else {
+            guard isPresented.wrappedValue else {
                 dismiss()
                 return
             }
@@ -710,6 +718,7 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
             attach(panel, to: parentWindow)
             position(panel, relativeTo: parentWindow)
             panel.orderFrontRegardless()
+            installEventMonitors()
         }
 
         func tearDown() {
@@ -810,13 +819,79 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
         }
 
         private func dismiss() {
-            guard let panel else { return }
+            removeEventMonitors()
 
-            if let parentWindow {
+            if let panel, let parentWindow {
                 parentWindow.removeChildWindow(panel)
             }
-            panel.orderOut(nil)
+            panel?.orderOut(nil)
             parentWindow = nil
+        }
+
+        private func installEventMonitors() {
+            guard localEventMonitor == nil,
+                  globalEventMonitor == nil else {
+                return
+            }
+
+            localEventMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] event in
+                guard let self,
+                      let panel,
+                      panel.isVisible else {
+                    return event
+                }
+
+                if event.window === panel
+                    || isEventInsideAnchor(event) {
+                    return event
+                }
+
+                requestDismissal()
+                return event
+            }
+
+            globalEventMonitor = NSEvent.addGlobalMonitorForEvents(
+                matching: [.leftMouseDown, .rightMouseDown]
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.requestDismissal()
+                }
+            }
+        }
+
+        private func isEventInsideAnchor(_ event: NSEvent) -> Bool {
+            guard let anchorView,
+                  event.window === anchorView.window else {
+                return false
+            }
+
+            let point = anchorView.convert(
+                event.locationInWindow,
+                from: nil
+            )
+            return anchorView.bounds.contains(point)
+        }
+
+        private func requestDismissal() {
+            guard presentation?.wrappedValue == true else {
+                return
+            }
+
+            presentation?.wrappedValue = false
+            dismiss()
+        }
+
+        private func removeEventMonitors() {
+            if let localEventMonitor {
+                NSEvent.removeMonitor(localEventMonitor)
+                self.localEventMonitor = nil
+            }
+            if let globalEventMonitor {
+                NSEvent.removeMonitor(globalEventMonitor)
+                self.globalEventMonitor = nil
+            }
         }
     }
 }

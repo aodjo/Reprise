@@ -299,6 +299,8 @@ actor MediaAutomationService {
         switch command {
         case .previous:
             return "previous track"
+        case .pause:
+            return "pause"
         case .playPause:
             return "playpause"
         case .stop:
