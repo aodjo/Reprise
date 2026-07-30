@@ -12,6 +12,28 @@ import SwiftUI
 private let settingsHotKeySignature: OSType = 0x5250_5253
 private let settingsHotKeyIdentifier: UInt32 = 1
 
+enum MenuBarTitleTransitionStyle: Equatable {
+    case immediate
+    case lyricsUpward
+
+    static func resolved(
+        previousTitle: String?,
+        currentTitle: String,
+        previousTrackKey: String?,
+        currentTrackKey: String?,
+        isDisplayingLyrics: Bool
+    ) -> Self {
+        guard isDisplayingLyrics,
+              let previousTitle,
+              previousTitle != currentTitle,
+              let currentTrackKey,
+              previousTrackKey == currentTrackKey else {
+            return .immediate
+        }
+        return .lyricsUpward
+    }
+}
+
 private let settingsHotKeyEventHandler: EventHandlerUPP = {
     _, event, userData in
     guard let event, let userData else {
@@ -423,6 +445,8 @@ private final class MenuBarStatusRenderer: NSObject {
     private let store: NowPlayingStore
     private let marqueeView = MenuBarMarqueeView()
     private var lastContentKey = ""
+    private var lastRenderedTitle: String?
+    private var lastRenderedTrackKey: String?
     private var isPanelVisible = false
 
     init(
@@ -501,6 +525,17 @@ private final class MenuBarStatusRenderer: NSObject {
                 )
             } ?? store.menuBarTitle
         }
+        let trackKey = Self.trackKey(for: snapshot)
+        let transitionStyle = MenuBarTitleTransitionStyle.resolved(
+            previousTitle: lastRenderedTitle,
+            currentTitle: title,
+            previousTrackKey: lastRenderedTrackKey,
+            currentTrackKey: trackKey,
+            isDisplayingLyrics:
+                preferences.menuBarShowsLyrics
+                && store.displayedLyricText != nil
+                && preferences.menuBarTitleFormat != .hidden
+        )
         let contentKey = Self.contentKey(
             title: title,
             snapshot: snapshot,
@@ -520,8 +555,11 @@ private final class MenuBarStatusRenderer: NSObject {
                 && preferences.menuBarReservesLyricsWidth
                 && preferences.menuBarTitleFormat != .hidden
                 && snapshot?.track != nil,
+            transitionStyle: transitionStyle,
             preferences: preferences
         )
+        lastRenderedTitle = title
+        lastRenderedTrackKey = trackKey
         marqueeView.setPaused(
             isPanelVisible
                 && preferences.resetsMenuTitleWhenPanelOpens
@@ -577,6 +615,21 @@ private final class MenuBarStatusRenderer: NSObject {
             String(preferences.menuBarShowsLyrics),
             preferences.menuBarTitleFormat.rawValue,
         ].joined(separator: "|")
+    }
+
+    private static func trackKey(
+        for snapshot: PlayerSnapshot?
+    ) -> String? {
+        guard let snapshot, let track = snapshot.track else {
+            return nil
+        }
+        return [
+            snapshot.player.rawValue,
+            track.title,
+            track.album,
+            track.artist,
+            String(Int(track.duration.rounded())),
+        ].joined(separator: "\u{0}")
     }
 }
 
@@ -650,6 +703,7 @@ private final class MenuBarMarqueeView: NSView {
         artworkStyle: MenuBarArtworkStyle,
         isPlaying: Bool,
         reservesTextWidth: Bool,
+        transitionStyle: MenuBarTitleTransitionStyle,
         preferences: MarqueePreferences
     ) -> CGFloat {
         let titleWidth = MenuBarMarquee.textWidth(title)
@@ -673,6 +727,7 @@ private final class MenuBarMarqueeView: NSView {
             scale: scale
         )
 
+        prepareTitleTransition(transitionStyle)
         firstTitleLayer.contents = titleBitmap?.image
         secondTitleLayer.contents = titleBitmap?.image
         firstTitleLayer.contentsScale = scale
@@ -755,6 +810,27 @@ private final class MenuBarMarqueeView: NSView {
         }
 
         return contentWidth
+    }
+
+    private func prepareTitleTransition(
+        _ style: MenuBarTitleTransitionStyle
+    ) {
+        textViewportLayer.removeAnimation(
+            forKey: "lyricsLineTransition"
+        )
+        guard style == .lyricsUpward else { return }
+
+        let transition = CATransition()
+        transition.type = .push
+        transition.subtype = .fromBottom
+        transition.duration = MenuBarMarquee.lyricsTransitionDuration
+        transition.timingFunction = CAMediaTimingFunction(
+            name: .easeInEaseOut
+        )
+        textViewportLayer.add(
+            transition,
+            forKey: "lyricsLineTransition"
+        )
     }
 
     private func updateLeadingVisual(
@@ -1074,6 +1150,7 @@ enum MenuBarMarquee {
     static let titleVerticalAdjustment: CGFloat = 0.5
     static let returnGlideDistance: CGFloat = 4
     static let returnTransitionDuration: TimeInterval = 0.24
+    static let lyricsTransitionDuration: TimeInterval = 0.28
     static let font = NSFont.menuBarFont(ofSize: 0)
     static let characterSpacing: CGFloat = 0
 

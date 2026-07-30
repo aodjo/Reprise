@@ -248,6 +248,37 @@ struct RepriseTests {
     }
 
     @Test
+    func lyricLinesUseUpwardTransitionOnlyWithinTheSameTrack() {
+        #expect(
+            MenuBarTitleTransitionStyle.resolved(
+                previousTitle: "첫 번째 가사",
+                currentTitle: "두 번째 가사",
+                previousTrackKey: "track-a",
+                currentTrackKey: "track-a",
+                isDisplayingLyrics: true
+            ) == .lyricsUpward
+        )
+        #expect(
+            MenuBarTitleTransitionStyle.resolved(
+                previousTitle: "이전 곡 가사",
+                currentTitle: "새 곡 가사",
+                previousTrackKey: "track-a",
+                currentTrackKey: "track-b",
+                isDisplayingLyrics: true
+            ) == .immediate
+        )
+        #expect(
+            MenuBarTitleTransitionStyle.resolved(
+                previousTitle: "곡 제목",
+                currentTitle: "다음 곡 제목",
+                previousTrackKey: "track-a",
+                currentTrackKey: "track-a",
+                isDisplayingLyrics: false
+            ) == .immediate
+        )
+    }
+
+    @Test
     func atLeastOneMenuBarElementRemainsVisible() {
         let suiteName = "RepriseTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
