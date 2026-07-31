@@ -395,14 +395,14 @@ private struct YouTubeMusicSettingsView: View {
                 Link(
                     "Chromium 확장 다운로드",
                     destination: URL(
-                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Chromium.zip"
+                        string: "https://github.com/aodjo/Reprise/releases/latest/download/Reprise-YouTube-Music-Chromium.zip"
                     )!
                 )
 
                 Link(
                     "Firefox 확장 다운로드",
                     destination: URL(
-                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Firefox.xpi"
+                        string: "https://github.com/aodjo/Reprise/releases/latest/download/Reprise-YouTube-Music-Firefox.xpi"
                     )!
                 )
             } header: {

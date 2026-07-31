@@ -12,7 +12,7 @@ Reprise는 Sparkle 2의 서명된 appcast를 사용합니다. 앱은 기본적�
    ```sh
    SPARKLE_GENERATOR=$(find ~/Library/Developer/Xcode/DerivedData -path '*/SourcePackages/artifacts/sparkle/Sparkle/bin/generate_appcast' -print -quit)
    "$SPARKLE_GENERATOR" \
-     --download-url-prefix "https://github.com/aodjo/reprise-releases/releases/download/v1.2.0/" \
+     --download-url-prefix "https://github.com/aodjo/Reprise/releases/download/v1.2.0/" \
      --link "https://github.com/aodjo/Reprise" \
      -o appcast.xml \
      /path/to/update-archives
