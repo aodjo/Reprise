@@ -52,6 +52,8 @@ struct PlayerPopoverView: View {
     @State private var volume = 100.0
     @State private var showsVolumeSlider = false
     @State private var volumeUpdateTask: Task<Void, Never>?
+    @State private var volumeRequestID: UUID?
+    @State private var isVolumeEditing = false
     @State private var lastAudibleVolumes: [String: Int] = [:]
     @State private var seekPosition = 0.0
     @State private var isSeeking = false
@@ -143,11 +145,13 @@ struct PlayerPopoverView: View {
             syncVolume()
         }
         .onChange(of: snapshot.player) {
+            cancelVolumeUpdate()
+            isVolumeEditing = false
             showsVolumeSlider = false
             isSeeking = false
             pendingSeekPosition = nil
             seekRequestID = nil
-            syncVolume()
+            syncVolume(force: true)
         }
         .onChange(of: trackIdentity) {
             isSeeking = false
@@ -158,7 +162,8 @@ struct PlayerPopoverView: View {
             notifyPanelContentSizeChanged()
         }
         .onDisappear {
-            volumeUpdateTask?.cancel()
+            cancelVolumeUpdate()
+            isVolumeEditing = false
         }
         .onReceive(
             NotificationCenter.default.publisher(
@@ -231,7 +236,9 @@ struct PlayerPopoverView: View {
 
                 Spacer(minLength: 5)
 
-                progress(track)
+                TimelineView(.periodic(from: .now, by: 0.25)) { context in
+                    progress(track, at: context.date)
+                }
             }
             .frame(height: 112)
         }
@@ -362,8 +369,11 @@ struct PlayerPopoverView: View {
                 onVolumeChanged: {
                     scheduleVolumeUpdate()
                 },
-                onEditingEnded: {
-                    scheduleVolumeUpdate(immediately: true)
+                onEditingChanged: { isEditing in
+                    isVolumeEditing = isEditing
+                    if !isEditing {
+                        scheduleVolumeUpdate(immediately: true)
+                    }
                 },
                 onToggleMute: {
                     toggleMute()
@@ -386,8 +396,10 @@ struct PlayerPopoverView: View {
         }
     }
 
-    private func syncVolume() {
-        guard volumeUpdateTask == nil,
+    private func syncVolume(force: Bool = false) {
+        guard force || (
+            !isVolumeEditing && volumeRequestID == nil
+        ),
               let snapshotVolume = snapshot.volume else {
             return
         }
@@ -397,6 +409,8 @@ struct PlayerPopoverView: View {
 
     private func scheduleVolumeUpdate(immediately: Bool = false) {
         volumeUpdateTask?.cancel()
+        let requestID = UUID()
+        volumeRequestID = requestID
         let level = PlayerVolume.clamped(Int(volume.rounded()))
         let player = snapshot.player
         rememberAudibleVolume(level, for: player)
@@ -405,15 +419,25 @@ struct PlayerPopoverView: View {
             if !immediately {
                 try? await Task.sleep(for: .milliseconds(80))
             }
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  volumeRequestID == requestID else { return }
             await store.setVolume(level, for: player)
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled,
+                  volumeRequestID == requestID else { return }
             volumeUpdateTask = nil
-            if let actualVolume = store.snapshot(for: player).volume {
+            volumeRequestID = nil
+            if snapshot.player == player,
+               let actualVolume = store.snapshot(for: player).volume {
                 volume = Double(actualVolume)
                 rememberAudibleVolume(actualVolume, for: player)
             }
         }
+    }
+
+    private func cancelVolumeUpdate() {
+        volumeUpdateTask?.cancel()
+        volumeUpdateTask = nil
+        volumeRequestID = nil
     }
 
     private func toggleMute() {
@@ -476,7 +500,10 @@ struct PlayerPopoverView: View {
         .accessibilityIdentifier(accessibilityIdentifier(for: command))
     }
 
-    private func progress(_ track: Track) -> some View {
+    private func progress(
+        _ track: Track,
+        at date: Date
+    ) -> some View {
         let duration = track.duration.isFinite && track.duration > 0
             ? track.duration
             : 0
@@ -494,7 +521,7 @@ struct PlayerPopoverView: View {
             )
         } else {
             displayedPosition = PlaybackPosition.clamped(
-                track.position,
+                store.estimatedPlaybackPosition(at: date),
                 duration: duration
             )
         }
@@ -818,7 +845,7 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
     let playerName: String
     let colorScheme: ColorScheme?
     let onVolumeChanged: () -> Void
-    let onEditingEnded: () -> Void
+    let onEditingChanged: (Bool) -> Void
     let onToggleMute: () -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -836,7 +863,7 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
             playerName: playerName,
             colorScheme: colorScheme,
             onVolumeChanged: onVolumeChanged,
-            onEditingEnded: onEditingEnded,
+            onEditingChanged: onEditingChanged,
             onToggleMute: onToggleMute
         )
 
@@ -1080,7 +1107,7 @@ private struct VolumeSliderPanelContent: View {
     let playerName: String
     let colorScheme: ColorScheme?
     let onVolumeChanged: () -> Void
-    let onEditingEnded: () -> Void
+    let onEditingChanged: (Bool) -> Void
     let onToggleMute: () -> Void
 
     var body: some View {
@@ -1106,9 +1133,7 @@ private struct VolumeSliderPanelContent: View {
                 ),
                 in: 0...100
             ) { isEditing in
-                if !isEditing {
-                    onEditingEnded()
-                }
+                onEditingChanged(isEditing)
             }
             .controlSize(.small)
             .accessibilityLabel("\(playerName) 음량")

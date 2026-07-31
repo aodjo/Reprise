@@ -700,6 +700,50 @@ struct RepriseTests {
     }
 
     @Test
+    func playbackPositionAdvancesSmoothlyOnlyWhilePlaying() {
+        let observedAt = Date(timeIntervalSinceReferenceDate: 100)
+        let later = Date(timeIntervalSinceReferenceDate: 102.5)
+
+        #expect(
+            PlaybackPosition.estimated(
+                observedPosition: 10,
+                state: .playing,
+                observedAt: observedAt,
+                at: later,
+                duration: 200
+            ) == 12.5
+        )
+        #expect(
+            PlaybackPosition.estimated(
+                observedPosition: 10,
+                state: .paused,
+                observedAt: observedAt,
+                at: later,
+                duration: 200
+            ) == 10
+        )
+        #expect(
+            PlaybackPosition.estimated(
+                observedPosition: 199,
+                state: .playing,
+                observedAt: observedAt,
+                at: later,
+                duration: 200
+            ) == 200
+        )
+        #expect(
+            PlaybackPosition.estimated(
+                observedPosition: 10,
+                state: .playing,
+                observedAt: observedAt,
+                at: later,
+                duration: 200,
+                playbackRate: 2
+            ) == 15
+        )
+    }
+
+    @Test
     func seekOnlyCompletesAfterPlayerReportsTheTargetPosition() {
         #expect(
             PlaybackPosition.confirmsSeek(

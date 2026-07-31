@@ -180,6 +180,8 @@ nonisolated struct YouTubeMusicSnapshotMessage: Decodable, Sendable {
     let duration: TimeInterval
     let position: TimeInterval
     let volume: Double
+    let playbackRate: Double?
+    let capturedAtMilliseconds: Double?
     let artworkURL: String?
     let videoID: String?
     let trackURL: String?
@@ -196,6 +198,8 @@ nonisolated struct YouTubeMusicSnapshotMessage: Decodable, Sendable {
         case duration
         case position
         case volume
+        case playbackRate
+        case capturedAtMilliseconds = "capturedAtMs"
         case artworkURL = "artworkUrl"
         case videoID = "videoId"
         case trackURL = "trackUrl"
@@ -208,12 +212,29 @@ nonisolated struct YouTubeMusicSnapshotMessage: Decodable, Sendable {
         try validateProtocolVersion(protocolVersion)
 
         let state = PlaybackState(rawValue: state)
+        let playbackRate = playbackRate ?? 1
         guard let state,
               state != .unavailable,
               duration.isFinite,
               position.isFinite,
-              volume.isFinite else {
+              volume.isFinite,
+              playbackRate.isFinite,
+              playbackRate > 0,
+              playbackRate <= 16 else {
             throw YouTubeMusicBridgeProtocolError.invalidMessage
+        }
+
+        let capturedAt: Date?
+        if let capturedAtMilliseconds {
+            guard capturedAtMilliseconds.isFinite,
+                  capturedAtMilliseconds > 0 else {
+                throw YouTubeMusicBridgeProtocolError.invalidMessage
+            }
+            capturedAt = Date(
+                timeIntervalSince1970: capturedAtMilliseconds / 1_000
+            )
+        } else {
+            capturedAt = nil
         }
 
         let title = sanitized(title, maximumLength: 512)
@@ -239,6 +260,8 @@ nonisolated struct YouTubeMusicSnapshotMessage: Decodable, Sendable {
             duration: max(duration, 0),
             position: max(position, 0),
             volume: PlayerVolume.clamped(Int(volume.rounded())),
+            playbackRate: playbackRate,
+            capturedAt: capturedAt,
             artworkURL: artworkURL,
             videoID: sanitized(videoID ?? "", maximumLength: 128),
             trackURL: trackURL
@@ -256,6 +279,8 @@ nonisolated struct YouTubeMusicSnapshotPayload: Equatable, Sendable {
     let duration: TimeInterval
     let position: TimeInterval
     let volume: Int
+    let playbackRate: Double
+    let capturedAt: Date?
     let artworkURL: URL?
     let videoID: String
     let trackURL: URL?

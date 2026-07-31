@@ -4,7 +4,11 @@ const BRIDGE_URL = "ws://127.0.0.1:19436";
 const BRIDGE_SUBPROTOCOL = "reprise-youtube-music-v1";
 const PROTOCOL_VERSION = 1;
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
-const SNAPSHOT_FRESHNESS_MS = 4000;
+const SNAPSHOT_FRESHNESS_MS = 5000;
+const COMMAND_TIMEOUT_MS = 5000;
+const MAX_PLAYBACK_RATE = 16;
+const SNAPSHOT_TIMESTAMP_MAX_AGE_MS = 30000;
+const SNAPSHOT_TIMESTAMP_MAX_FUTURE_MS = 5000;
 const ALLOWED_COMMANDS = new Set([
   "previous",
   "pause",
@@ -21,6 +25,7 @@ let reconnectTimer = null;
 let reconnectDelay = 500;
 let outboundSequence = 0;
 let lastSelectedTabId = null;
+const pendingCommandTargets = new Map();
 
 function ensureBridgeConnection() {
   if (
@@ -119,36 +124,67 @@ function receiveCommand(rawMessage) {
     return;
   }
 
-  selected.port.postMessage(message);
+  const timeout = setTimeout(() => {
+    const pending = pendingCommandTargets.get(message.id);
+    if (pending?.tabId !== selected.tabId ||
+        pending?.port !== selected.port) {
+      return;
+    }
+    pendingCommandTargets.delete(message.id);
+    sendAcknowledgement(
+      message.id,
+      false,
+      "YouTube Music 탭의 응답 시간이 초과되었습니다."
+    );
+  }, COMMAND_TIMEOUT_MS);
+  pendingCommandTargets.set(message.id, {
+    tabId: selected.tabId,
+    port: selected.port,
+    timeout,
+  });
+
+  try {
+    selected.port.postMessage(message);
+  } catch (_error) {
+    clearTimeout(timeout);
+    pendingCommandTargets.delete(message.id);
+    sendAcknowledgement(message.id, false, "YouTube Music 탭과 연결이 끊어졌습니다.");
+  }
 }
 
 function selectedConnection() {
   const now = Date.now();
-  const candidates = [...tabConnections.entries()]
-    .filter(([, entry]) => {
-      return entry.snapshot && now - entry.updatedAt <= SNAPSHOT_FRESHNESS_MS;
-    })
+  const allCandidates = [...tabConnections.entries()]
+    .filter(([, entry]) => entry.snapshot)
     .map(([tabId, entry]) => ({ tabId, ...entry }));
+  const freshCandidates = allCandidates.filter((candidate) => {
+    return now - candidate.updatedAt <= SNAPSHOT_FRESHNESS_MS;
+  });
+  const candidates = freshCandidates.length > 0
+    ? freshCandidates
+    : allCandidates;
 
   candidates.sort((left, right) => {
-    const leftPlaying = left.snapshot.state === "playing" ? 1 : 0;
-    const rightPlaying = right.snapshot.state === "playing" ? 1 : 0;
-    if (leftPlaying !== rightPlaying) {
-      return rightPlaying - leftPlaying;
+    const scoreDifference = selectionScore(right) - selectionScore(left);
+    if (scoreDifference !== 0) {
+      return scoreDifference;
     }
-
-    const leftVisible = left.snapshot.visible ? 1 : 0;
-    const rightVisible = right.snapshot.visible ? 1 : 0;
-    if (leftVisible !== rightVisible) {
-      return rightVisible - leftVisible;
-    }
-
     return right.updatedAt - left.updatedAt;
   });
 
-  const selected = candidates[0] ?? null;
+  const bestScore = candidates[0] ? selectionScore(candidates[0]) : null;
+  const selected = candidates.find((candidate) => {
+    return candidate.tabId === lastSelectedTabId &&
+      selectionScore(candidate) === bestScore;
+  }) ?? candidates[0] ?? null;
   lastSelectedTabId = selected?.tabId ?? null;
   return selected;
+}
+
+function selectionScore(candidate) {
+  const playing = candidate.snapshot.state === "playing" ? 2 : 0;
+  const visible = candidate.snapshot.visible ? 1 : 0;
+  return playing + visible;
 }
 
 function sendSelectedSnapshot() {
@@ -168,6 +204,8 @@ function sendSelectedSnapshot() {
       duration: 0,
       position: 0,
       volume: 100,
+      playbackRate: 1,
+      capturedAtMs: Date.now(),
       artworkUrl: null,
       videoId: "",
       trackUrl: null,
@@ -188,6 +226,8 @@ function sendSelectedSnapshot() {
     duration: snapshot.duration,
     position: snapshot.position,
     volume: snapshot.volume,
+    playbackRate: snapshot.playbackRate,
+    capturedAtMs: snapshot.capturedAtMs,
     artworkUrl: snapshot.artworkUrl,
     videoId: snapshot.videoId,
     trackUrl: snapshot.trackUrl,
@@ -213,6 +253,8 @@ function normalizedSnapshot(message) {
     ? message.state
     : "stopped";
 
+  const now = Date.now();
+  const rawPlaybackRate = finiteNumber(message.playbackRate, 1);
   return {
     state,
     title: cleanString(message.title, 512),
@@ -221,6 +263,11 @@ function normalizedSnapshot(message) {
     duration: finiteNumber(message.duration),
     position: finiteNumber(message.position),
     volume: Math.min(Math.max(finiteNumber(message.volume), 0), 100),
+    playbackRate: Math.min(
+      rawPlaybackRate > 0 ? rawPlaybackRate : 1,
+      MAX_PLAYBACK_RATE
+    ),
+    capturedAtMs: validatedSnapshotTimestamp(message.capturedAtMs, now),
     artworkUrl: optionalString(message.artworkUrl, 2048),
     videoId: cleanString(message.videoId, 128),
     trackUrl: optionalString(message.trackUrl, 2048),
@@ -237,8 +284,19 @@ function optionalString(value, maximumLength) {
   return result || null;
 }
 
-function finiteNumber(value) {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+function finiteNumber(value, fallback = 0) {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function validatedSnapshotTimestamp(value, now = Date.now()) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return now;
+  }
+  if (value < now - SNAPSHOT_TIMESTAMP_MAX_AGE_MS ||
+      value > now + SNAPSHOT_TIMESTAMP_MAX_FUTURE_MS) {
+    return now;
+  }
+  return value;
 }
 
 function updateActionBadge() {
@@ -271,8 +329,27 @@ chrome.runtime.onConnect.addListener((port) => {
   ensureBridgeConnection();
 
   port.onMessage.addListener((message) => {
+    if (
+      message?.type === "ack" &&
+      typeof message.id === "string" &&
+      typeof message.success === "boolean"
+    ) {
+      const pending = pendingCommandTargets.get(message.id);
+      if (!pending || pending.tabId !== tabId || pending.port !== port) {
+        return;
+      }
+      clearTimeout(pending.timeout);
+      pendingCommandTargets.delete(message.id);
+      sendAcknowledgement(
+        message.id,
+        message.success,
+        optionalString(message.error, 512)
+      );
+      return;
+    }
+
     const entry = tabConnections.get(tabId);
-    if (!entry) {
+    if (!entry || entry.port !== port) {
       return;
     }
 
@@ -284,26 +361,27 @@ chrome.runtime.onConnect.addListener((port) => {
       entry.snapshot = snapshot;
       entry.updatedAt = Date.now();
       sendSelectedSnapshot();
-      return;
-    }
-
-    if (
-      message?.type === "ack" &&
-      typeof message.id === "string" &&
-      typeof message.success === "boolean"
-    ) {
-      sendAcknowledgement(
-        message.id,
-        message.success,
-        optionalString(message.error, 512)
-      );
     }
   });
 
   port.onDisconnect.addListener(() => {
-    tabConnections.delete(tabId);
-    sendSelectedSnapshot();
-    updateActionBadge();
+    for (const [commandID, pending] of pendingCommandTargets) {
+      if (pending.tabId !== tabId || pending.port !== port) {
+        continue;
+      }
+      clearTimeout(pending.timeout);
+      pendingCommandTargets.delete(commandID);
+      sendAcknowledgement(
+        commandID,
+        false,
+        "YouTube Music 탭과 연결이 끊어졌습니다."
+      );
+    }
+    if (tabConnections.get(tabId)?.port === port) {
+      tabConnections.delete(tabId);
+      sendSelectedSnapshot();
+      updateActionBadge();
+    }
   });
 });
 

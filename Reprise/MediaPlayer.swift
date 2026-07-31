@@ -43,7 +43,7 @@ enum PlaybackState: String, Sendable {
     case stopped
     case unavailable
 
-    var isPlaying: Bool { self == .playing }
+    nonisolated var isPlaying: Bool { self == .playing }
 }
 
 struct Track: Equatable, Sendable {
@@ -105,6 +105,24 @@ enum PlaybackPosition {
 
         return abs(actual - target) <= seekConfirmationTolerance
     }
+
+    nonisolated static func estimated(
+        observedPosition: TimeInterval,
+        state: PlaybackState,
+        observedAt: Date,
+        at date: Date,
+        duration: TimeInterval,
+        playbackRate: Double = 1
+    ) -> TimeInterval {
+        let elapsed = state.isPlaying
+            ? max(date.timeIntervalSince(observedAt), 0)
+                * max(playbackRate, 0)
+            : 0
+        return clamped(
+            observedPosition + elapsed,
+            duration: duration
+        )
+    }
 }
 
 struct PlayerSnapshot: Equatable, Sendable {
@@ -113,6 +131,7 @@ struct PlayerSnapshot: Equatable, Sendable {
     let state: PlaybackState
     let track: Track?
     let volume: Int?
+    let playbackRate: Double
     let errorMessage: String?
 
     nonisolated init(
@@ -121,6 +140,7 @@ struct PlayerSnapshot: Equatable, Sendable {
         state: PlaybackState,
         track: Track?,
         volume: Int? = nil,
+        playbackRate: Double = 1,
         errorMessage: String?
     ) {
         self.player = player
@@ -128,6 +148,9 @@ struct PlayerSnapshot: Equatable, Sendable {
         self.state = state
         self.track = track
         self.volume = volume
+        self.playbackRate = playbackRate.isFinite
+            ? max(playbackRate, 0)
+            : 1
         self.errorMessage = errorMessage
     }
 

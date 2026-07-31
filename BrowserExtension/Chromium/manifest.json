@@ -28,6 +28,16 @@
         "https://music.youtube.com/*"
       ],
       "js": [
+        "page-bridge.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://music.youtube.com/*"
+      ],
+      "js": [
         "content-script.js"
       ],
       "run_at": "document_idle"

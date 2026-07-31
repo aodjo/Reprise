@@ -33,6 +33,11 @@ actor MediaAutomationService {
         return result
     }
 
+    func youtubeMusicSnapshot() async -> PlayerSnapshot {
+        await youtubeMusicBridge.start()
+        return await youtubeMusicBridge.snapshot()
+    }
+
     func perform(
         _ command: PlaybackCommand,
         on player: MediaPlayerKind

@@ -22,6 +22,7 @@ final class NowPlayingStore {
     private let automation = MediaAutomationService()
     private let lyricsService: LyricsService
     private var pollingTask: Task<Void, Never>?
+    private var youtubeMusicPollingTask: Task<Void, Never>?
     private var lyricsTask: Task<Void, Never>?
     private var lyricsDisplayTask: Task<Void, Never>?
     private var hasCompletedInitialRefresh = false
@@ -29,6 +30,8 @@ final class NowPlayingStore {
     private var lyricsQuery: LyricsTrackQuery?
     private var lyricsCache: [LyricsTrackQuery: LyricsCacheEntry] = [:]
     private var playbackAnchor: PlaybackAnchor?
+    private var volumeOperationIDs: [MediaPlayerKind: UUID] = [:]
+    private var seekOperationIDs: [MediaPlayerKind: UUID] = [:]
 
     init(lyricsService: LyricsService = LyricsService()) {
         self.lyricsService = lyricsService
@@ -97,12 +100,13 @@ final class NowPlayingStore {
             )
         }
 
-        let elapsed = playbackAnchor.state.isPlaying
-            ? max(date.timeIntervalSince(playbackAnchor.observedAt), 0)
-            : 0
-        return PlaybackPosition.clamped(
-            playbackAnchor.position + elapsed,
-            duration: playbackAnchor.duration
+        return PlaybackPosition.estimated(
+            observedPosition: playbackAnchor.position,
+            state: playbackAnchor.state,
+            observedAt: playbackAnchor.observedAt,
+            at: date,
+            duration: playbackAnchor.duration,
+            playbackRate: playbackAnchor.playbackRate
         )
     }
 
@@ -148,6 +152,38 @@ final class NowPlayingStore {
                 try? await Task.sleep(for: .seconds(2))
             }
         }
+
+        youtubeMusicPollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshYouTubeMusic()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private func refreshYouTubeMusic() async {
+        let refreshRevision = stateMutationRevision
+        let incomingSnapshot = await automation.youtubeMusicSnapshot()
+        guard refreshRevision == stateMutationRevision else { return }
+
+        let previousSnapshot = youtubeMusic
+        let wasYouTubeMusicActive = menuBarSnapshot?.player == .youtubeMusic
+        let snapshot = mergingPendingMutations(
+            incomingSnapshot,
+            for: .youtubeMusic
+        )
+        youtubeMusic = snapshot
+        if wasYouTubeMusicActive
+            || menuBarSnapshot?.player == .youtubeMusic {
+            synchronizeLyricsWithActiveTrack(observedAt: Date())
+        }
+
+        if Self.menuBarContentChanged(
+            from: previousSnapshot,
+            to: snapshot
+        ) {
+            onMenuBarContentChange?()
+        }
     }
 
     func refresh() async {
@@ -162,12 +198,18 @@ final class NowPlayingStore {
         }
 
         let previousSnapshots = snapshotsByPlayer
-        let currentSpotify =
-            snapshots[.spotify] ?? .notRunning(.spotify)
-        let currentAppleMusic =
-            snapshots[.appleMusic] ?? .notRunning(.appleMusic)
-        let currentYouTubeMusic =
-            snapshots[.youtubeMusic] ?? .notRunning(.youtubeMusic)
+        let currentSpotify = mergingPendingMutations(
+            snapshots[.spotify] ?? .notRunning(.spotify),
+            for: .spotify
+        )
+        let currentAppleMusic = mergingPendingMutations(
+            snapshots[.appleMusic] ?? .notRunning(.appleMusic),
+            for: .appleMusic
+        )
+        let currentYouTubeMusic = mergingPendingMutations(
+            snapshots[.youtubeMusic] ?? .notRunning(.youtubeMusic),
+            for: .youtubeMusic
+        )
 
         spotify = currentSpotify
         appleMusic = currentAppleMusic
@@ -210,6 +252,13 @@ final class NowPlayingStore {
         stateMutationRevision &+= 1
         let previousSnapshot = snapshot(for: player)
         let volume = PlayerVolume.clamped(volume)
+        let operationID = UUID()
+        volumeOperationIDs[player] = operationID
+        defer {
+            if volumeOperationIDs[player] == operationID {
+                volumeOperationIDs[player] = nil
+            }
+        }
         updateSnapshot(previousSnapshot.withVolume(volume), for: player)
 
         do {
@@ -217,12 +266,25 @@ final class NowPlayingStore {
                 volume,
                 on: player
             )
+            guard volumeOperationIDs[player] == operationID else { return }
+            stateMutationRevision &+= 1
+            let currentSnapshot = snapshot(for: player)
             updateSnapshot(
-                previousSnapshot.withVolume(actualVolume),
+                currentSnapshot.withVolume(actualVolume),
                 for: player
             )
         } catch {
-            updateSnapshot(previousSnapshot, for: player)
+            guard !Task.isCancelled,
+                  !(error is CancellationError) else { return }
+            guard volumeOperationIDs[player] == operationID else { return }
+            stateMutationRevision &+= 1
+            if let previousVolume = previousSnapshot.volume {
+                let currentSnapshot = snapshot(for: player)
+                updateSnapshot(
+                    currentSnapshot.withVolume(previousVolume),
+                    for: player
+                )
+            }
             commandError = MediaAutomationService.userFacingMessage(for: error)
         }
     }
@@ -237,6 +299,14 @@ final class NowPlayingStore {
         guard let track = previousSnapshot.track,
               track.duration > 0 else {
             return
+        }
+        let trackQuery = LyricsTrackQuery(track: track)
+        let operationID = UUID()
+        seekOperationIDs[player] = operationID
+        defer {
+            if seekOperationIDs[player] == operationID {
+                seekOperationIDs[player] = nil
+            }
         }
 
         let position = PlaybackPosition.clamped(
@@ -254,6 +324,11 @@ final class NowPlayingStore {
                 position,
                 on: player
             )
+            guard seekOperationIDs[player] == operationID,
+                  let currentTrack = snapshot(for: player).track,
+                  LyricsTrackQuery(track: currentTrack) == trackQuery else {
+                return
+            }
             // Invalidate any refresh that began while the player was still
             // settling on the requested position.
             stateMutationRevision &+= 1
@@ -262,15 +337,26 @@ final class NowPlayingStore {
                 currentSnapshot.withPosition(
                     PlaybackPosition.clamped(
                         actualPosition,
-                        duration: track.duration
+                        duration: currentTrack.duration
                     )
                 ),
                 for: player
             )
             synchronizeLyricsWithActiveTrack(observedAt: Date())
         } catch {
+            guard !Task.isCancelled,
+                  !(error is CancellationError) else { return }
+            guard seekOperationIDs[player] == operationID,
+                  let currentTrack = snapshot(for: player).track,
+                  LyricsTrackQuery(track: currentTrack) == trackQuery else {
+                return
+            }
             stateMutationRevision &+= 1
-            updateSnapshot(previousSnapshot, for: player)
+            let currentSnapshot = snapshot(for: player)
+            updateSnapshot(
+                currentSnapshot.withPosition(track.position),
+                for: player
+            )
             synchronizeLyricsWithActiveTrack(observedAt: Date())
             commandError = MediaAutomationService.userFacingMessage(for: error)
         }
@@ -350,6 +436,20 @@ final class NowPlayingStore {
         return result
     }
 
+    private static func menuBarContentChanged(
+        from previous: PlayerSnapshot,
+        to current: PlayerSnapshot
+    ) -> Bool {
+        previous.player != current.player
+            || previous.isRunning != current.isRunning
+            || previous.state != current.state
+            || previous.track?.title != current.track?.title
+            || previous.track?.album != current.track?.album
+            || previous.track?.artist != current.track?.artist
+            || (previous.track?.artworkData == nil)
+                != (current.track?.artworkData == nil)
+    }
+
     static func playerToPause(
         automaticPauseEnabled: Bool,
         previousSnapshots: [MediaPlayerKind: PlayerSnapshot],
@@ -418,6 +518,31 @@ final class NowPlayingStore {
         }
     }
 
+    private func mergingPendingMutations(
+        _ incomingSnapshot: PlayerSnapshot,
+        for player: MediaPlayerKind
+    ) -> PlayerSnapshot {
+        let currentSnapshot = snapshot(for: player)
+        var mergedSnapshot = incomingSnapshot
+
+        if volumeOperationIDs[player] != nil,
+           let pendingVolume = currentSnapshot.volume {
+            mergedSnapshot = mergedSnapshot.withVolume(pendingVolume)
+        }
+
+        if seekOperationIDs[player] != nil,
+           let currentTrack = currentSnapshot.track,
+           let incomingTrack = incomingSnapshot.track,
+           LyricsTrackQuery(track: currentTrack)
+                == LyricsTrackQuery(track: incomingTrack) {
+            mergedSnapshot = mergedSnapshot.withPosition(
+                currentTrack.position
+            )
+        }
+
+        return mergedSnapshot
+    }
+
     private func synchronizeLyricsWithActiveTrack(
         observedAt: Date?
     ) {
@@ -441,6 +566,7 @@ final class NowPlayingStore {
                 position: track.position,
                 duration: track.duration,
                 state: snapshot.state,
+                playbackRate: snapshot.playbackRate,
                 observedAt: anchorDate
             )
         }
@@ -489,6 +615,7 @@ private struct PlaybackAnchor {
     let position: TimeInterval
     let duration: TimeInterval
     let state: PlaybackState
+    let playbackRate: Double
     let observedAt: Date
 }
 
@@ -524,6 +651,7 @@ private extension PlayerSnapshot {
             state: state,
             track: track,
             volume: volume,
+            playbackRate: playbackRate,
             errorMessage: errorMessage
         )
     }
@@ -535,6 +663,7 @@ private extension PlayerSnapshot {
             state: state,
             track: track,
             volume: volume,
+            playbackRate: playbackRate,
             errorMessage: errorMessage
         )
     }
@@ -557,6 +686,7 @@ private extension PlayerSnapshot {
             state: state,
             track: updatedTrack,
             volume: volume,
+            playbackRate: playbackRate,
             errorMessage: errorMessage
         )
     }
