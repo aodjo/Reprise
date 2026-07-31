@@ -1,0 +1,62 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Xcode user data and build products
+DerivedData/
+build/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+*.moved-aside
+*.hmap
+*.xcarchive
+*.xcresult
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Local editor and tool state
+.idea/
+.vscode/
+.codex/
+*.swp
+*.swo
+*~
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+Local.xcconfig
+Secrets.xcconfig
+*.p8
+*.p12
+*.pfx
+*.pem
+*.key
+*.cer
+*.crt
+*.mobileprovision
+*.provisionprofile
+*.developerprofile
+
+# Release and signing artifacts
+dist/
+release/
+artifacts/
+*.app
+*.dmg
+*.pkg
+*.ipa
+*.zip
+*.crx
+*.xpi
+*.notarylog
+*.log
