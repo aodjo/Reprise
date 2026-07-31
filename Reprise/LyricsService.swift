@@ -83,7 +83,6 @@ struct LyricsTrackQuery: Hashable, Sendable {
         hasher.combine(Self.normalized(title))
         hasher.combine(Self.normalized(album))
         hasher.combine(Self.normalized(artist))
-        hasher.combine(Int(duration.rounded()))
     }
 
     nonisolated static func == (
@@ -93,7 +92,6 @@ struct LyricsTrackQuery: Hashable, Sendable {
         normalized(lhs.title) == normalized(rhs.title)
             && normalized(lhs.album) == normalized(rhs.album)
             && normalized(lhs.artist) == normalized(rhs.artist)
-            && Int(lhs.duration.rounded()) == Int(rhs.duration.rounded())
     }
 
     nonisolated static func normalized(_ value: String) -> String {

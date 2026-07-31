@@ -1015,6 +1015,31 @@ struct RepriseTests {
     }
 
     @Test
+    func lyricsTrackIdentityIgnoresTransientDurationChanges() {
+        let unavailableDuration = LyricsTrackQuery(
+            track: Track(
+                title: "Antifreeze",
+                album: "선물",
+                artist: "Yerin Baek",
+                duration: 0
+            )
+        )
+        let resolvedDuration = LyricsTrackQuery(
+            track: Track(
+                title: "Antifreeze",
+                album: "선물",
+                artist: "Yerin Baek",
+                duration: 245
+            )
+        )
+
+        #expect(unavailableDuration == resolvedDuration)
+        #expect(
+            Set([unavailableDuration, resolvedDuration]).count == 1
+        )
+    }
+
+    @Test
     func vibeSyncedLyricsUseDefaultLanguageAndEndTimes() throws {
         let xml = """
         <response><result><lyric>

@@ -12,7 +12,15 @@ actor MediaAutomationService {
         let data: Data?
     }
 
+    private struct SnapshotCacheEntry {
+        let snapshot: PlayerSnapshot
+        let observedAt: Date
+    }
+
+    private static let transientFailureGraceInterval: TimeInterval = 2
+
     private var artworkCache: [MediaPlayerKind: ArtworkCacheEntry] = [:]
+    private var snapshotCache: [MediaPlayerKind: SnapshotCacheEntry] = [:]
     private var snapshotScriptCache: [MediaPlayerKind: NSAppleScript] = [:]
     private let youtubeMusicBridge: YouTubeMusicBridge
 
@@ -156,6 +164,7 @@ actor MediaAutomationService {
 
         guard isRunning(player) else {
             artworkCache[player] = nil
+            snapshotCache[player] = nil
             return .notRunning(player)
         }
 
@@ -189,7 +198,7 @@ actor MediaAutomationService {
                 )
             }
 
-            return PlayerSnapshot(
+            let snapshot = PlayerSnapshot(
                 player: player,
                 isRunning: true,
                 state: state,
@@ -197,7 +206,17 @@ actor MediaAutomationService {
                 volume: volume,
                 errorMessage: nil
             )
+            snapshotCache[player] = SnapshotCacheEntry(
+                snapshot: snapshot,
+                observedAt: Date()
+            )
+            return snapshot
         } catch {
+            if let cached = snapshotCache[player],
+               Date().timeIntervalSince(cached.observedAt)
+                <= Self.transientFailureGraceInterval {
+                return cached.snapshot
+            }
             return PlayerSnapshot(
                 player: player,
                 isRunning: true,
