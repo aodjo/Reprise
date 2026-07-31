@@ -34,6 +34,15 @@ enum MenuBarTitleTransitionStyle: Equatable {
     }
 }
 
+enum PlayerPanelActivationPolicy {
+    static func shouldDismiss(
+        activatedProcessIdentifier: pid_t,
+        repriseProcessIdentifier: pid_t
+    ) -> Bool {
+        activatedProcessIdentifier != repriseProcessIdentifier
+    }
+}
+
 private let settingsHotKeyEventHandler: EventHandlerUPP = {
     _, event, userData in
     guard let event, let userData else {
@@ -73,6 +82,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     private var playerPanel: PlayerPanel?
     private var localEventMonitor: Any?
     private var globalEventMonitor: Any?
+    private var workspaceActivationObserver: NSObjectProtocol?
     private var settingsHotKey: EventHotKeyRef?
     private var settingsHotKeyHandler: EventHandlerRef?
     private var instanceLock: RepriseInstanceLock?
@@ -289,6 +299,29 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
                 self.closePlayerPanel()
             }
         }
+
+        workspaceActivationObserver = NSWorkspace.shared.notificationCenter
+            .addObserver(
+                forName: NSWorkspace.didActivateApplicationNotification,
+                object: nil,
+                queue: .main
+            ) { [weak self] notification in
+                guard let activatedApplication = notification.userInfo?[
+                    NSWorkspace.applicationUserInfoKey
+                ] as? NSRunningApplication,
+                      PlayerPanelActivationPolicy.shouldDismiss(
+                          activatedProcessIdentifier:
+                              activatedApplication.processIdentifier,
+                          repriseProcessIdentifier:
+                              ProcessInfo.processInfo.processIdentifier
+                      ) else {
+                    return
+                }
+
+                Task { @MainActor [weak self] in
+                    self?.closePlayerPanel()
+                }
+            }
     }
 
     private func isPointInsideRepriseWindow(_ point: NSPoint) -> Bool {
@@ -309,6 +342,12 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         if let globalEventMonitor {
             NSEvent.removeMonitor(globalEventMonitor)
             self.globalEventMonitor = nil
+        }
+        if let workspaceActivationObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(
+                workspaceActivationObserver
+            )
+            self.workspaceActivationObserver = nil
         }
     }
 

@@ -76,6 +76,22 @@ struct RepriseTests {
     }
 
     @Test
+    func playerPanelDismissesWhenAnotherApplicationActivates() {
+        #expect(
+            PlayerPanelActivationPolicy.shouldDismiss(
+                activatedProcessIdentifier: 200,
+                repriseProcessIdentifier: 100
+            )
+        )
+        #expect(
+            !PlayerPanelActivationPolicy.shouldDismiss(
+                activatedProcessIdentifier: 100,
+                repriseProcessIdentifier: 100
+            )
+        )
+    }
+
+    @Test
     func marqueePreferencesArePersistedAndReadBack() {
         let suiteName = "RepriseTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
