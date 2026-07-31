@@ -10,6 +10,7 @@ nonisolated enum YouTubeMusicBridgeProtocol {
     static let port: UInt16 = 19_436
     static let subprotocolName = "reprise-youtube-music-v1"
     static let extensionID = "apmolpbmjjndmedbogieopgmapoehdlp"
+    static let firefoxExtensionID = "reprise-youtube-music@junx.dev"
     static let extensionPublicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArUGImdEvl2yZFlOUsVt/7lfhIuhpIPjLVbp4ihHMu5rHbIxFPGsA3q3W5IcPbcI/G6ujsh7C5LRC+1c9X4ftXBEcGEKryKPZ3WlfsmwuuXxEd3N6x6OzCw0ABEplzwuDh6ZMCFfDY8sG30Au1UoJTK3ZOunRCp9K/UFl+a76ozZRmKl284R8cWHjduDeEO5cMmjO+LTsXwT+df+rY14cWA88+tEvzdhiZpctHIwE7AIXUmr7jrcQlMbz+m4jalHCi2pd/np3BRbSAT5lQN6I4l2LVegdX5cpwQjueBMOROIgerOlIy0avCrmrWty0hF0J5ZOLDa/TvIhp9sAew0d9wIDAQAB"
     static let extensionOrigin = "chrome-extension://\(extensionID)"
     static let maximumMessageSize = 64 * 1_024
@@ -27,7 +28,25 @@ nonisolated enum YouTubeMusicBridgeProtocol {
             $0.name.caseInsensitiveCompare("Origin") == .orderedSame
         }?.value.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        return origin == extensionOrigin
+        if origin == extensionOrigin {
+            return true
+        }
+
+        guard let origin,
+              let components = URLComponents(string: origin),
+              components.scheme?.lowercased() == "moz-extension",
+              components.user == nil,
+              components.password == nil,
+              components.port == nil,
+              components.path.isEmpty,
+              components.query == nil,
+              components.fragment == nil,
+              let host = components.host,
+              UUID(uuidString: host) != nil else {
+            return false
+        }
+
+        return true
     }
 }
 
@@ -94,13 +113,26 @@ nonisolated struct YouTubeMusicHelloMessage: Decodable, Sendable {
     let type: String
     let protocolVersion: Int
     let extensionVersion: String
+    let extensionID: String
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion
+        case extensionVersion
+        case extensionID = "extensionId"
+    }
 
     func validate() throws {
         guard type == "hello" else {
             throw YouTubeMusicBridgeProtocolError.invalidMessage
         }
         try validateProtocolVersion(protocolVersion)
-        guard !extensionVersion.isEmpty, extensionVersion.count <= 64 else {
+        guard !extensionVersion.isEmpty,
+              extensionVersion.count <= 64,
+              [
+                  YouTubeMusicBridgeProtocol.extensionID,
+                  YouTubeMusicBridgeProtocol.firefoxExtensionID,
+              ].contains(extensionID) else {
             throw YouTubeMusicBridgeProtocolError.invalidMessage
         }
     }

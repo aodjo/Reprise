@@ -89,16 +89,23 @@ private struct GeneralSettingsView: View {
                 YouTubeMusicBridgeStatusRow()
 
                 Link(
-                    "확장 프로그램 다운로드",
+                    "Chromium 확장 다운로드",
                     destination: URL(
-                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Extension.zip"
+                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Chromium.zip"
+                    )!
+                )
+
+                Link(
+                    "Firefox 확장 다운로드",
+                    destination: URL(
+                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Firefox.xpi"
                     )!
                 )
             } header: {
                 Text("YouTube Music")
             } footer: {
                 Text(
-                    "압축을 푼 뒤 Chrome, Edge 또는 Brave의 확장 프로그램 화면에서 개발자 모드를 켜고 폴더를 불러오세요. YouTube Music 탭을 새로고침하면 자동으로 연결되며, 원격 서버나 별도 로그인은 사용하지 않습니다."
+                    "Chromium에서는 압축을 푼 폴더를 불러오고, Firefox에서는 서명된 XPI를 설치하세요. YouTube Music 탭을 새로고침하면 자동으로 연결되며 원격 서버나 별도 로그인은 사용하지 않습니다."
                 )
             }
 

@@ -47,6 +47,7 @@ function ensureBridgeConnection() {
       type: "hello",
       protocolVersion: PROTOCOL_VERSION,
       extensionVersion: EXTENSION_VERSION,
+      extensionId: chrome.runtime.id,
     });
     sendSelectedSnapshot();
     updateActionBadge();

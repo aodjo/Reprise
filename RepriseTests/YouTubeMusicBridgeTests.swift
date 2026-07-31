@@ -31,6 +31,29 @@ struct YouTubeMusicBridgeTests {
             )
         )
         #expect(
+            YouTubeMusicBridgeProtocol.acceptsHandshake(
+                subprotocols: [
+                    YouTubeMusicBridgeProtocol.subprotocolName,
+                ],
+                headers: [
+                    (
+                        name: "Origin",
+                        value: "moz-extension://123e4567-e89b-12d3-a456-426614174000"
+                    ),
+                ]
+            )
+        )
+        #expect(
+            !YouTubeMusicBridgeProtocol.acceptsHandshake(
+                subprotocols: [
+                    YouTubeMusicBridgeProtocol.subprotocolName,
+                ],
+                headers: [
+                    (name: "Origin", value: "moz-extension://not-an-uuid"),
+                ]
+            )
+        )
+        #expect(
             !YouTubeMusicBridgeProtocol.acceptsHandshake(
                 subprotocols: [
                     YouTubeMusicBridgeProtocol.subprotocolName,
@@ -62,6 +85,35 @@ struct YouTubeMusicBridgeTests {
         #expect(snapshot.volume == 100)
         #expect(snapshot.videoID == "abc123")
         #expect(snapshot.trackURL?.host == "music.youtube.com")
+    }
+
+    @Test
+    func helloMessagesRequireAKnownBrowserExtensionID() throws {
+        let firefoxHello = Data(
+            #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"reprise-youtube-music@junx.dev"}"#.utf8
+        )
+        let unknownHello = Data(
+            #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"another-extension@example.com"}"#.utf8
+        )
+
+        guard case let .hello(message) = try YouTubeMusicInboundMessage
+            .decode(from: firefoxHello) else {
+            Issue.record("hello 메시지로 디코딩되지 않음")
+            return
+        }
+        try message.validate()
+
+        do {
+            guard case let .hello(message) = try YouTubeMusicInboundMessage
+                .decode(from: unknownHello) else {
+                Issue.record("hello 메시지로 디코딩되지 않음")
+                return
+            }
+            try message.validate()
+            Issue.record("등록되지 않은 확장 ID가 허용됨")
+        } catch let error as YouTubeMusicBridgeProtocolError {
+            #expect(error == .invalidMessage)
+        }
     }
 
     @Test
@@ -214,7 +266,7 @@ struct YouTubeMusicBridgeTests {
 
         try await task.send(
             .string(
-                #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0"}"#
+                #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"apmolpbmjjndmedbogieopgmapoehdlp"}"#
             )
         )
         try await task.send(
