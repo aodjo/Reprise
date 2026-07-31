@@ -273,7 +273,7 @@ struct YouTubeMusicBridgeTests {
         )
         try await task.send(
             .string(
-                #"{"type":"snapshot","protocolVersion":1,"sequence":1,"tabId":7,"state":"playing","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":12,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
+                #"{"type":"snapshot","protocolVersion":1,"sequence":100,"tabId":7,"state":"playing","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":12,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
             )
         )
 
@@ -312,12 +312,43 @@ struct YouTubeMusicBridgeTests {
         #expect(command?["command"] as? String == "next")
         let commandID = try #require(command?["id"] as? String)
 
+        var firefoxRequest = request
+        firefoxRequest.setValue(
+            "moz-extension://123e4567-e89b-12d3-a456-426614174000",
+            forHTTPHeaderField: "Origin"
+        )
         let secondSession = URLSession(configuration: .ephemeral)
-        let secondTask = secondSession.webSocketTask(with: request)
+        let secondTask = secondSession.webSocketTask(with: firefoxRequest)
         secondTask.resume()
         try await secondTask.send(
             .string(
-                #"{"type":"hello","protocolVersion":1,"extensionVersion":"2.0.0","extensionId":"apmolpbmjjndmedbogieopgmapoehdlp"}"#
+                #"{"type":"hello","protocolVersion":1,"extensionVersion":"2.0.0","extensionId":"reprise-youtube-music@junx.dev"}"#
+            )
+        )
+        try await secondTask.send(
+            .string(
+                #"{"type":"snapshot","protocolVersion":1,"sequence":0,"tabId":8,"state":"playing","title":"Second Browser Song","album":"Second Album","artist":"Second Artist","duration":240,"position":30,"volume":55,"playbackRate":1,"artworkUrl":null,"videoId":"second123","trackUrl":"https://music.youtube.com/watch?v=second123"}"#
+            )
+        )
+        try await Task.sleep(for: .milliseconds(200))
+
+        // A newly connected browser must not steal an equally-ranked active
+        // player just by opening its WebSocket connection.
+        #expect(await bridge.connectedExtensionVersion() == "1.0.0")
+        #expect(await bridge.snapshot().track?.title == "Bridge Song")
+
+        try await task.send(
+            .string(
+                #"{"type":"ack","protocolVersion":1,"id":"\#(commandID)","success":true,"error":null}"#
+            )
+        )
+        try await commandTask.value
+
+        // Once the first browser pauses, the already-playing second browser
+        // becomes active without requiring either extension to reconnect.
+        try await task.send(
+            .string(
+                #"{"type":"snapshot","protocolVersion":1,"sequence":101,"tabId":7,"state":"paused","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":14,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
             )
         )
         for _ in 0..<40 {
@@ -327,13 +358,7 @@ struct YouTubeMusicBridgeTests {
             try await Task.sleep(for: .milliseconds(25))
         }
         #expect(await bridge.connectedExtensionVersion() == "2.0.0")
-
-        try await task.send(
-            .string(
-                #"{"type":"ack","protocolVersion":1,"id":"\#(commandID)","success":true,"error":null}"#
-            )
-        )
-        try await commandTask.value
+        #expect(await bridge.snapshot().track?.title == "Second Browser Song")
 
         let completionProbe = VolumeCompletionProbe()
         let volumeCommandTask = Task {
@@ -368,15 +393,34 @@ struct YouTubeMusicBridgeTests {
         try await Task.sleep(for: .milliseconds(100))
         #expect(await completionProbe.value() == nil)
 
+        // A matching snapshot from another browser cannot confirm a command
+        // that was sent to the selected browser.
+        try await task.send(
+            .string(
+                #"{"type":"snapshot","protocolVersion":1,"sequence":102,"tabId":7,"state":"paused","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":15,"volume":37,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
+            )
+        )
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await completionProbe.value() == nil)
+
         try await secondTask.send(
             .string(
-                #"{"type":"snapshot","protocolVersion":1,"sequence":0,"tabId":8,"state":"playing","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":13,"volume":37,"playbackRate":1,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
+                #"{"type":"snapshot","protocolVersion":1,"sequence":1,"tabId":8,"state":"playing","title":"Second Browser Song","album":"Second Album","artist":"Second Artist","duration":240,"position":31,"volume":37,"playbackRate":1,"artworkUrl":null,"videoId":"second123","trackUrl":"https://music.youtube.com/watch?v=second123"}"#
             )
         )
         #expect(try await volumeCommandTask.value == 37)
 
-        task.cancel(with: .normalClosure, reason: nil)
         secondTask.cancel(with: .normalClosure, reason: nil)
+        for _ in 0..<40 {
+            if await bridge.connectedExtensionVersion() == "1.0.0" {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        #expect(await bridge.connectedExtensionVersion() == "1.0.0")
+        #expect(await bridge.snapshot().track?.title == "Bridge Song")
+
+        task.cancel(with: .normalClosure, reason: nil)
         await bridge.stop()
         session.invalidateAndCancel()
         secondSession.invalidateAndCancel()
