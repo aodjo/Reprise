@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Reprise for YouTube Music",
+  "description": "Connect YouTube Music playback to Reprise without a remote server.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArUGImdEvl2yZFlOUsVt/7lfhIuhpIPjLVbp4ihHMu5rHbIxFPGsA3q3W5IcPbcI/G6ujsh7C5LRC+1c9X4ftXBEcGEKryKPZ3WlfsmwuuXxEd3N6x6OzCw0ABEplzwuDh6ZMCFfDY8sG30Au1UoJTK3ZOunRCp9K/UFl+a76ozZRmKl284R8cWHjduDeEO5cMmjO+LTsXwT+df+rY14cWA88+tEvzdhiZpctHIwE7AIXUmr7jrcQlMbz+m4jalHCi2pd/np3BRbSAT5lQN6I4l2LVegdX5cpwQjueBMOROIgerOlIy0avCrmrWty0hF0J5ZOLDa/TvIhp9sAew0d9wIDAQAB",
+  "background": {
+    "service_worker": "service-worker.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Reprise for YouTube Music",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://music.youtube.com/*"
+      ],
+      "js": [
+        "content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "host_permissions": [
+    "https://music.youtube.com/*"
+  ]
+}

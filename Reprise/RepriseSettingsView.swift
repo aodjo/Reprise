@@ -86,6 +86,23 @@ private struct GeneralSettingsView: View {
             }
 
             Section {
+                YouTubeMusicBridgeStatusRow()
+
+                Link(
+                    "확장 프로그램 다운로드",
+                    destination: URL(
+                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Extension.zip"
+                    )!
+                )
+            } header: {
+                Text("YouTube Music")
+            } footer: {
+                Text(
+                    "압축을 푼 뒤 Chrome, Edge 또는 Brave의 확장 프로그램 화면에서 개발자 모드를 켜고 폴더를 불러오세요. YouTube Music 탭을 새로고침하면 자동으로 연결되며, 원격 서버나 별도 로그인은 사용하지 않습니다."
+                )
+            }
+
+            Section {
                 Toggle(
                     "가사 표시",
                     isOn: $menuBarShowsLyrics
@@ -195,6 +212,11 @@ private struct GeneralSettingsView: View {
         case .appleMusic:
             Image(systemName: "music.note")
                 .font(.system(size: 15, weight: .semibold))
+        case .youtubeMusic:
+            Image("YouTubeMusicLogo")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
         }
     }
 
@@ -277,6 +299,60 @@ private struct GeneralSettingsView: View {
             ReprisePreferences.serializedPlayerDisplayOrder(
                 reorderedPlayers
             )
+    }
+}
+
+private struct YouTubeMusicBridgeStatusRow: View {
+    @State private var status = YouTubeMusicBridgeStatus.stopped
+    @State private var extensionVersion: String?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image("YouTubeMusicLogo")
+                .renderingMode(.template)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 18, height: 18)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("브라우저 확장 연결")
+
+                Text(detailText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 8)
+
+            Circle()
+                .fill(status.isConnected ? Color.green : Color.secondary)
+                .frame(width: 8, height: 8)
+                .accessibilityHidden(true)
+        }
+        .task {
+            await YouTubeMusicBridge.shared.start()
+            while !Task.isCancelled {
+                status = await YouTubeMusicBridge.shared.connectionStatus()
+                extensionVersion = await YouTubeMusicBridge.shared
+                    .connectedExtensionVersion()
+                try? await Task.sleep(for: .seconds(1))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("YouTube Music 브리지 \(detailText)")
+    }
+
+    private var detailText: String {
+        if let extensionVersion, status.isConnected {
+            return "연결됨 · 확장 v\(extensionVersion)"
+        }
+
+        if case let .failed(message) = status {
+            return "연결 오류 · \(message)"
+        }
+
+        return status.displayText
     }
 }
 

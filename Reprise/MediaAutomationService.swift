@@ -14,8 +14,16 @@ actor MediaAutomationService {
 
     private var artworkCache: [MediaPlayerKind: ArtworkCacheEntry] = [:]
     private var snapshotScriptCache: [MediaPlayerKind: NSAppleScript] = [:]
+    private let youtubeMusicBridge: YouTubeMusicBridge
+
+    init(
+        youtubeMusicBridge: YouTubeMusicBridge = .shared
+    ) {
+        self.youtubeMusicBridge = youtubeMusicBridge
+    }
 
     func snapshots() async -> [MediaPlayerKind: PlayerSnapshot] {
+        await youtubeMusicBridge.start()
         var result: [MediaPlayerKind: PlayerSnapshot] = [:]
 
         for player in MediaPlayerKind.allCases {
@@ -25,27 +33,48 @@ actor MediaAutomationService {
         return result
     }
 
-    func perform(_ command: PlaybackCommand, on player: MediaPlayerKind) throws {
+    func perform(
+        _ command: PlaybackCommand,
+        on player: MediaPlayerKind
+    ) async throws {
+        if player == .youtubeMusic {
+            try await youtubeMusicBridge.perform(command)
+            return
+        }
+
         guard isRunning(player) else {
             throw AutomationError.playerNotRunning(player)
         }
 
+        guard let bundleIdentifier = player.automationBundleIdentifier else {
+            throw AutomationError.playerNotRunning(player)
+        }
         let source = """
-        tell application id "\(player.bundleIdentifier)"
+        tell application id "\(bundleIdentifier)"
             \(appleScriptCommand(command, for: player))
         end tell
         """
         _ = try execute(source)
     }
 
-    func setVolume(_ volume: Int, on player: MediaPlayerKind) throws -> Int {
+    func setVolume(
+        _ volume: Int,
+        on player: MediaPlayerKind
+    ) async throws -> Int {
+        if player == .youtubeMusic {
+            return try await youtubeMusicBridge.setVolume(volume)
+        }
+
         guard isRunning(player) else {
             throw AutomationError.playerNotRunning(player)
         }
 
         let volume = PlayerVolume.clamped(volume)
+        guard let bundleIdentifier = player.automationBundleIdentifier else {
+            throw AutomationError.playerNotRunning(player)
+        }
         let source = """
-        tell application id "\(player.bundleIdentifier)"
+        tell application id "\(bundleIdentifier)"
             set sound volume to \(volume)
             return sound volume as text
         end tell
@@ -60,20 +89,27 @@ actor MediaAutomationService {
         _ position: TimeInterval,
         on player: MediaPlayerKind
     ) async throws -> TimeInterval {
+        if player == .youtubeMusic {
+            return try await youtubeMusicBridge.setPosition(position)
+        }
+
         guard isRunning(player) else {
             throw AutomationError.playerNotRunning(player)
         }
 
         let position = position.isFinite ? max(position, 0) : 0
+        guard let bundleIdentifier = player.automationBundleIdentifier else {
+            throw AutomationError.playerNotRunning(player)
+        }
         let setPositionSource = """
-        tell application id "\(player.bundleIdentifier)"
+        tell application id "\(bundleIdentifier)"
             set player position to \(position)
         end tell
         """
         _ = try execute(setPositionSource)
 
         let readPositionSource = """
-        tell application id "\(player.bundleIdentifier)"
+        tell application id "\(bundleIdentifier)"
             return player position as text
         end tell
         """
@@ -109,6 +145,10 @@ actor MediaAutomationService {
     }
 
     private func snapshot(for player: MediaPlayerKind) async -> PlayerSnapshot {
+        if player == .youtubeMusic {
+            return await youtubeMusicBridge.snapshot()
+        }
+
         guard isRunning(player) else {
             artworkCache[player] = nil
             return .notRunning(player)
@@ -164,8 +204,11 @@ actor MediaAutomationService {
     }
 
     private func isRunning(_ player: MediaPlayerKind) -> Bool {
-        !NSRunningApplication.runningApplications(
-            withBundleIdentifier: player.bundleIdentifier
+        guard let bundleIdentifier = player.automationBundleIdentifier else {
+            return false
+        }
+        return !NSRunningApplication.runningApplications(
+            withBundleIdentifier: bundleIdentifier
         ).isEmpty
     }
 
@@ -191,10 +234,15 @@ actor MediaAutomationService {
             set durationValue to duration of current track as text
             set artworkLocation to ""
             """
+        case .youtubeMusic:
+            ""
         }
 
+        guard let bundleIdentifier = player.automationBundleIdentifier else {
+            return ""
+        }
         return """
-        tell application id "\(player.bundleIdentifier)"
+        tell application id "\(bundleIdentifier)"
             set currentState to player state
             set volumeValue to sound volume as text
             if currentState is playing then
@@ -250,6 +298,8 @@ actor MediaAutomationService {
             data = await downloadArtwork(from: remoteURL)
         case .appleMusic:
             data = appleMusicArtwork()
+        case .youtubeMusic:
+            data = nil
         }
 
         artworkCache[player] = ArtworkCacheEntry(trackKey: trackKey, data: data)
@@ -314,6 +364,8 @@ actor MediaAutomationService {
                 """
             case .appleMusic:
                 return "stop"
+            case .youtubeMusic:
+                return ""
             }
         case .next:
             return "next track"
@@ -342,6 +394,10 @@ actor MediaAutomationService {
     }
 
     nonisolated static func userFacingMessage(for error: Error) -> String {
+        if let bridgeError = error as? YouTubeMusicBridgeProtocolError {
+            return bridgeError.localizedDescription
+        }
+
         guard let automationError = error as? AutomationError else {
             return "플레이어 정보를 가져오지 못했습니다."
         }

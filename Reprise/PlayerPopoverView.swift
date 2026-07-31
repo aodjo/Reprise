@@ -657,6 +657,17 @@ private struct PlayerLogoView: View {
         return image
     }()
 
+    private static let youtubeMusicLogo: NSImage = {
+        guard let source = NSImage(named: "YouTubeMusicLogo"),
+              let image = source.copy() as? NSImage else {
+            return NSImage(size: NSSize(width: 21, height: 21))
+        }
+
+        image.size = NSSize(width: 21, height: 21)
+        image.isTemplate = true
+        return image
+    }()
+
     @ViewBuilder
     var body: some View {
         switch player {
@@ -676,6 +687,15 @@ private struct PlayerLogoView: View {
                 .foregroundStyle(.primary)
                 .frame(width: 19, height: 19)
                 .accessibilityLabel("Apple Music 로고")
+                .accessibilityIdentifier("playerLogo")
+
+        case .youtubeMusic:
+            Image(nsImage: Self.youtubeMusicLogo)
+                .renderingMode(.template)
+                .foregroundStyle(.primary)
+                .frame(width: 21, height: 21)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("YouTube Music 로고")
                 .accessibilityIdentifier("playerLogo")
         }
     }

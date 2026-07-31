@@ -8,6 +8,7 @@ import Foundation
 enum MediaPlayerKind: String, CaseIterable, Identifiable, Sendable {
     case spotify
     case appleMusic
+    case youtubeMusic
 
     nonisolated var id: String { rawValue }
 
@@ -15,13 +16,15 @@ enum MediaPlayerKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .spotify: "Spotify"
         case .appleMusic: "Apple Music"
+        case .youtubeMusic: "YouTube Music"
         }
     }
 
-    nonisolated var bundleIdentifier: String {
+    nonisolated var automationBundleIdentifier: String? {
         switch self {
         case .spotify: "com.spotify.client"
         case .appleMusic: "com.apple.Music"
+        case .youtubeMusic: nil
         }
     }
 
@@ -29,6 +32,7 @@ enum MediaPlayerKind: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .spotify: "waveform.circle.fill"
         case .appleMusic: "music.note"
+        case .youtubeMusic: "play.rectangle.fill"
         }
     }
 }

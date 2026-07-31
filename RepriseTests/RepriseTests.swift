@@ -378,7 +378,7 @@ struct RepriseTests {
         #expect(
             ReprisePreferences.playerDisplayOrder(
                 in: defaults
-            ) == [.spotify, .appleMusic]
+            ) == [.spotify, .appleMusic, .youtubeMusic]
         )
     }
 
@@ -400,7 +400,7 @@ struct RepriseTests {
         #expect(
             ReprisePreferences.playerDisplayOrder(
                 in: defaults
-            ) == [.appleMusic, .spotify]
+            ) == [.appleMusic, .spotify, .youtubeMusic]
         )
     }
 
@@ -409,7 +409,7 @@ struct RepriseTests {
         #expect(
             ReprisePreferences.playerDisplayOrder(
                 from: MediaPlayerKind.appleMusic.rawValue
-            ) == [.appleMusic, .spotify]
+            ) == [.appleMusic, .spotify, .youtubeMusic]
         )
     }
 

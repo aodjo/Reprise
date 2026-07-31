@@ -11,6 +11,7 @@ import Observation
 final class NowPlayingStore {
     private(set) var spotify = PlayerSnapshot.notRunning(.spotify)
     private(set) var appleMusic = PlayerSnapshot.notRunning(.appleMusic)
+    private(set) var youtubeMusic = PlayerSnapshot.notRunning(.youtubeMusic)
     private(set) var isRefreshing = false
     private(set) var commandError: String?
     private(set) var lyricsState = LyricsLoadState.idle
@@ -40,10 +41,17 @@ final class NowPlayingStore {
 
     var menuBarSnapshot: PlayerSnapshot? {
         Self.preferredSnapshot(
-            spotify: spotify,
-            appleMusic: appleMusic,
+            snapshots: snapshotsByPlayer,
             displayOrder: playerDisplayOrder
         )
+    }
+
+    private var snapshotsByPlayer: [MediaPlayerKind: PlayerSnapshot] {
+        [
+            .spotify: spotify,
+            .appleMusic: appleMusic,
+            .youtubeMusic: youtubeMusic,
+        ]
     }
 
     private var playerDisplayOrder: [MediaPlayerKind] {
@@ -153,15 +161,17 @@ final class NowPlayingStore {
             return
         }
 
-        let previousSpotify = spotify
-        let previousAppleMusic = appleMusic
+        let previousSnapshots = snapshotsByPlayer
         let currentSpotify =
             snapshots[.spotify] ?? .notRunning(.spotify)
         let currentAppleMusic =
             snapshots[.appleMusic] ?? .notRunning(.appleMusic)
+        let currentYouTubeMusic =
+            snapshots[.youtubeMusic] ?? .notRunning(.youtubeMusic)
 
         spotify = currentSpotify
         appleMusic = currentAppleMusic
+        youtubeMusic = currentYouTubeMusic
         synchronizeLyricsWithActiveTrack(observedAt: Date())
         onMenuBarContentChange?()
 
@@ -170,17 +180,15 @@ final class NowPlayingStore {
             return
         }
 
-        guard let playerToPause = Self.playerToPause(
+        let playersToPause = Self.playersToPause(
             automaticPauseEnabled: automaticallyPausesOtherPlayer,
-            previousSpotify: previousSpotify,
-            previousAppleMusic: previousAppleMusic,
-            currentSpotify: currentSpotify,
-            currentAppleMusic: currentAppleMusic
-        ) else {
-            return
-        }
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: snapshotsByPlayer
+        )
 
-        await pauseAutomatically(playerToPause)
+        for player in playersToPause {
+            await pauseAutomatically(player)
+        }
     }
 
     func perform(_ command: PlaybackCommand) async {
@@ -276,18 +284,14 @@ final class NowPlayingStore {
         switch player {
         case .spotify: spotify
         case .appleMusic: appleMusic
+        case .youtubeMusic: youtubeMusic
         }
     }
 
     static func preferredSnapshot(
-        spotify: PlayerSnapshot,
-        appleMusic: PlayerSnapshot,
+        snapshots: [MediaPlayerKind: PlayerSnapshot],
         displayOrder: [MediaPlayerKind]
     ) -> PlayerSnapshot? {
-        let snapshots: [MediaPlayerKind: PlayerSnapshot] = [
-            .spotify: spotify,
-            .appleMusic: appleMusic,
-        ]
         let orderedPlayers = displayOrder + MediaPlayerKind.allCases.filter {
             !displayOrder.contains($0)
         }
@@ -303,6 +307,61 @@ final class NowPlayingStore {
             .first(where: { $0.track != nil })
     }
 
+    static func preferredSnapshot(
+        spotify: PlayerSnapshot,
+        appleMusic: PlayerSnapshot,
+        displayOrder: [MediaPlayerKind]
+    ) -> PlayerSnapshot? {
+        preferredSnapshot(
+            snapshots: [
+                .spotify: spotify,
+                .appleMusic: appleMusic,
+                .youtubeMusic: .notRunning(.youtubeMusic),
+            ],
+            displayOrder: displayOrder
+        )
+    }
+
+    static func playersToPause(
+        automaticPauseEnabled: Bool,
+        previousSnapshots: [MediaPlayerKind: PlayerSnapshot],
+        currentSnapshots: [MediaPlayerKind: PlayerSnapshot]
+    ) -> [MediaPlayerKind] {
+        guard automaticPauseEnabled else {
+            return []
+        }
+
+        var result: [MediaPlayerKind] = []
+        for newlyPlaying in MediaPlayerKind.allCases {
+            guard previousSnapshots[newlyPlaying]?.state != .playing,
+                  currentSnapshots[newlyPlaying]?.state == .playing else {
+                continue
+            }
+
+            for player in MediaPlayerKind.allCases
+            where player != newlyPlaying
+                && previousSnapshots[player]?.state == .playing
+                && currentSnapshots[player]?.state == .playing
+                && !result.contains(player) {
+                result.append(player)
+            }
+        }
+
+        return result
+    }
+
+    static func playerToPause(
+        automaticPauseEnabled: Bool,
+        previousSnapshots: [MediaPlayerKind: PlayerSnapshot],
+        currentSnapshots: [MediaPlayerKind: PlayerSnapshot]
+    ) -> MediaPlayerKind? {
+        playersToPause(
+            automaticPauseEnabled: automaticPauseEnabled,
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: currentSnapshots
+        ).first
+    }
+
     static func playerToPause(
         automaticPauseEnabled: Bool,
         previousSpotify: PlayerSnapshot,
@@ -310,34 +369,21 @@ final class NowPlayingStore {
         currentSpotify: PlayerSnapshot,
         currentAppleMusic: PlayerSnapshot
     ) -> MediaPlayerKind? {
-        guard automaticPauseEnabled else {
-            return nil
-        }
-
         let previousSnapshots: [MediaPlayerKind: PlayerSnapshot] = [
             .spotify: previousSpotify,
             .appleMusic: previousAppleMusic,
+            .youtubeMusic: .notRunning(.youtubeMusic),
         ]
         let currentSnapshots: [MediaPlayerKind: PlayerSnapshot] = [
             .spotify: currentSpotify,
             .appleMusic: currentAppleMusic,
+            .youtubeMusic: .notRunning(.youtubeMusic),
         ]
-
-        for newlyPlaying in MediaPlayerKind.allCases {
-            let previouslyPlaying: MediaPlayerKind =
-                newlyPlaying == .spotify ? .appleMusic : .spotify
-
-            guard previousSnapshots[newlyPlaying]?.state != .playing,
-                  currentSnapshots[newlyPlaying]?.state == .playing,
-                  previousSnapshots[previouslyPlaying]?.state == .playing,
-                  currentSnapshots[previouslyPlaying]?.state == .playing else {
-                continue
-            }
-
-            return previouslyPlaying
-        }
-
-        return nil
+        return playerToPause(
+            automaticPauseEnabled: automaticPauseEnabled,
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: currentSnapshots
+        )
     }
 
     private func pauseAutomatically(
@@ -367,6 +413,8 @@ final class NowPlayingStore {
             spotify = snapshot
         case .appleMusic:
             appleMusic = snapshot
+        case .youtubeMusic:
+            youtubeMusic = snapshot
         }
     }
 

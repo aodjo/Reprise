@@ -1,0 +1,288 @@
+//
+//  YouTubeMusicBridgeTests.swift
+//  RepriseTests
+//
+
+import Foundation
+import Testing
+@testable import Reprise
+
+@Suite(.serialized)
+@MainActor
+struct YouTubeMusicBridgeTests {
+    @Test
+    func handshakeRequiresTheFixedExtensionOriginAndSubprotocol() {
+        let validHeaders = [
+            (name: "Origin", value: YouTubeMusicBridgeProtocol.extensionOrigin),
+        ]
+
+        #expect(
+            YouTubeMusicBridgeProtocol.acceptsHandshake(
+                subprotocols: [
+                    YouTubeMusicBridgeProtocol.subprotocolName,
+                ],
+                headers: validHeaders
+            )
+        )
+        #expect(
+            !YouTubeMusicBridgeProtocol.acceptsHandshake(
+                subprotocols: ["another-protocol"],
+                headers: validHeaders
+            )
+        )
+        #expect(
+            !YouTubeMusicBridgeProtocol.acceptsHandshake(
+                subprotocols: [
+                    YouTubeMusicBridgeProtocol.subprotocolName,
+                ],
+                headers: [
+                    (name: "Origin", value: "https://music.youtube.com"),
+                ]
+            )
+        )
+    }
+
+    @Test
+    func snapshotMessagesAreValidatedAndClamped() throws {
+        let data = Data(
+            #"{"type":"snapshot","protocolVersion":1,"sequence":7,"tabId":42,"state":"playing","title":"  Song  ","album":"Album","artist":"Artist","duration":200,"position":75,"volume":140,"artworkUrl":"https://lh3.googleusercontent.com/art","videoId":"abc123","trackUrl":"https://music.youtube.com/watch?v=abc123"}"#.utf8
+        )
+
+        guard case let .snapshot(message) = try YouTubeMusicInboundMessage
+            .decode(from: data) else {
+            Issue.record("snapshot 메시지로 디코딩되지 않음")
+            return
+        }
+        let snapshot = try message.validated()
+
+        #expect(snapshot.sequence == 7)
+        #expect(snapshot.tabID == 42)
+        #expect(snapshot.state == .playing)
+        #expect(snapshot.title == "Song")
+        #expect(snapshot.volume == 100)
+        #expect(snapshot.videoID == "abc123")
+        #expect(snapshot.trackURL?.host == "music.youtube.com")
+    }
+
+    @Test
+    func snapshotRejectsUnsupportedProtocolAndUntrustedTrackURL() {
+        let unsupportedVersion = Data(
+            #"{"type":"snapshot","protocolVersion":2,"sequence":0,"state":"paused","title":"Song","duration":10,"position":1,"volume":50}"#.utf8
+        )
+        let untrustedTrackURL = Data(
+            #"{"type":"snapshot","protocolVersion":1,"sequence":0,"state":"paused","title":"Song","duration":10,"position":1,"volume":50,"trackUrl":"https://example.com/watch?v=1"}"#.utf8
+        )
+
+        do {
+            guard case let .snapshot(message) =
+                    try YouTubeMusicInboundMessage.decode(
+                        from: unsupportedVersion
+                    ) else {
+                Issue.record("snapshot 메시지로 디코딩되지 않음")
+                return
+            }
+            _ = try message.validated()
+            Issue.record("지원하지 않는 프로토콜이 허용됨")
+        } catch let error as YouTubeMusicBridgeProtocolError {
+            #expect(error == .unsupportedProtocolVersion(2))
+        } catch {
+            Issue.record("예상하지 못한 오류: \(error)")
+        }
+
+        do {
+            guard case let .snapshot(message) =
+                    try YouTubeMusicInboundMessage.decode(
+                        from: untrustedTrackURL
+                    ) else {
+                Issue.record("snapshot 메시지로 디코딩되지 않음")
+                return
+            }
+            _ = try message.validated()
+            Issue.record("신뢰하지 않는 트랙 URL이 허용됨")
+        } catch let error as YouTubeMusicBridgeProtocolError {
+            #expect(error == .invalidMessage)
+        } catch {
+            Issue.record("예상하지 못한 오류: \(error)")
+        }
+    }
+
+    @Test
+    func commandMessagesUseTheVersionedProtocol() throws {
+        let command = YouTubeMusicCommandMessage.setVolume(
+            140,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        )
+        let object = try JSONSerialization.jsonObject(
+            with: command.encoded()
+        ) as? [String: Any]
+
+        #expect(object?["type"] as? String == "command")
+        #expect(object?["protocolVersion"] as? Int == 1)
+        #expect(object?["command"] as? String == "setVolume")
+        #expect(object?["volume"] as? Int == 100)
+    }
+
+    @Test
+    func youtubeMusicParticipatesInPriorityAndAutomaticPause() {
+        let spotify = makeSnapshot(
+            player: .spotify,
+            state: .playing,
+            title: "Spotify"
+        )
+        let youtube = makeSnapshot(
+            player: .youtubeMusic,
+            state: .playing,
+            title: "YouTube"
+        )
+        let preferred = NowPlayingStore.preferredSnapshot(
+            snapshots: [
+                .spotify: spotify,
+                .appleMusic: .notRunning(.appleMusic),
+                .youtubeMusic: youtube,
+            ],
+            displayOrder: [.youtubeMusic, .spotify, .appleMusic]
+        )
+
+        #expect(preferred?.player == .youtubeMusic)
+
+        let playerToPause = NowPlayingStore.playerToPause(
+            automaticPauseEnabled: true,
+            previousSnapshots: [
+                .spotify: spotify,
+                .appleMusic: .notRunning(.appleMusic),
+                .youtubeMusic: .notRunning(.youtubeMusic),
+            ],
+            currentSnapshots: [
+                .spotify: spotify,
+                .appleMusic: .notRunning(.appleMusic),
+                .youtubeMusic: youtube,
+            ]
+        )
+
+        #expect(playerToPause == .spotify)
+
+        let appleMusic = makeSnapshot(
+            player: .appleMusic,
+            state: .playing,
+            title: "Apple Music"
+        )
+        let playersToPause = NowPlayingStore.playersToPause(
+            automaticPauseEnabled: true,
+            previousSnapshots: [
+                .spotify: spotify,
+                .appleMusic: appleMusic,
+                .youtubeMusic: .notRunning(.youtubeMusic),
+            ],
+            currentSnapshots: [
+                .spotify: spotify,
+                .appleMusic: appleMusic,
+                .youtubeMusic: youtube,
+            ]
+        )
+
+        #expect(playersToPause == [.spotify, .appleMusic])
+    }
+
+    @Test
+    func localWebSocketTransfersSnapshotsAndCommands() async throws {
+        let bridge = YouTubeMusicBridge()
+        await bridge.start()
+
+        for _ in 0..<20 {
+            if await bridge.connectionStatus() == .waiting {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        var request = URLRequest(
+            url: URL(
+                string: "ws://127.0.0.1:\(YouTubeMusicBridgeProtocol.port)"
+            )!
+        )
+        request.setValue(
+            YouTubeMusicBridgeProtocol.extensionOrigin,
+            forHTTPHeaderField: "Origin"
+        )
+        request.setValue(
+            YouTubeMusicBridgeProtocol.subprotocolName,
+            forHTTPHeaderField: "Sec-WebSocket-Protocol"
+        )
+        let session = URLSession(configuration: .ephemeral)
+        let task = session.webSocketTask(with: request)
+        task.resume()
+
+        try await task.send(
+            .string(
+                #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0"}"#
+            )
+        )
+        try await task.send(
+            .string(
+                #"{"type":"snapshot","protocolVersion":1,"sequence":1,"tabId":7,"state":"playing","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":12,"volume":64,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
+            )
+        )
+
+        var receivedSnapshot: PlayerSnapshot?
+        for _ in 0..<40 {
+            let snapshot = await bridge.snapshot()
+            if snapshot.track?.title == "Bridge Song" {
+                receivedSnapshot = snapshot
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+
+        #expect(receivedSnapshot?.player == .youtubeMusic)
+        #expect(receivedSnapshot?.state == .playing)
+        #expect(receivedSnapshot?.volume == 64)
+
+        let commandTask = Task {
+            try await bridge.perform(.next)
+        }
+        let outbound = try await task.receive()
+        let outboundData: Data
+        switch outbound {
+        case let .data(data):
+            outboundData = data
+        case let .string(string):
+            outboundData = Data(string.utf8)
+        @unknown default:
+            Issue.record("알 수 없는 WebSocket 메시지")
+            outboundData = Data()
+        }
+        let command = try JSONSerialization.jsonObject(
+            with: outboundData
+        ) as? [String: Any]
+        #expect(command?["command"] as? String == "next")
+        let commandID = try #require(command?["id"] as? String)
+        try await task.send(
+            .string(
+                #"{"type":"ack","protocolVersion":1,"id":"\#(commandID)","success":true,"error":null}"#
+            )
+        )
+        try await commandTask.value
+
+        task.cancel(with: .normalClosure, reason: nil)
+        await bridge.stop()
+        session.invalidateAndCancel()
+    }
+
+    private func makeSnapshot(
+        player: MediaPlayerKind,
+        state: PlaybackState,
+        title: String
+    ) -> PlayerSnapshot {
+        PlayerSnapshot(
+            player: player,
+            isRunning: true,
+            state: state,
+            track: Track(
+                title: title,
+                album: "Album",
+                artist: "Artist"
+            ),
+            errorMessage: nil
+        )
+    }
+}
