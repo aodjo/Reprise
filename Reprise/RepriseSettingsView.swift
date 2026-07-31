@@ -402,7 +402,7 @@ private struct YouTubeMusicSettingsView: View {
                 Link(
                     "Firefox 확장 다운로드",
                     destination: URL(
-                        string: "https://github.com/aodjo/Reprise/releases/latest/download/Reprise-YouTube-Music-Firefox.xpi"
+                        string: "https://github.com/aodjo/Reprise/releases/latest/download/Reprise-YouTube-Music-Firefox.zip"
                     )!
                 )
             } header: {
