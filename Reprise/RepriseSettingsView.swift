@@ -61,6 +61,8 @@ struct RepriseSettingsView: View {
 }
 
 private struct GeneralSettingsView: View {
+    @StateObject private var launchAtLoginController =
+        LaunchAtLoginController()
     @AppStorage(ReprisePreferenceKey.automaticallyPausesOtherPlayer)
     private var automaticallyPausesOtherPlayer = false
     @AppStorage(ReprisePreferenceKey.menuBarShowsLyrics)
@@ -199,8 +201,50 @@ private struct GeneralSettingsView: View {
                     "기억을 켜면 마지막으로 재생을 시작한 플레이어를 우선 표시합니다. 그 외에는 아래 순서를 사용하며, 항목을 드래그하여 변경할 수 있습니다."
                 )
             }
+
+            Section {
+                Toggle(
+                    "로그인 시 Reprise 자동 실행",
+                    isOn: Binding(
+                        get: { launchAtLoginController.state.isOn },
+                        set: { launchAtLoginController.setEnabled($0) }
+                    )
+                )
+
+                if launchAtLoginController.state == .requiresApproval {
+                    Button("로그인 항목 설정 열기") {
+                        launchAtLoginController.openSystemSettings()
+                    }
+                }
+
+                if let errorMessage = launchAtLoginController.errorMessage {
+                    Text(errorMessage)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            } header: {
+                Text("자동 실행")
+            } footer: {
+                if launchAtLoginController.state == .requiresApproval {
+                    Text(
+                        "자동 실행을 사용하려면 시스템 설정의 로그인 항목에서 Reprise를 허용해 주세요."
+                    )
+                } else {
+                    Text("Mac에 로그인하면 Reprise를 자동으로 실행합니다.")
+                }
+            }
         }
         .formStyle(.grouped)
+        .onAppear {
+            launchAtLoginController.refresh()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
+            launchAtLoginController.refresh()
+        }
     }
 
     @ViewBuilder

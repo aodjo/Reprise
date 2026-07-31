@@ -7,6 +7,7 @@
 
 import CoreGraphics
 import Foundation
+import ServiceManagement
 import Testing
 @testable import Reprise
 
@@ -91,6 +92,22 @@ struct RepriseTests {
                 repriseProcessIdentifier: 100
             )
         )
+    }
+
+    @Test
+    func launchAtLoginReflectsServiceManagementStatus() {
+        #expect(
+            LaunchAtLoginState(status: .notRegistered) == .disabled
+        )
+        #expect(LaunchAtLoginState(status: .enabled) == .enabled)
+        #expect(
+            LaunchAtLoginState(status: .requiresApproval)
+                == .requiresApproval
+        )
+        #expect(LaunchAtLoginState(status: .notFound) == .unavailable)
+        #expect(!LaunchAtLoginState.disabled.isOn)
+        #expect(LaunchAtLoginState.enabled.isOn)
+        #expect(LaunchAtLoginState.requiresApproval.isOn)
     }
 
     @Test
