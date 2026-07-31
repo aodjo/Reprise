@@ -45,6 +45,11 @@
 			path = RepriseUITests;
 			sourceTree = "<group>";
 		};
+		B8A1F001304B000100000001 /* BrowserExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = BrowserExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,6 +80,7 @@
 		A97F195130174F13003C6056 = {
 			isa = PBXGroup;
 			children = (
+				B8A1F001304B000100000001 /* BrowserExtension */,
 				A97F195C30174F13003C6056 /* Reprise */,
 				A97F196C30174F14003C6056 /* RepriseTests */,
 				A97F197630174F14003C6056 /* RepriseUITests */,
