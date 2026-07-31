@@ -1,7 +1,9 @@
+// Reprise — a menu bar music controller for macOS
+// Copyright 2026 Junsung Lee. All rights reserved.
 //
-//  ReprisePreferences.swift
-//  Reprise
-//
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License.
 
 import CoreGraphics
 import Foundation
