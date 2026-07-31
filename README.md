@@ -11,7 +11,7 @@
 [![GitHub Issues](https://img.shields.io/github/issues/aodjo/reprise)](https://github.com/aodjo/reprise/issues)
 [![GitHub Pull Requests](https://img.shields.io/github/issues-pr/aodjo/reprise)](https://github.com/aodjo/reprise/pulls)
 
-**English** | [한국어](docs/README.ko.md)
+**English** | [한국어](docs/README-ko.md)
 
 </div>
 
