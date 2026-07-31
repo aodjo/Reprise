@@ -28,11 +28,8 @@ struct RepriseSettingsView: View {
                     Label {
                         Text("YouTube Music")
                     } icon: {
-                        Image("YouTubeMusicLogo")
-                            .renderingMode(.template)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 22, height: 22)
+                        Image(systemName: "play.circle")
+                            .font(.system(size: 18, weight: .regular))
                     }
                 }
 
