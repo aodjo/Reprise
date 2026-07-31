@@ -123,16 +123,16 @@ function receiveCommand(rawMessage) {
     return;
   }
 
-  const selected = selectedConnection();
-  if (!selected) {
+  const target = commandTarget(message);
+  if (!target) {
     sendAcknowledgement(message.id, false, "YouTube Music 탭이 없습니다.");
     return;
   }
 
   const timeout = setTimeout(() => {
     const pending = pendingCommandTargets.get(message.id);
-    if (pending?.tabId !== selected.tabId ||
-        pending?.port !== selected.port) {
+    if (pending?.tabId !== target.tabId ||
+        pending?.port !== target.port) {
       return;
     }
     pendingCommandTargets.delete(message.id);
@@ -143,18 +143,29 @@ function receiveCommand(rawMessage) {
     );
   }, COMMAND_TIMEOUT_MS);
   pendingCommandTargets.set(message.id, {
-    tabId: selected.tabId,
-    port: selected.port,
+    tabId: target.tabId,
+    port: target.port,
     timeout,
   });
 
   try {
-    selected.port.postMessage(message);
+    target.port.postMessage(message);
   } catch (_error) {
     clearTimeout(timeout);
     pendingCommandTargets.delete(message.id);
     sendAcknowledgement(message.id, false, "YouTube Music 탭과 연결이 끊어졌습니다.");
   }
+}
+
+function commandTarget(message) {
+  if (message.tabId === undefined || message.tabId === null) {
+    return selectedConnection();
+  }
+  if (!Number.isInteger(message.tabId)) {
+    return null;
+  }
+  const entry = tabConnections.get(message.tabId);
+  return entry ? { tabId: message.tabId, ...entry } : null;
 }
 
 function selectedConnection() {

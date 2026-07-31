@@ -22,7 +22,6 @@ final class NowPlayingStore {
     private let automation = MediaAutomationService()
     private let lyricsService: LyricsService
     private var pollingTask: Task<Void, Never>?
-    private var youtubeMusicPollingTask: Task<Void, Never>?
     private var lyricsTask: Task<Void, Never>?
     private var lyricsDisplayTask: Task<Void, Never>?
     private var hasCompletedInitialRefresh = false
@@ -149,40 +148,8 @@ final class NowPlayingStore {
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
-                try? await Task.sleep(for: .seconds(2))
-            }
-        }
-
-        youtubeMusicPollingTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.refreshYouTubeMusic()
                 try? await Task.sleep(for: .milliseconds(500))
             }
-        }
-    }
-
-    private func refreshYouTubeMusic() async {
-        let refreshRevision = stateMutationRevision
-        let incomingSnapshot = await automation.youtubeMusicSnapshot()
-        guard refreshRevision == stateMutationRevision else { return }
-
-        let previousSnapshot = youtubeMusic
-        let wasYouTubeMusicActive = menuBarSnapshot?.player == .youtubeMusic
-        let snapshot = mergingPendingMutations(
-            incomingSnapshot,
-            for: .youtubeMusic
-        )
-        youtubeMusic = snapshot
-        if wasYouTubeMusicActive
-            || menuBarSnapshot?.player == .youtubeMusic {
-            synchronizeLyricsWithActiveTrack(observedAt: Date())
-        }
-
-        if Self.menuBarContentChanged(
-            from: previousSnapshot,
-            to: snapshot
-        ) {
-            onMenuBarContentChange?()
         }
     }
 
@@ -192,7 +159,10 @@ final class NowPlayingStore {
         defer { isRefreshing = false }
 
         let refreshRevision = stateMutationRevision
-        let snapshots = await automation.snapshots()
+        let snapshots = await automation.snapshots(
+            automaticallyPausesOtherYouTubeMusicSessions:
+                automaticallyPausesOtherPlayer
+        )
         guard refreshRevision == stateMutationRevision else {
             return
         }
@@ -215,7 +185,16 @@ final class NowPlayingStore {
         appleMusic = currentAppleMusic
         youtubeMusic = currentYouTubeMusic
         synchronizeLyricsWithActiveTrack(observedAt: Date())
-        onMenuBarContentChange?()
+        if MediaPlayerKind.allCases.contains(where: { player in
+            Self.menuBarContentChanged(
+                from: previousSnapshots[player]
+                    ?? .notRunning(player),
+                to: snapshotsByPlayer[player]
+                    ?? .notRunning(player)
+            )
+        }) {
+            onMenuBarContentChange?()
+        }
 
         guard hasCompletedInitialRefresh else {
             hasCompletedInitialRefresh = true

@@ -730,6 +730,21 @@ test("service worker binds tab state and acknowledgements to the exact port", ()
     }`,
     context
   );
+
+  const backgroundPort = makePort(8);
+  connectListener(backgroundPort);
+  backgroundPort.emitMessage({
+    type: "snapshot",
+    state: "playing",
+    title: "Background",
+    duration: 180,
+    position: 30,
+    volume: 60,
+    playbackRate: 1,
+    capturedAtMs: Date.now(),
+    visible: false,
+  });
+
   context.commandJSON = JSON.stringify({
     type: "command",
     protocolVersion: 1,
@@ -757,7 +772,38 @@ test("service worker binds tab state and acknowledgements to the exact port", ()
   assert.equal(socketMessages.at(-1).id, "command-1");
   assert.equal(socketMessages.at(-1).success, true);
 
+  context.targetedCommandJSON = JSON.stringify({
+    type: "command",
+    protocolVersion: 1,
+    id: "command-2",
+    command: "pause",
+    tabId: 8,
+  });
+  vm.runInContext("receiveCommand(targetedCommandJSON)", context);
+  assert.equal(backgroundPort.posted.at(-1).id, "command-2");
+  assert.notEqual(newPort.posted.at(-1).id, "command-2");
+
+  newPort.emitMessage({
+    type: "ack",
+    id: "command-2",
+    success: true,
+  });
+  assert.equal(
+    socketMessages.some((message) => message.id === "command-2"),
+    false
+  );
+
+  backgroundPort.emitMessage({
+    type: "ack",
+    id: "command-2",
+    success: true,
+  });
+  assert.equal(socketMessages.at(-1).id, "command-2");
+  assert.equal(socketMessages.at(-1).success, true);
+
   newPort.emitDisconnect();
+  assert.equal(context.socketClosed, false);
+  backgroundPort.emitDisconnect();
   assert.equal(context.socketClosed, true);
   assert.equal(vm.runInContext("tabConnections.size", context), 0);
   const emptySessionList = socketMessages.findLast(

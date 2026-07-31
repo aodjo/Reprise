@@ -19,6 +19,7 @@ actor YouTubeMusicBridge {
     private var lastSequences: [UUID: Int] = [:]
     private var lastSessionSequences: [UUID: Int] = [:]
     private var extensionVersion: String?
+    private var automaticallyPausesOtherSessions = false
     private var pendingCommandConnections: [String: UUID] = [:]
     private var commandResults: [String: Result<Void, Error>] = [:]
     private var artworkTrackKey: String?
@@ -80,6 +81,17 @@ actor YouTubeMusicBridge {
 
     func connectedExtensionVersion() -> String? {
         extensionVersion
+    }
+
+    func setAutomaticallyPausesOtherSessions(_ enabled: Bool) async {
+        guard automaticallyPausesOtherSessions != enabled else { return }
+
+        automaticallyPausesOtherSessions = enabled
+        guard enabled,
+              let retainedSession = preferredPlayingSession() else {
+            return
+        }
+        await pausePlayingSessions(except: retainedSession)
     }
 
     func sessions(at date: Date = Date()) -> [YouTubeMusicSession] {
@@ -388,22 +400,43 @@ actor YouTubeMusicBridge {
                 return
             }
 
+            let previousPayload = connectionSessionLists[connectionID]?.payload
             lastSessionSequences[connectionID] = payload.sequence
             connectionSessionLists[connectionID] = ConnectionSessionList(
                 payload: payload
             )
+
+            guard automaticallyPausesOtherSessions,
+                  let newlyPlayingSession = Self.newlyPlayingSession(
+                      in: payload,
+                      previousPayload: previousPayload,
+                      connectionID: connectionID
+                  ) else {
+                return
+            }
+            await pausePlayingSessions(except: newlyPlayingSession)
         }
     }
 
     private func send(
-        _ command: YouTubeMusicCommandMessage
+        _ command: YouTubeMusicCommandMessage,
+        to targetConnectionID: UUID? = nil
     ) async throws -> CommandDispatch {
         guard status.isConnected,
               let server else {
             throw YouTubeMusicBridgeProtocolError.extensionNotConnected
         }
-        guard let connectionID = selectActiveConnection() else {
-            throw YouTubeMusicBridgeProtocolError.extensionNotConnected
+        let connectionID: UUID
+        if let targetConnectionID {
+            guard connectionIdentities[targetConnectionID] != nil else {
+                throw YouTubeMusicBridgeProtocolError.extensionNotConnected
+            }
+            connectionID = targetConnectionID
+        } else {
+            guard let selectedConnectionID = selectActiveConnection() else {
+                throw YouTubeMusicBridgeProtocolError.extensionNotConnected
+            }
+            connectionID = selectedConnectionID
         }
         let dispatch = CommandDispatch(
             connectionID: connectionID,
@@ -429,6 +462,67 @@ actor YouTubeMusicBridge {
         }
 
         throw YouTubeMusicBridgeProtocolError.commandNotConfirmed
+    }
+
+    private func preferredPlayingSession(
+        at date: Date = Date()
+    ) -> YouTubeMusicSessionTarget? {
+        let sessions = playingSessionTargets(at: date)
+        guard !sessions.isEmpty else { return nil }
+
+        return sessions.max { lhs, rhs in
+            if lhs.isVisible != rhs.isVisible {
+                return !lhs.isVisible
+            }
+            if lhs.isSelected != rhs.isSelected {
+                return !lhs.isSelected
+            }
+            return lhs.updatedAt < rhs.updatedAt
+        }
+    }
+
+    private func playingSessionTargets(
+        at date: Date = Date()
+    ) -> [YouTubeMusicSessionTarget] {
+        connectionSessionLists.flatMap { connectionID, sessionList in
+            sessionList.payload.sessions.compactMap { session in
+                guard session.state == .playing,
+                      date.timeIntervalSince(session.updatedAt)
+                        <= YouTubeMusicBridgeProtocol.staleSnapshotInterval else {
+                    return nil
+                }
+                return YouTubeMusicSessionTarget(
+                    connectionID: connectionID,
+                    tabID: session.tabID,
+                    isSelected: sessionList.payload.selectedTabID
+                        == session.tabID,
+                    isVisible: session.isVisible,
+                    updatedAt: session.updatedAt
+                )
+            }
+        }
+    }
+
+    private func pausePlayingSessions(
+        except retainedSession: YouTubeMusicSessionTarget
+    ) async {
+        let targets = playingSessionTargets().filter {
+            $0.connectionID != retainedSession.connectionID
+                || $0.tabID != retainedSession.tabID
+        }
+        guard !targets.isEmpty else { return }
+
+        await withTaskGroup(of: Void.self) { group in
+            for target in targets {
+                group.addTask { [weak self] in
+                    guard let self else { return }
+                    _ = try? await self.send(
+                        .playback(.pause, tabID: target.tabID),
+                        to: target.connectionID
+                    )
+                }
+            }
+        }
     }
 
     @discardableResult
@@ -576,6 +670,46 @@ actor YouTubeMusicBridge {
         return 0
     }
 
+    private nonisolated static func newlyPlayingSession(
+        in payload: YouTubeMusicSessionsPayload,
+        previousPayload: YouTubeMusicSessionsPayload?,
+        connectionID: UUID,
+        at date: Date = Date()
+    ) -> YouTubeMusicSessionTarget? {
+        let previousStates = Dictionary(
+            uniqueKeysWithValues: previousPayload?.sessions.map {
+                ($0.tabID, $0.state)
+            } ?? []
+        )
+        let candidates: [YouTubeMusicSessionTarget] =
+            payload.sessions.compactMap { session in
+                guard session.state == .playing,
+                      previousStates[session.tabID] != .playing,
+                      date.timeIntervalSince(session.updatedAt)
+                        <= YouTubeMusicBridgeProtocol
+                            .staleSnapshotInterval else {
+                    return nil
+                }
+                return YouTubeMusicSessionTarget(
+                    connectionID: connectionID,
+                    tabID: session.tabID,
+                    isSelected: payload.selectedTabID == session.tabID,
+                    isVisible: session.isVisible,
+                    updatedAt: session.updatedAt
+                )
+            }
+
+        return candidates.max { lhs, rhs in
+            if lhs.isSelected != rhs.isSelected {
+                return !lhs.isSelected
+            }
+            if lhs.isVisible != rhs.isVisible {
+                return !lhs.isVisible
+            }
+            return lhs.updatedAt < rhs.updatedAt
+        }
+    }
+
     private nonisolated static func sessionIdentifier(
         connectionID: UUID,
         tabID: Int?
@@ -592,6 +726,14 @@ nonisolated private struct ConnectionSnapshot: Sendable {
 
 nonisolated private struct ConnectionSessionList: Sendable {
     let payload: YouTubeMusicSessionsPayload
+}
+
+nonisolated private struct YouTubeMusicSessionTarget: Sendable {
+    let connectionID: UUID
+    let tabID: Int
+    let isSelected: Bool
+    let isVisible: Bool
+    let updatedAt: Date
 }
 
 nonisolated private struct ConnectionIdentity: Sendable {

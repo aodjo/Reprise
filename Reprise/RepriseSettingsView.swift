@@ -299,15 +299,10 @@ private struct GeneralSettingsView: View {
 }
 
 private struct YouTubeMusicSettingsView: View {
-    @State private var status = YouTubeMusicBridgeStatus.stopped
     @State private var sessions: [YouTubeMusicSession] = []
 
     var body: some View {
         Form {
-            Section("연결 상태") {
-                connectionStatusRow
-            }
-
             Section {
                 if sessions.isEmpty {
                     HStack(spacing: 10) {
@@ -370,39 +365,10 @@ private struct YouTubeMusicSettingsView: View {
         .task {
             await YouTubeMusicBridge.shared.start()
             while !Task.isCancelled {
-                status = await YouTubeMusicBridge.shared.connectionStatus()
                 sessions = await YouTubeMusicBridge.shared.sessions()
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
-    }
-
-    private var connectionStatusRow: some View {
-        HStack(spacing: 10) {
-            Image("YouTubeMusicLogo")
-                .renderingMode(.template)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 18)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text("브라우저 확장 연결")
-
-                Text(connectionDetailText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-            }
-
-            Spacer(minLength: 8)
-
-            Circle()
-                .fill(status.isConnected ? Color.green : Color.secondary)
-                .frame(width: 8, height: 8)
-                .accessibilityHidden(true)
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("YouTube Music 브리지 \(connectionDetailText)")
     }
 
     @ViewBuilder
@@ -484,21 +450,6 @@ private struct YouTubeMusicSettingsView: View {
             return session.browserName
         }
         return "\(session.browserName) · 탭 \(index + 1)"
-    }
-
-    private var connectionDetailText: String {
-        if status.isConnected {
-            if sessions.isEmpty {
-                return "연결됨 · 세션 정보 대기 중"
-            }
-            return "연결됨 · \(sessions.count)개 세션"
-        }
-
-        if case let .failed(message) = status {
-            return "연결 오류 · \(message)"
-        }
-
-        return status.displayText
     }
 
     private func sessionDetailText(

@@ -22,8 +22,13 @@ actor MediaAutomationService {
         self.youtubeMusicBridge = youtubeMusicBridge
     }
 
-    func snapshots() async -> [MediaPlayerKind: PlayerSnapshot] {
+    func snapshots(
+        automaticallyPausesOtherYouTubeMusicSessions: Bool
+    ) async -> [MediaPlayerKind: PlayerSnapshot] {
         await youtubeMusicBridge.start()
+        await youtubeMusicBridge.setAutomaticallyPausesOtherSessions(
+            automaticallyPausesOtherYouTubeMusicSessions
+        )
         var result: [MediaPlayerKind: PlayerSnapshot] = [:]
 
         for player in MediaPlayerKind.allCases {
@@ -31,11 +36,6 @@ actor MediaAutomationService {
         }
 
         return result
-    }
-
-    func youtubeMusicSnapshot() async -> PlayerSnapshot {
-        await youtubeMusicBridge.start()
-        return await youtubeMusicBridge.snapshot()
     }
 
     func perform(

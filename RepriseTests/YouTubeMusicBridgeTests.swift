@@ -202,6 +202,20 @@ struct YouTubeMusicBridgeTests {
         #expect(object?["protocolVersion"] as? Int == 1)
         #expect(object?["command"] as? String == "setVolume")
         #expect(object?["volume"] as? Int == 100)
+
+        let targetedPause = YouTubeMusicCommandMessage.playback(
+            .pause,
+            tabID: 42,
+            id: UUID(
+                uuidString: "00000000-0000-0000-0000-000000000002"
+            )!
+        )
+        let targetedObject = try JSONSerialization.jsonObject(
+            with: targetedPause.encoded()
+        ) as? [String: Any]
+
+        #expect(targetedObject?["command"] as? String == "pause")
+        #expect(targetedObject?["tabId"] as? Int == 42)
     }
 
     @Test

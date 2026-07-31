@@ -468,11 +468,23 @@ nonisolated struct YouTubeMusicCommandMessage: Encodable, Equatable, Sendable {
     let protocolVersion = YouTubeMusicBridgeProtocol.version
     let id: String
     let command: String
+    let tabID: Int?
     let position: TimeInterval?
     let volume: Int?
 
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion
+        case id
+        case command
+        case tabID = "tabId"
+        case position
+        case volume
+    }
+
     static func playback(
         _ command: PlaybackCommand,
+        tabID: Int? = nil,
         id: UUID = UUID()
     ) -> Self {
         let commandName = switch command {
@@ -485,6 +497,7 @@ nonisolated struct YouTubeMusicCommandMessage: Encodable, Equatable, Sendable {
         return Self(
             id: id.uuidString,
             command: commandName,
+            tabID: tabID,
             position: nil,
             volume: nil
         )
@@ -497,6 +510,7 @@ nonisolated struct YouTubeMusicCommandMessage: Encodable, Equatable, Sendable {
         Self(
             id: id.uuidString,
             command: "seek",
+            tabID: nil,
             position: max(position, 0),
             volume: nil
         )
@@ -509,6 +523,7 @@ nonisolated struct YouTubeMusicCommandMessage: Encodable, Equatable, Sendable {
         Self(
             id: id.uuidString,
             command: "setVolume",
+            tabID: nil,
             position: nil,
             volume: PlayerVolume.clamped(volume)
         )
