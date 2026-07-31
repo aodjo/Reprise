@@ -113,7 +113,6 @@ both sets of terms.
 
 Signing is automatic. Open a pull request and the CLA bot will comment with a
 signing link. Agreeing once in a comment is enough — you won't be asked again.
-Pull requests containing only documentation or typo fixes are exempt.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
