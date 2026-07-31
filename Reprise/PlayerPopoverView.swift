@@ -6,6 +6,29 @@
 import AppKit
 import SwiftUI
 
+struct LiquidPanelBackground: View {
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        if #available(macOS 26.0, *) {
+            Color.clear
+                .glassEffect(
+                    .clear,
+                    in: RoundedRectangle(
+                        cornerRadius: cornerRadius,
+                        style: .continuous
+                    )
+                )
+        } else {
+            RoundedRectangle(
+                cornerRadius: cornerRadius,
+                style: .continuous
+            )
+            .fill(.ultraThinMaterial)
+        }
+    }
+}
+
 struct PlayerPopoverView: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @Environment(\.openSettings) private var openSettings
@@ -157,8 +180,9 @@ struct PlayerPopoverView: View {
         case .black:
             Color.black
         case .liquid:
-            Rectangle()
-                .fill(.regularMaterial)
+            LiquidPanelBackground(
+                cornerRadius: PlayerPanelLayout.cornerRadius
+            )
         case .system:
             Color(nsColor: .windowBackgroundColor)
         }
@@ -881,11 +905,14 @@ private struct VolumeSliderPanelPresenter: NSViewRepresentable {
 
             let contentView = hostingController.view
             contentView.wantsLayer = true
+            contentView.layer?.backgroundColor = NSColor.clear.cgColor
             contentView.layer?.cornerRadius = 10
             contentView.layer?.cornerCurve = .continuous
             contentView.layer?.masksToBounds = true
             contentView.layer?.borderWidth = 0.5
-            contentView.layer?.borderColor = NSColor.separatorColor.cgColor
+            contentView.layer?.borderColor = NSColor.black
+                .withAlphaComponent(0.42)
+                .cgColor
 
             self.panel = panel
             self.hostingController = hostingController
@@ -1070,7 +1097,9 @@ private struct VolumeSliderPanelContent: View {
         }
         .padding(.horizontal, 10)
         .frame(width: 160, height: 36)
-        .background(.regularMaterial)
+        .background {
+            LiquidPanelBackground(cornerRadius: 10)
+        }
         .preferredColorScheme(colorScheme)
     }
 }

@@ -429,7 +429,10 @@ private struct ThemePanelPreview: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                .stroke(
+                    Color.black.opacity(0.42),
+                    lineWidth: 0.5
+                )
         }
         .shadow(color: .black.opacity(0.16), radius: 6, y: 2)
         .environment(\.colorScheme, previewColorScheme)
@@ -444,8 +447,7 @@ private struct ThemePanelPreview: View {
         case .black:
             Color.black
         case .liquid:
-            Rectangle()
-                .fill(.regularMaterial)
+            LiquidPanelBackground(cornerRadius: 16)
         case .system:
             Color(nsColor: .windowBackgroundColor)
         }

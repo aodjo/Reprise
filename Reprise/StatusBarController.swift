@@ -166,11 +166,14 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         ]
 
         contentView.wantsLayer = true
+        contentView.layer?.backgroundColor = NSColor.clear.cgColor
         contentView.layer?.cornerRadius = PlayerPanelLayout.cornerRadius
         contentView.layer?.cornerCurve = .continuous
         contentView.layer?.masksToBounds = true
-        contentView.layer?.borderWidth = 1
-        contentView.layer?.borderColor = NSColor.separatorColor.cgColor
+        contentView.layer?.borderWidth = 0.5
+        contentView.layer?.borderColor = NSColor.black
+            .withAlphaComponent(0.42)
+            .cgColor
     }
 
     private func showPlayerPanel(
