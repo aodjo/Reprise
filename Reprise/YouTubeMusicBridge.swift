@@ -13,7 +13,7 @@ actor YouTubeMusicBridge {
     private var server: YouTubeMusicWebSocketServer?
     private var status = YouTubeMusicBridgeStatus.stopped
     private var activeConnectionID: UUID?
-    private var connectionVersions: [UUID: String] = [:]
+    private var connectionIdentities: [UUID: ConnectionIdentity] = [:]
     private var connectionSnapshots: [UUID: ConnectionSnapshot] = [:]
     private var lastSequences: [UUID: Int] = [:]
     private var extensionVersion: String?
@@ -61,7 +61,7 @@ actor YouTubeMusicBridge {
         server = nil
         status = .stopped
         activeConnectionID = nil
-        connectionVersions.removeAll()
+        connectionIdentities.removeAll()
         connectionSnapshots.removeAll()
         lastSequences.removeAll()
         extensionVersion = nil
@@ -76,6 +76,51 @@ actor YouTubeMusicBridge {
 
     func connectedExtensionVersion() -> String? {
         extensionVersion
+    }
+
+    func sessions(at date: Date = Date()) -> [YouTubeMusicSession] {
+        _ = selectActiveConnection(at: date)
+
+        return connectionIdentities.compactMap { connectionID, identity in
+            guard let browser = YouTubeMusicBrowserKind(
+                extensionID: identity.extensionID
+            ) else {
+                return nil
+            }
+
+            let connectionSnapshot = connectionSnapshots[connectionID]
+            let payload = connectionSnapshot?.payload
+            let isStale = connectionSnapshot.map {
+                date.timeIntervalSince($0.receivedAt)
+                    > YouTubeMusicBridgeProtocol.staleSnapshotInterval
+            } ?? true
+
+            return YouTubeMusicSession(
+                id: connectionID,
+                browser: browser,
+                extensionID: identity.extensionID,
+                extensionVersion: identity.extensionVersion,
+                tabID: payload?.tabID,
+                state: payload?.state ?? .stopped,
+                title: payload?.title ?? "",
+                artist: payload?.artist ?? "",
+                isActive: !isStale && activeConnectionID == connectionID,
+                lastUpdatedAt: connectionSnapshot?.receivedAt,
+                isFresh: !isStale
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.isActive != rhs.isActive {
+                return lhs.isActive
+            }
+            if lhs.browser.rawValue != rhs.browser.rawValue {
+                return lhs.browser.rawValue < rhs.browser.rawValue
+            }
+            if lhs.tabID != rhs.tabID {
+                return (lhs.tabID ?? .max) < (rhs.tabID ?? .max)
+            }
+            return lhs.id.uuidString < rhs.id.uuidString
+        }
     }
 
     func snapshot(at date: Date = Date()) -> PlayerSnapshot {
@@ -179,7 +224,7 @@ actor YouTubeMusicBridge {
         self.status = status
         if !status.isConnected {
             activeConnectionID = nil
-            connectionVersions.removeAll()
+            connectionIdentities.removeAll()
             connectionSnapshots.removeAll()
             lastSequences.removeAll()
             extensionVersion = nil
@@ -202,13 +247,16 @@ actor YouTubeMusicBridge {
         case let .hello(message):
             do {
                 try message.validate()
-                connectionVersions[connectionID] = message.extensionVersion
+                connectionIdentities[connectionID] = ConnectionIdentity(
+                    extensionID: message.extensionID,
+                    extensionVersion: message.extensionVersion
+                )
             } catch {
                 return
             }
 
         case let .heartbeat(message):
-            guard connectionVersions[connectionID] != nil else {
+            guard connectionIdentities[connectionID] != nil else {
                 return
             }
             do {
@@ -218,7 +266,7 @@ actor YouTubeMusicBridge {
             }
 
         case let .acknowledgement(message):
-            guard connectionVersions[connectionID] != nil else {
+            guard connectionIdentities[connectionID] != nil else {
                 return
             }
             do {
@@ -238,7 +286,7 @@ actor YouTubeMusicBridge {
                 )
 
         case let .snapshot(message):
-            guard connectionVersions[connectionID] != nil else {
+            guard connectionIdentities[connectionID] != nil else {
                 return
             }
             let payload: YouTubeMusicSnapshotPayload
@@ -354,12 +402,12 @@ actor YouTubeMusicBridge {
         guard activeConnectionID != connectionID else { return }
 
         activeConnectionID = connectionID
-        extensionVersion = connectionVersions[connectionID]
+        extensionVersion = connectionIdentities[connectionID]?.extensionVersion
         clearArtwork()
     }
 
     private func connectionClosed(_ connectionID: UUID) async {
-        connectionVersions[connectionID] = nil
+        connectionIdentities[connectionID] = nil
         connectionSnapshots[connectionID] = nil
         lastSequences[connectionID] = nil
         for (commandID, targetConnectionID) in pendingCommandConnections
@@ -459,6 +507,11 @@ nonisolated private struct ConnectionSnapshot: Sendable {
     let payload: YouTubeMusicSnapshotPayload
     let receivedAt: Date
     let observedAt: Date
+}
+
+nonisolated private struct ConnectionIdentity: Sendable {
+    let extensionID: String
+    let extensionVersion: String
 }
 
 nonisolated private struct CommandDispatch: Sendable {

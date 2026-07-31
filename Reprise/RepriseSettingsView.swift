@@ -23,6 +23,19 @@ struct RepriseSettingsView: View {
                     Label("일반", systemImage: "gearshape")
                 }
 
+            YouTubeMusicSettingsView()
+                .tabItem {
+                    Label {
+                        Text("YouTube Music")
+                    } icon: {
+                        Image("YouTubeMusicLogo")
+                            .renderingMode(.template)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 22, height: 22)
+                    }
+                }
+
             ThemeSettingsView()
                 .tabItem {
                     Label("테마", systemImage: "paintpalette")
@@ -82,30 +95,6 @@ private struct GeneralSettingsView: View {
             } footer: {
                 Text(
                     "한 플레이어가 재생을 시작하면 기존에 재생 중이던 다른 플레이어를 일시 정지합니다."
-                )
-            }
-
-            Section {
-                YouTubeMusicBridgeStatusRow()
-
-                Link(
-                    "Chromium 확장 다운로드",
-                    destination: URL(
-                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Chromium.zip"
-                    )!
-                )
-
-                Link(
-                    "Firefox 확장 다운로드",
-                    destination: URL(
-                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Firefox.xpi"
-                    )!
-                )
-            } header: {
-                Text("YouTube Music")
-            } footer: {
-                Text(
-                    "Chromium에서는 압축을 푼 폴더를 불러오고, Firefox에서는 서명된 XPI를 설치하세요. YouTube Music 탭을 새로고침하면 자동으로 연결되며 원격 서버나 별도 로그인은 사용하지 않습니다."
                 )
             }
 
@@ -309,11 +298,83 @@ private struct GeneralSettingsView: View {
     }
 }
 
-private struct YouTubeMusicBridgeStatusRow: View {
+private struct YouTubeMusicSettingsView: View {
     @State private var status = YouTubeMusicBridgeStatus.stopped
-    @State private var extensionVersion: String?
+    @State private var sessions: [YouTubeMusicSession] = []
 
     var body: some View {
+        Form {
+            Section("연결 상태") {
+                connectionStatusRow
+            }
+
+            Section {
+                if sessions.isEmpty {
+                    HStack(spacing: 10) {
+                        Image(systemName: "network.slash")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 20, height: 20)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("연결된 세션 없음")
+
+                            Text(
+                                "YouTube Music을 연 브라우저에서 확장 프로그램을 연결해 주세요."
+                            )
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 2)
+                } else {
+                    ForEach(sessions) { session in
+                        sessionRow(session)
+                    }
+                }
+            } header: {
+                Text("브라우저 세션")
+            } footer: {
+                Text(
+                    "세션은 Chromium 또는 Firefox의 확장 연결을 의미합니다. 브라우저 안에 여러 YouTube Music 탭이 있으면 확장이 재생 중인 탭을 자동으로 선택합니다."
+                )
+            }
+
+            Section {
+                Link(
+                    "Chromium 확장 다운로드",
+                    destination: URL(
+                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Chromium.zip"
+                    )!
+                )
+
+                Link(
+                    "Firefox 확장 다운로드",
+                    destination: URL(
+                        string: "https://github.com/aodjo/reprise-releases/releases/latest/download/Reprise-YouTube-Music-Firefox.xpi"
+                    )!
+                )
+            } header: {
+                Text("브라우저 확장")
+            } footer: {
+                Text(
+                    "Chromium에서는 압축을 푼 폴더를 불러오고, Firefox에서는 서명된 XPI를 설치하세요. YouTube Music 탭을 새로고침하면 자동으로 연결됩니다."
+                )
+            }
+        }
+        .formStyle(.grouped)
+        .task {
+            await YouTubeMusicBridge.shared.start()
+            while !Task.isCancelled {
+                status = await YouTubeMusicBridge.shared.connectionStatus()
+                sessions = await YouTubeMusicBridge.shared.sessions()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+    }
+
+    private var connectionStatusRow: some View {
         HStack(spacing: 10) {
             Image("YouTubeMusicLogo")
                 .renderingMode(.template)
@@ -324,7 +385,7 @@ private struct YouTubeMusicBridgeStatusRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text("브라우저 확장 연결")
 
-                Text(detailText)
+                Text(connectionDetailText)
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -337,22 +398,77 @@ private struct YouTubeMusicBridgeStatusRow: View {
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
         }
-        .task {
-            await YouTubeMusicBridge.shared.start()
-            while !Task.isCancelled {
-                status = await YouTubeMusicBridge.shared.connectionStatus()
-                extensionVersion = await YouTubeMusicBridge.shared
-                    .connectedExtensionVersion()
-                try? await Task.sleep(for: .seconds(1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("YouTube Music 브리지 \(connectionDetailText)")
+    }
+
+    @ViewBuilder
+    private func sessionRow(
+        _ session: YouTubeMusicSession
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: browserSymbol(for: session.browser))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(
+                    session.isActive ? Color.accentColor : Color.secondary
+                )
+                .frame(width: 20, height: 20)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(session.browser.displayName)
+                        .fontWeight(.medium)
+
+                    if session.isActive {
+                        Text("사용 중")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(
+                                Color.accentColor.opacity(0.12),
+                                in: Capsule()
+                            )
+                    } else if session.isStale {
+                        Text("응답 대기")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Text(sessionDetailText(for: session))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Image(systemName: stateSymbol(for: session.state))
+                    .foregroundStyle(
+                        session.state == .playing
+                            ? Color.green
+                            : Color.secondary
+                    )
+
+                Text("v\(session.extensionVersion)")
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(.tertiary)
             }
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("YouTube Music 브리지 \(detailText)")
+        .accessibilityLabel(
+            "\(session.browser.displayName) 세션, \(sessionDetailText(for: session))"
+        )
     }
 
-    private var detailText: String {
-        if let extensionVersion, status.isConnected {
-            return "연결됨 · 확장 v\(extensionVersion)"
+    private var connectionDetailText: String {
+        if status.isConnected {
+            if sessions.isEmpty {
+                return "연결됨 · 세션 정보 대기 중"
+            }
+            return "연결됨 · \(sessions.count)개 세션"
         }
 
         if case let .failed(message) = status {
@@ -360,6 +476,54 @@ private struct YouTubeMusicBridgeStatusRow: View {
         }
 
         return status.displayText
+    }
+
+    private func sessionDetailText(
+        for session: YouTubeMusicSession
+    ) -> String {
+        guard !session.title.isEmpty else {
+            return session.isFresh
+                ? "재생 정보 없음"
+                : "재생 정보 대기 중"
+        }
+
+        let track = session.artist.isEmpty
+            ? session.title
+            : "\(session.title) · \(session.artist)"
+        switch session.state {
+        case .playing:
+            return track
+        case .paused:
+            return "일시 정지 · \(track)"
+        case .stopped:
+            return "정지 · \(track)"
+        case .unavailable:
+            return "사용할 수 없음 · \(track)"
+        }
+    }
+
+    private func browserSymbol(
+        for browser: YouTubeMusicBrowserKind
+    ) -> String {
+        switch browser {
+        case .chromium:
+            "globe"
+        case .firefox:
+            "flame.fill"
+        }
+    }
+
+    private func stateSymbol(for state: PlaybackState) -> String {
+        switch state {
+        case .playing:
+            "play.circle.fill"
+        case .paused:
+            "pause.circle.fill"
+        case .stopped:
+            "stop.circle"
+        case .unavailable:
+            "exclamationmark.triangle"
+        }
     }
 }
 

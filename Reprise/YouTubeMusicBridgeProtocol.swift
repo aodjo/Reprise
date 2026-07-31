@@ -74,6 +74,50 @@ nonisolated enum YouTubeMusicBridgeStatus: Equatable, Sendable {
     }
 }
 
+nonisolated enum YouTubeMusicBrowserKind: String, CaseIterable, Sendable {
+    case chromium
+    case firefox
+
+    var displayName: String {
+        switch self {
+        case .chromium:
+            "Chromium"
+        case .firefox:
+            "Firefox"
+        }
+    }
+
+    init?(extensionID: String) {
+        switch extensionID {
+        case YouTubeMusicBridgeProtocol.extensionID:
+            self = .chromium
+        case YouTubeMusicBridgeProtocol.firefoxExtensionID:
+            self = .firefox
+        default:
+            return nil
+        }
+    }
+}
+
+/// A browser extension connection and the YouTube Music tab currently selected
+/// by that extension. The extension currently reports one selected tab per
+/// browser connection, so a session does not represent every open browser tab.
+nonisolated struct YouTubeMusicSession: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let browser: YouTubeMusicBrowserKind
+    let extensionID: String
+    let extensionVersion: String
+    let tabID: Int?
+    let state: PlaybackState
+    let title: String
+    let artist: String
+    let isActive: Bool
+    let lastUpdatedAt: Date?
+    let isFresh: Bool
+
+    var isStale: Bool { !isFresh }
+}
+
 nonisolated enum YouTubeMusicInboundMessage: Sendable {
     case hello(YouTubeMusicHelloMessage)
     case snapshot(YouTubeMusicSnapshotMessage)
@@ -135,6 +179,10 @@ nonisolated struct YouTubeMusicHelloMessage: Decodable, Sendable {
               ].contains(extensionID) else {
             throw YouTubeMusicBridgeProtocolError.invalidMessage
         }
+    }
+
+    var browser: YouTubeMusicBrowserKind? {
+        YouTubeMusicBrowserKind(extensionID: extensionID)
     }
 }
 
