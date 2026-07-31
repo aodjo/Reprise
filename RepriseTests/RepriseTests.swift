@@ -366,6 +366,33 @@ struct RepriseTests {
     }
 
     @Test
+    func rememberingTheLastPlayedPlayerIsOffByDefault() {
+        let suiteName = "RepriseTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        ReprisePreferences.registerDefaults(in: defaults)
+
+        #expect(
+            !ReprisePreferences.remembersLastPlayedPlayer(
+                in: defaults
+            )
+        )
+        #expect(ReprisePreferences.lastPlayedPlayer(in: defaults) == nil)
+
+        ReprisePreferences.setLastPlayedPlayer(
+            .youtubeMusic,
+            in: defaults
+        )
+        #expect(
+            ReprisePreferences.lastPlayedPlayer(in: defaults)
+                == .youtubeMusic
+        )
+    }
+
+    @Test
     func spotifyIsFirstInTheDefaultPlayerDisplayOrder() {
         let suiteName = "RepriseTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -476,6 +503,73 @@ struct RepriseTests {
         )
 
         #expect(preferred?.player == .appleMusic)
+    }
+
+    @Test
+    func rememberedPlayerWinsWhenNothingIsPlaying() {
+        let spotify = makeSnapshot(
+            player: .spotify,
+            state: .paused,
+            title: "Spotify song",
+            album: "Spotify album"
+        )
+        let youtubeMusic = makeSnapshot(
+            player: .youtubeMusic,
+            state: .paused,
+            title: "YouTube song",
+            album: "YouTube album"
+        )
+
+        let preferred = NowPlayingStore.preferredSnapshot(
+            snapshots: [
+                .spotify: spotify,
+                .appleMusic: .notRunning(.appleMusic),
+                .youtubeMusic: youtubeMusic,
+            ],
+            displayOrder: [.spotify, .appleMusic, .youtubeMusic],
+            rememberedPlayer: .youtubeMusic
+        )
+
+        #expect(preferred?.player == .youtubeMusic)
+    }
+
+    @Test
+    func newlyPlayingPlayerBecomesTheRememberedPlayer() {
+        let previousSpotify = makeSnapshot(
+            player: .spotify,
+            state: .playing,
+            title: "Spotify song",
+            album: "Spotify album"
+        )
+        let previousYouTube = makeSnapshot(
+            player: .youtubeMusic,
+            state: .paused,
+            title: "YouTube song",
+            album: "YouTube album"
+        )
+        let currentYouTube = makeSnapshot(
+            player: .youtubeMusic,
+            state: .playing,
+            title: "YouTube song",
+            album: "YouTube album"
+        )
+
+        let player = NowPlayingStore.playerToRemember(
+            previousSnapshots: [
+                .spotify: previousSpotify,
+                .appleMusic: .notRunning(.appleMusic),
+                .youtubeMusic: previousYouTube,
+            ],
+            currentSnapshots: [
+                .spotify: previousSpotify,
+                .appleMusic: .notRunning(.appleMusic),
+                .youtubeMusic: currentYouTube,
+            ],
+            displayOrder: [.spotify, .appleMusic, .youtubeMusic],
+            rememberedPlayer: .spotify
+        )
+
+        #expect(player == .youtubeMusic)
     }
 
     @Test

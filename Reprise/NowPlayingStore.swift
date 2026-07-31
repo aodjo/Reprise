@@ -44,7 +44,8 @@ final class NowPlayingStore {
     var menuBarSnapshot: PlayerSnapshot? {
         Self.preferredSnapshot(
             snapshots: snapshotsByPlayer,
-            displayOrder: playerDisplayOrder
+            displayOrder: playerDisplayOrder,
+            rememberedPlayer: rememberedPlayer
         )
     }
 
@@ -62,6 +63,13 @@ final class NowPlayingStore {
 
     private var automaticallyPausesOtherPlayer: Bool {
         ReprisePreferences.automaticallyPausesOtherPlayer()
+    }
+
+    private var rememberedPlayer: MediaPlayerKind? {
+        guard ReprisePreferences.remembersLastPlayedPlayer() else {
+            return nil
+        }
+        return ReprisePreferences.lastPlayedPlayer()
     }
 
     var menuBarTitle: String {
@@ -184,6 +192,10 @@ final class NowPlayingStore {
         spotify = currentSpotify
         appleMusic = currentAppleMusic
         youtubeMusic = currentYouTubeMusic
+        rememberLastPlayedPlayerIfNeeded(
+            previousSnapshots: previousSnapshots,
+            currentSnapshots: snapshotsByPlayer
+        )
         synchronizeLyricsWithActiveTrack(observedAt: Date())
         if MediaPlayerKind.allCases.contains(where: { player in
             Self.menuBarContentChanged(
@@ -360,16 +372,30 @@ final class NowPlayingStore {
 
     static func preferredSnapshot(
         snapshots: [MediaPlayerKind: PlayerSnapshot],
-        displayOrder: [MediaPlayerKind]
+        displayOrder: [MediaPlayerKind],
+        rememberedPlayer: MediaPlayerKind? = nil
     ) -> PlayerSnapshot? {
         let orderedPlayers = displayOrder + MediaPlayerKind.allCases.filter {
             !displayOrder.contains($0)
+        }
+
+        if let rememberedPlayer,
+           let remembered = snapshots[rememberedPlayer],
+           remembered.state == .playing,
+           remembered.track != nil {
+            return remembered
         }
 
         if let playing = orderedPlayers
             .compactMap({ snapshots[$0] })
             .first(where: { $0.state == .playing && $0.track != nil }) {
             return playing
+        }
+
+        if let rememberedPlayer,
+           let remembered = snapshots[rememberedPlayer],
+           remembered.track != nil {
+            return remembered
         }
 
         return orderedPlayers
@@ -390,6 +416,33 @@ final class NowPlayingStore {
             ],
             displayOrder: displayOrder
         )
+    }
+
+    static func playerToRemember(
+        previousSnapshots: [MediaPlayerKind: PlayerSnapshot],
+        currentSnapshots: [MediaPlayerKind: PlayerSnapshot],
+        displayOrder: [MediaPlayerKind],
+        rememberedPlayer: MediaPlayerKind?
+    ) -> MediaPlayerKind? {
+        let orderedPlayers = displayOrder + MediaPlayerKind.allCases.filter {
+            !displayOrder.contains($0)
+        }
+        let playingPlayers = orderedPlayers.filter {
+            currentSnapshots[$0]?.state == .playing
+                && currentSnapshots[$0]?.track != nil
+        }
+
+        if let newlyPlaying = playingPlayers.first(where: {
+            previousSnapshots[$0]?.state != .playing
+        }) {
+            return newlyPlaying
+        }
+
+        if let rememberedPlayer,
+           playingPlayers.contains(rememberedPlayer) {
+            return nil
+        }
+        return playingPlayers.first
     }
 
     static func playersToPause(
@@ -486,6 +539,23 @@ final class NowPlayingStore {
                 for: error
             )
         }
+    }
+
+    private func rememberLastPlayedPlayerIfNeeded(
+        previousSnapshots: [MediaPlayerKind: PlayerSnapshot],
+        currentSnapshots: [MediaPlayerKind: PlayerSnapshot]
+    ) {
+        guard ReprisePreferences.remembersLastPlayedPlayer(),
+              let player = Self.playerToRemember(
+                  previousSnapshots: previousSnapshots,
+                  currentSnapshots: currentSnapshots,
+                  displayOrder: playerDisplayOrder,
+                  rememberedPlayer: ReprisePreferences.lastPlayedPlayer()
+              ),
+              player != ReprisePreferences.lastPlayedPlayer() else {
+            return
+        }
+        ReprisePreferences.setLastPlayedPlayer(player)
     }
 
     private func updateSnapshot(

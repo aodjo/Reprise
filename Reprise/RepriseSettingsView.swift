@@ -73,6 +73,8 @@ private struct GeneralSettingsView: View {
     @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
     private var playerDisplayOrder =
         ReprisePreferences.defaultPlayerDisplayOrder
+    @AppStorage(ReprisePreferenceKey.remembersLastPlayedPlayer)
+    private var remembersLastPlayedPlayer = false
     @State private var draggedPlayer: MediaPlayerKind?
     @State private var dragStartIndex: Int?
     @State private var dragOffset = CGFloat.zero
@@ -135,6 +137,11 @@ private struct GeneralSettingsView: View {
             }
 
             Section {
+                Toggle(
+                    "마지막에 재생한 플레이어 기억",
+                    isOn: $remembersLastPlayedPlayer
+                )
+
                 ForEach(Array(orderedPlayers.enumerated()), id: \.element) {
                     index,
                     player in
@@ -189,7 +196,9 @@ private struct GeneralSettingsView: View {
             } header: {
                 Text("표시 우선순위")
             } footer: {
-                Text("동시 재생시 표시할 플레이어의 우선순위를 정합니다. 항목을 드래그하여 우선순위를 변경할 수 있습니다.")
+                Text(
+                    "기억을 켜면 마지막으로 재생을 시작한 플레이어를 우선 표시합니다. 그 외에는 아래 순서를 사용하며, 항목을 드래그하여 변경할 수 있습니다."
+                )
             }
         }
         .formStyle(.grouped)

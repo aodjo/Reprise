@@ -45,6 +45,10 @@ struct PlayerPopoverView: View {
     @AppStorage(ReprisePreferenceKey.playerDisplayPriority)
     private var playerDisplayOrder =
         ReprisePreferences.defaultPlayerDisplayOrder
+    @AppStorage(ReprisePreferenceKey.remembersLastPlayedPlayer)
+    private var remembersLastPlayedPlayer = false
+    @AppStorage(ReprisePreferenceKey.lastPlayedPlayer)
+    private var lastPlayedPlayer = ""
     @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
     private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
     @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
@@ -67,6 +71,8 @@ struct PlayerPopoverView: View {
 
     private var snapshot: PlayerSnapshot {
         _ = playerDisplayOrder
+        _ = remembersLastPlayedPlayer
+        _ = lastPlayedPlayer
         return store.activeSnapshot
     }
 

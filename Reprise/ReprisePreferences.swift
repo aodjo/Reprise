@@ -18,8 +18,10 @@ enum ReprisePreferenceKey {
     static let menuBarTitleFormat = "menuBarTitleFormat"
     static let panelLeadingTimeStyle = "panelLeadingTimeStyle"
     static let panelTrailingTimeStyle = "panelTrailingTimeStyle"
+    static let lastPlayedPlayer = "lastPlayedPlayer"
     static let playerDisplayPriority = "playerDisplayPriority"
     static let playerPanelTheme = "playerPanelTheme"
+    static let remembersLastPlayedPlayer = "remembersLastPlayedPlayer"
     static let resetsMenuTitleWhenPanelOpens = "resetsMenuTitleWhenPanelOpens"
 }
 
@@ -306,6 +308,32 @@ enum ReprisePreferences {
         )
     }
 
+    static func remembersLastPlayedPlayer(
+        in defaults: UserDefaults = .standard
+    ) -> Bool {
+        defaults.bool(
+            forKey: ReprisePreferenceKey.remembersLastPlayedPlayer
+        )
+    }
+
+    static func lastPlayedPlayer(
+        in defaults: UserDefaults = .standard
+    ) -> MediaPlayerKind? {
+        defaults.string(
+            forKey: ReprisePreferenceKey.lastPlayedPlayer
+        ).flatMap(MediaPlayerKind.init(rawValue:))
+    }
+
+    static func setLastPlayedPlayer(
+        _ player: MediaPlayerKind,
+        in defaults: UserDefaults = .standard
+    ) {
+        defaults.set(
+            player.rawValue,
+            forKey: ReprisePreferenceKey.lastPlayedPlayer
+        )
+    }
+
     static func registerDefaults(
         in defaults: UserDefaults = .standard
     ) {
@@ -331,6 +359,7 @@ enum ReprisePreferences {
                     defaultPlayerDisplayOrder,
                 ReprisePreferenceKey.playerPanelTheme:
                     PlayerPanelTheme.liquid.rawValue,
+                ReprisePreferenceKey.remembersLastPlayedPlayer: false,
                 ReprisePreferenceKey.resetsMenuTitleWhenPanelOpens: true,
             ]
         )
