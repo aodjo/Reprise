@@ -453,6 +453,24 @@ test("tab selection stays sticky while candidates have the same score", () => {
     },
   });
   vm.runInContext(serviceWorkerSource, context);
+
+  context.navigator = {
+    userAgent: "Mozilla/5.0 Chrome/140.0.0.0 Edg/140.0.0.0",
+  };
+  assert.equal(
+    vm.runInContext("detectedBrowserName()", context),
+    "Microsoft Edge"
+  );
+  context.navigator = {
+    userAgent: "Mozilla/5.0 Chrome/140.0.0.0",
+    brave: {},
+  };
+  assert.equal(vm.runInContext("detectedBrowserName()", context), "Brave");
+  context.navigator = {
+    userAgent: "Mozilla/5.0 Firefox/142.0",
+  };
+  assert.equal(vm.runInContext("detectedBrowserName()", context), "Firefox");
+
   context.now = Date.now();
   vm.runInContext(
     `
@@ -541,6 +559,38 @@ test("tab selection stays sticky while candidates have the same score", () => {
   const forwarded = sentMessages.at(-1);
   assert.equal(forwarded.playbackRate, 2);
   assert.equal(forwarded.capturedAtMs, context.snapshotTimestamp);
+
+  vm.runInContext(
+    `
+      tabConnections.set(4, {
+        port: {},
+        snapshot: {
+          ...normalized,
+          state: "paused",
+          title: "Background Song",
+          artist: "Background Artist",
+          visible: false,
+        },
+        updatedAt: Date.now(),
+      });
+      sendSessionList();
+    `,
+    context
+  );
+  const sessionList = sentMessages.at(-1);
+  assert.equal(sessionList.type, "sessions");
+  assert.equal(sessionList.protocolVersion, 1);
+  assert.equal(sessionList.selectedTabId, 3);
+  assert.equal(sessionList.sessions.length, 2);
+  assert.deepEqual(
+    Array.from(sessionList.sessions, (session) => session.tabId),
+    [3, 4]
+  );
+  assert.equal(sessionList.sessions[0].title, "Bridge Song");
+  assert.equal(sessionList.sessions[0].visible, true);
+  assert.equal(sessionList.sessions[1].title, "Background Song");
+  assert.equal(sessionList.sessions[1].artist, "Background Artist");
+  assert.equal(sessionList.sessions[1].visible, false);
 });
 
 test("service worker binds tab state and acknowledgements to the exact port", () => {
@@ -622,6 +672,7 @@ test("service worker binds tab state and acknowledgements to the exact port", ()
       return 0;
     },
     socketMessages,
+    socketClosed: false,
   });
   vm.runInContext(serviceWorkerSource, context);
 
@@ -675,6 +726,7 @@ test("service worker binds tab state and acknowledgements to the exact port", ()
     `socket = {
       readyState: WebSocket.OPEN,
       send(value) { socketMessages.push(JSON.parse(value)); },
+      close() { socketClosed = true; },
     }`,
     context
   );
@@ -704,6 +756,14 @@ test("service worker binds tab state and acknowledgements to the exact port", ()
   });
   assert.equal(socketMessages.at(-1).id, "command-1");
   assert.equal(socketMessages.at(-1).success, true);
+
+  newPort.emitDisconnect();
+  assert.equal(context.socketClosed, true);
+  assert.equal(vm.runInContext("tabConnections.size", context), 0);
+  const emptySessionList = socketMessages.findLast(
+    (message) => message.type === "sessions"
+  );
+  assert.equal(emptySessionList.sessions.length, 0);
 });
 
 test("content script ignores a late disconnect from an old runtime port", async () => {

@@ -330,14 +330,17 @@ private struct YouTubeMusicSettingsView: View {
                     .padding(.vertical, 2)
                 } else {
                     ForEach(sessions) { session in
-                        sessionRow(session)
+                        sessionRow(
+                            session,
+                            displayName: sessionDisplayName(for: session)
+                        )
                     }
                 }
             } header: {
-                Text("브라우저 세션")
+                Text("YouTube Music 세션")
             } footer: {
                 Text(
-                    "세션은 Chromium 또는 Firefox의 확장 연결을 의미합니다. 브라우저 안에 여러 YouTube Music 탭이 있으면 확장이 재생 중인 탭을 자동으로 선택합니다."
+                    "브라우저에서 열린 각 YouTube Music 탭을 표시합니다. 확장은 재생 상태와 현재 보이는 탭을 기준으로 제어할 세션을 자동 선택합니다."
                 )
             }
 
@@ -404,7 +407,8 @@ private struct YouTubeMusicSettingsView: View {
 
     @ViewBuilder
     private func sessionRow(
-        _ session: YouTubeMusicSession
+        _ session: YouTubeMusicSession,
+        displayName: String
     ) -> some View {
         HStack(spacing: 10) {
             Image(systemName: browserSymbol(for: session.browser))
@@ -416,7 +420,7 @@ private struct YouTubeMusicSettingsView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 6) {
-                    Text(session.browser.displayName)
+                    Text(displayName)
                         .fontWeight(.medium)
 
                     if session.isActive {
@@ -431,6 +435,10 @@ private struct YouTubeMusicSettingsView: View {
                             )
                     } else if session.isStale {
                         Text("응답 대기")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    } else if session.isSelected {
+                        Text("선택됨")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
@@ -459,8 +467,23 @@ private struct YouTubeMusicSettingsView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
-            "\(session.browser.displayName) 세션, \(sessionDetailText(for: session))"
+            "\(displayName) 세션, \(sessionDetailText(for: session))"
         )
+    }
+
+    private func sessionDisplayName(
+        for session: YouTubeMusicSession
+    ) -> String {
+        let browserTabs = sessions
+            .filter { $0.connectionID == session.connectionID }
+            .sorted { ($0.tabID ?? .max) < ($1.tabID ?? .max) }
+        guard browserTabs.count > 1,
+              let index = browserTabs.firstIndex(where: {
+                  $0.id == session.id
+              }) else {
+            return session.browserName
+        }
+        return "\(session.browserName) · 탭 \(index + 1)"
     }
 
     private var connectionDetailText: String {

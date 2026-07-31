@@ -4,9 +4,11 @@ const BRIDGE_URL = "ws://127.0.0.1:19436";
 const BRIDGE_SUBPROTOCOL = "reprise-youtube-music-v1";
 const PROTOCOL_VERSION = 1;
 const EXTENSION_VERSION = chrome.runtime.getManifest().version;
+const BROWSER_NAME = detectedBrowserName();
 const SNAPSHOT_FRESHNESS_MS = 5000;
 const COMMAND_TIMEOUT_MS = 5000;
 const MAX_PLAYBACK_RATE = 16;
+const MAX_SESSION_COUNT = 32;
 const SNAPSHOT_TIMESTAMP_MAX_AGE_MS = 30000;
 const SNAPSHOT_TIMESTAMP_MAX_FUTURE_MS = 5000;
 const ALLOWED_COMMANDS = new Set([
@@ -24,6 +26,7 @@ let socket = null;
 let reconnectTimer = null;
 let reconnectDelay = 500;
 let outboundSequence = 0;
+let outboundSessionSequence = 0;
 let lastSelectedTabId = null;
 const pendingCommandTargets = new Map();
 
@@ -53,8 +56,10 @@ function ensureBridgeConnection() {
       protocolVersion: PROTOCOL_VERSION,
       extensionVersion: EXTENSION_VERSION,
       extensionId: chrome.runtime.id,
+      browserName: BROWSER_NAME,
     });
     sendSelectedSnapshot();
+    sendSessionList();
     updateActionBadge();
   });
 
@@ -234,6 +239,42 @@ function sendSelectedSnapshot() {
   });
 }
 
+function sendSessionList() {
+  const selected = selectedConnection();
+  const orderedEntries = [...tabConnections.entries()]
+    .sort(([leftTabId], [rightTabId]) => leftTabId - rightTabId);
+  const selectedEntry = selected
+    ? orderedEntries.find(([tabId]) => tabId === selected.tabId)
+    : null;
+  const reportedEntries = selectedEntry
+    ? [
+        selectedEntry,
+        ...orderedEntries.filter(([tabId]) => tabId !== selected.tabId),
+      ].slice(0, MAX_SESSION_COUNT)
+    : orderedEntries.slice(0, MAX_SESSION_COUNT);
+  const sessions = reportedEntries
+    .sort(([leftTabId], [rightTabId]) => leftTabId - rightTabId)
+    .map(([tabId, entry]) => {
+      const snapshot = entry.snapshot;
+      return {
+        tabId,
+        state: snapshot?.state ?? "stopped",
+        title: cleanString(snapshot?.title, 512),
+        artist: cleanString(snapshot?.artist, 512),
+        visible: Boolean(snapshot?.visible),
+        updatedAtMs: entry.updatedAt,
+      };
+    });
+
+  sendToReprise({
+    type: "sessions",
+    protocolVersion: PROTOCOL_VERSION,
+    sequence: outboundSessionSequence++,
+    selectedTabId: selected?.tabId ?? null,
+    sessions,
+  });
+}
+
 function sendAcknowledgement(id, success, error = null) {
   sendToReprise({
     type: "ack",
@@ -277,6 +318,44 @@ function normalizedSnapshot(message) {
 
 function cleanString(value, maximumLength) {
   return typeof value === "string" ? value.trim().slice(0, maximumLength) : "";
+}
+
+function detectedBrowserName() {
+  const userAgent = typeof navigator === "object"
+    ? String(navigator.userAgent ?? "")
+    : "";
+  const brands = typeof navigator === "object" &&
+      Array.isArray(navigator.userAgentData?.brands)
+    ? navigator.userAgentData.brands
+        .map((entry) => String(entry?.brand ?? ""))
+        .join(" ")
+    : "";
+
+  if (/Firefox\//i.test(userAgent)) {
+    return "Firefox";
+  }
+  if (/Edg(?:A|iOS)?\//i.test(userAgent) || /Microsoft Edge/i.test(brands)) {
+    return "Microsoft Edge";
+  }
+  if (/OPR\//i.test(userAgent) || /Opera/i.test(brands)) {
+    return "Opera";
+  }
+  if (/Vivaldi\//i.test(userAgent) || /Vivaldi/i.test(brands)) {
+    return "Vivaldi";
+  }
+  if (/Whale\//i.test(userAgent) || /NAVER Whale/i.test(brands)) {
+    return "Naver Whale";
+  }
+  if (typeof navigator === "object" && navigator.brave) {
+    return "Brave";
+  }
+  if (/Chrome\//i.test(userAgent) || /Google Chrome/i.test(brands)) {
+    return "Google Chrome";
+  }
+  if (/Chromium/i.test(userAgent) || /Chromium/i.test(brands)) {
+    return "Chromium";
+  }
+  return chrome.runtime.id.includes("@") ? "Firefox" : "Chromium";
 }
 
 function optionalString(value, maximumLength) {
@@ -327,6 +406,7 @@ chrome.runtime.onConnect.addListener((port) => {
     updatedAt: Date.now(),
   });
   ensureBridgeConnection();
+  sendSessionList();
 
   port.onMessage.addListener((message) => {
     if (
@@ -361,6 +441,7 @@ chrome.runtime.onConnect.addListener((port) => {
       entry.snapshot = snapshot;
       entry.updatedAt = Date.now();
       sendSelectedSnapshot();
+      sendSessionList();
     }
   });
 
@@ -380,6 +461,10 @@ chrome.runtime.onConnect.addListener((port) => {
     if (tabConnections.get(tabId)?.port === port) {
       tabConnections.delete(tabId);
       sendSelectedSnapshot();
+      sendSessionList();
+      if (tabConnections.size === 0 && typeof socket?.close === "function") {
+        socket.close();
+      }
       updateActionBadge();
     }
   });

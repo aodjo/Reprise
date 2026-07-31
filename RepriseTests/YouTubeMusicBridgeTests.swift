@@ -90,9 +90,35 @@ struct YouTubeMusicBridgeTests {
     }
 
     @Test
+    func sessionMessagesExposeEveryBrowserTab() throws {
+        let nowMilliseconds = Date().timeIntervalSince1970 * 1_000
+        let data = Data(
+            #"{"type":"sessions","protocolVersion":1,"sequence":3,"selectedTabId":42,"sessions":[{"tabId":42,"state":"playing","title":"First Song","artist":"First Artist","visible":true,"updatedAtMs":\#(nowMilliseconds)},{"tabId":84,"state":"paused","title":"Second Song","artist":"Second Artist","visible":false,"updatedAtMs":\#(nowMilliseconds)}]}"#.utf8
+        )
+
+        guard case let .sessions(message) = try YouTubeMusicInboundMessage
+            .decode(from: data) else {
+            Issue.record("sessions 메시지로 디코딩되지 않음")
+            return
+        }
+        let payload = try message.validated()
+
+        #expect(payload.sequence == 3)
+        #expect(payload.selectedTabID == 42)
+        #expect(payload.sessions.count == 2)
+        #expect(payload.sessions[0].tabID == 42)
+        #expect(payload.sessions[0].state == .playing)
+        #expect(payload.sessions[0].title == "First Song")
+        #expect(payload.sessions[0].isVisible)
+        #expect(payload.sessions[1].tabID == 84)
+        #expect(payload.sessions[1].state == .paused)
+        #expect(!payload.sessions[1].isVisible)
+    }
+
+    @Test
     func helloMessagesRequireAKnownBrowserExtensionID() throws {
         let firefoxHello = Data(
-            #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"reprise-youtube-music@junx.dev"}"#.utf8
+            #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"reprise-youtube-music@junx.dev","browserName":"LibreWolf"}"#.utf8
         )
         let unknownHello = Data(
             #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"another-extension@example.com"}"#.utf8
@@ -105,6 +131,7 @@ struct YouTubeMusicBridgeTests {
         }
         try message.validate()
         #expect(message.browser == .firefox)
+        #expect(message.resolvedBrowserName == "LibreWolf")
 
         do {
             guard case let .hello(message) = try YouTubeMusicInboundMessage
@@ -269,12 +296,18 @@ struct YouTubeMusicBridgeTests {
 
         try await task.send(
             .string(
-                #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"apmolpbmjjndmedbogieopgmapoehdlp"}"#
+                #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"apmolpbmjjndmedbogieopgmapoehdlp","browserName":"Google Chrome"}"#
             )
         )
         try await task.send(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":100,"tabId":7,"state":"playing","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":12,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
+            )
+        )
+        let sessionTimestamp = Date().timeIntervalSince1970 * 1_000
+        try await task.send(
+            .string(
+                #"{"type":"sessions","protocolVersion":1,"sequence":0,"selectedTabId":7,"sessions":[{"tabId":7,"state":"playing","title":"Bridge Song","artist":"Bridge Artist","visible":true,"updatedAtMs":\#(sessionTimestamp)},{"tabId":9,"state":"paused","title":"Background Song","artist":"Background Artist","visible":false,"updatedAtMs":\#(sessionTimestamp)}]}"#
             )
         )
 
@@ -294,9 +327,12 @@ struct YouTubeMusicBridgeTests {
         #expect(receivedSnapshot?.playbackRate == 1.25)
 
         let initialSessions = await bridge.sessions()
-        let initialSession = try #require(initialSessions.first)
-        #expect(initialSessions.count == 1)
+        let initialSession = try #require(
+            initialSessions.first { $0.tabID == 7 }
+        )
+        #expect(initialSessions.count == 2)
         #expect(initialSession.browser == .chromium)
+        #expect(initialSession.browserName == "Google Chrome")
         #expect(
             initialSession.extensionID
                 == YouTubeMusicBridgeProtocol.extensionID
@@ -306,10 +342,16 @@ struct YouTubeMusicBridgeTests {
         #expect(initialSession.state == .playing)
         #expect(initialSession.title == "Bridge Song")
         #expect(initialSession.artist == "Bridge Artist")
+        #expect(initialSession.isSelected)
         #expect(initialSession.isActive)
         #expect(initialSession.isFresh)
         #expect(!initialSession.isStale)
         #expect(initialSession.lastUpdatedAt != nil)
+        #expect(
+            initialSessions.first { $0.tabID == 9 }?.title
+                == "Background Song"
+        )
+        #expect(initialSessions.first { $0.tabID == 9 }?.isActive == false)
 
         let commandTask = Task {
             try await bridge.perform(.next)
@@ -341,31 +383,25 @@ struct YouTubeMusicBridgeTests {
         secondTask.resume()
         try await secondTask.send(
             .string(
-                #"{"type":"hello","protocolVersion":1,"extensionVersion":"2.0.0","extensionId":"reprise-youtube-music@junx.dev"}"#
+                #"{"type":"hello","protocolVersion":1,"extensionVersion":"2.0.0","extensionId":"reprise-youtube-music@junx.dev","browserName":"Firefox"}"#
             )
         )
 
-        var helloOnlySessions: [YouTubeMusicSession] = []
-        for _ in 0..<40 {
-            helloOnlySessions = await bridge.sessions()
-            if helloOnlySessions.count == 2 {
-                break
-            }
-            try await Task.sleep(for: .milliseconds(25))
-        }
-        let helloOnlySession = try #require(
-            helloOnlySessions.first { $0.browser == .firefox }
+        try await Task.sleep(for: .milliseconds(100))
+        let sessionsWithoutFirefoxTabs = await bridge.sessions()
+        #expect(sessionsWithoutFirefoxTabs.count == 2)
+        #expect(
+            !sessionsWithoutFirefoxTabs.contains { $0.browser == .firefox }
         )
-        #expect(helloOnlySession.extensionVersion == "2.0.0")
-        #expect(helloOnlySession.tabID == nil)
-        #expect(helloOnlySession.title.isEmpty)
-        #expect(helloOnlySession.state == .stopped)
-        #expect(!helloOnlySession.isActive)
-        #expect(!helloOnlySession.isFresh)
 
         try await secondTask.send(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":0,"tabId":8,"state":"playing","title":"Second Browser Song","album":"Second Album","artist":"Second Artist","duration":240,"position":30,"volume":55,"playbackRate":1,"artworkUrl":null,"videoId":"second123","trackUrl":"https://music.youtube.com/watch?v=second123"}"#
+            )
+        )
+        try await secondTask.send(
+            .string(
+                #"{"type":"sessions","protocolVersion":1,"sequence":0,"selectedTabId":8,"sessions":[{"tabId":8,"state":"playing","title":"Second Browser Song","artist":"Second Artist","visible":true,"updatedAtMs":\#(sessionTimestamp)},{"tabId":10,"state":"paused","title":"Firefox Background","artist":"Another Artist","visible":false,"updatedAtMs":\#(sessionTimestamp)}]}"#
             )
         )
         try await Task.sleep(for: .milliseconds(200))
@@ -376,16 +412,17 @@ struct YouTubeMusicBridgeTests {
         #expect(await bridge.snapshot().track?.title == "Bridge Song")
 
         let simultaneousSessions = await bridge.sessions()
-        #expect(simultaneousSessions.count == 2)
+        #expect(simultaneousSessions.count == 4)
         let chromiumSession = try #require(
-            simultaneousSessions.first { $0.browser == .chromium }
+            simultaneousSessions.first { $0.tabID == 7 }
         )
         let firefoxSession = try #require(
-            simultaneousSessions.first { $0.browser == .firefox }
+            simultaneousSessions.first { $0.tabID == 8 }
         )
         #expect(chromiumSession.tabID == 7)
         #expect(chromiumSession.isActive)
         #expect(firefoxSession.tabID == 8)
+        #expect(firefoxSession.browserName == "Firefox")
         #expect(firefoxSession.title == "Second Browser Song")
         #expect(!firefoxSession.isActive)
 
@@ -401,6 +438,12 @@ struct YouTubeMusicBridgeTests {
         try await task.send(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":101,"tabId":7,"state":"paused","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":14,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
+            )
+        )
+        let switchedTimestamp = Date().timeIntervalSince1970 * 1_000
+        try await task.send(
+            .string(
+                #"{"type":"sessions","protocolVersion":1,"sequence":1,"selectedTabId":7,"sessions":[{"tabId":7,"state":"paused","title":"Bridge Song","artist":"Bridge Artist","visible":true,"updatedAtMs":\#(switchedTimestamp)},{"tabId":9,"state":"paused","title":"Background Song","artist":"Background Artist","visible":false,"updatedAtMs":\#(switchedTimestamp)}]}"#
             )
         )
         for _ in 0..<40 {
@@ -485,7 +528,7 @@ struct YouTubeMusicBridgeTests {
         #expect(await bridge.connectedExtensionVersion() == "1.0.0")
         #expect(await bridge.snapshot().track?.title == "Bridge Song")
         let remainingSessions = await bridge.sessions()
-        #expect(remainingSessions.count == 1)
+        #expect(remainingSessions.count == 2)
         #expect(remainingSessions.first?.browser == .chromium)
         #expect(remainingSessions.first?.isActive == true)
 

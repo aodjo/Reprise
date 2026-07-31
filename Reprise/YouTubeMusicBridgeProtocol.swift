@@ -14,6 +14,7 @@ nonisolated enum YouTubeMusicBridgeProtocol {
     static let extensionPublicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArUGImdEvl2yZFlOUsVt/7lfhIuhpIPjLVbp4ihHMu5rHbIxFPGsA3q3W5IcPbcI/G6ujsh7C5LRC+1c9X4ftXBEcGEKryKPZ3WlfsmwuuXxEd3N6x6OzCw0ABEplzwuDh6ZMCFfDY8sG30Au1UoJTK3ZOunRCp9K/UFl+a76ozZRmKl284R8cWHjduDeEO5cMmjO+LTsXwT+df+rY14cWA88+tEvzdhiZpctHIwE7AIXUmr7jrcQlMbz+m4jalHCi2pd/np3BRbSAT5lQN6I4l2LVegdX5cpwQjueBMOROIgerOlIy0avCrmrWty0hF0J5ZOLDa/TvIhp9sAew0d9wIDAQAB"
     static let extensionOrigin = "chrome-extension://\(extensionID)"
     static let maximumMessageSize = 64 * 1_024
+    static let maximumSessionCount = 32
     static let staleSnapshotInterval: TimeInterval = 5
 
     static func acceptsHandshake(
@@ -99,19 +100,21 @@ nonisolated enum YouTubeMusicBrowserKind: String, CaseIterable, Sendable {
     }
 }
 
-/// A browser extension connection and the YouTube Music tab currently selected
-/// by that extension. The extension currently reports one selected tab per
-/// browser connection, so a session does not represent every open browser tab.
+/// A YouTube Music tab reported by one connected browser extension.
 nonisolated struct YouTubeMusicSession: Identifiable, Equatable, Sendable {
-    let id: UUID
+    let id: String
+    let connectionID: UUID
     let browser: YouTubeMusicBrowserKind
+    let browserName: String
     let extensionID: String
     let extensionVersion: String
     let tabID: Int?
     let state: PlaybackState
     let title: String
     let artist: String
+    let isSelected: Bool
     let isActive: Bool
+    let isVisible: Bool
     let lastUpdatedAt: Date?
     let isFresh: Bool
 
@@ -121,6 +124,7 @@ nonisolated struct YouTubeMusicSession: Identifiable, Equatable, Sendable {
 nonisolated enum YouTubeMusicInboundMessage: Sendable {
     case hello(YouTubeMusicHelloMessage)
     case snapshot(YouTubeMusicSnapshotMessage)
+    case sessions(YouTubeMusicSessionsMessage)
     case heartbeat(YouTubeMusicHeartbeatMessage)
     case acknowledgement(YouTubeMusicAcknowledgementMessage)
 
@@ -137,6 +141,10 @@ nonisolated enum YouTubeMusicInboundMessage: Sendable {
             return .hello(try decoder.decode(YouTubeMusicHelloMessage.self, from: data))
         case "snapshot":
             return .snapshot(try decoder.decode(YouTubeMusicSnapshotMessage.self, from: data))
+        case "sessions":
+            return .sessions(
+                try decoder.decode(YouTubeMusicSessionsMessage.self, from: data)
+            )
         case "heartbeat":
             return .heartbeat(try decoder.decode(YouTubeMusicHeartbeatMessage.self, from: data))
         case "ack":
@@ -153,17 +161,122 @@ nonisolated private struct MessageHeader: Decodable {
     let type: String
 }
 
+nonisolated struct YouTubeMusicSessionsMessage: Decodable, Sendable {
+    let type: String
+    let protocolVersion: Int
+    let sequence: Int
+    let selectedTabID: Int?
+    let sessions: [YouTubeMusicTabSessionMessage]
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case protocolVersion
+        case sequence
+        case selectedTabID = "selectedTabId"
+        case sessions
+    }
+
+    func validated() throws -> YouTubeMusicSessionsPayload {
+        guard type == "sessions",
+              sequence >= 0,
+              sessions.count
+                <= YouTubeMusicBridgeProtocol.maximumSessionCount else {
+            throw YouTubeMusicBridgeProtocolError.invalidMessage
+        }
+        try validateProtocolVersion(protocolVersion)
+
+        var seenTabIDs = Set<Int>()
+        let sessions = try sessions.map { session in
+            guard seenTabIDs.insert(session.tabID).inserted else {
+                throw YouTubeMusicBridgeProtocolError.invalidMessage
+            }
+            return try session.validated()
+        }
+        if let selectedTabID,
+           !seenTabIDs.contains(selectedTabID) {
+            throw YouTubeMusicBridgeProtocolError.invalidMessage
+        }
+
+        return YouTubeMusicSessionsPayload(
+            sequence: sequence,
+            selectedTabID: selectedTabID,
+            sessions: sessions
+        )
+    }
+}
+
+nonisolated struct YouTubeMusicTabSessionMessage: Decodable, Sendable {
+    let tabID: Int
+    let state: String
+    let title: String
+    let artist: String?
+    let visible: Bool
+    let updatedAtMilliseconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case tabID = "tabId"
+        case state
+        case title
+        case artist
+        case visible
+        case updatedAtMilliseconds = "updatedAtMs"
+    }
+
+    func validated() throws -> YouTubeMusicTabSessionPayload {
+        guard tabID >= 0,
+              let state = PlaybackState(rawValue: state),
+              state != .unavailable,
+              updatedAtMilliseconds.isFinite,
+              updatedAtMilliseconds > 0 else {
+            throw YouTubeMusicBridgeProtocolError.invalidMessage
+        }
+
+        let title = sanitized(title, maximumLength: 512)
+        let updatedAt = Date(
+            timeIntervalSince1970: updatedAtMilliseconds / 1_000
+        )
+        guard updatedAt.timeIntervalSinceNow <= 5 else {
+            throw YouTubeMusicBridgeProtocolError.invalidMessage
+        }
+        return YouTubeMusicTabSessionPayload(
+            tabID: tabID,
+            state: title.isEmpty ? .stopped : state,
+            title: title,
+            artist: sanitized(artist ?? "", maximumLength: 512),
+            isVisible: visible,
+            updatedAt: updatedAt
+        )
+    }
+}
+
+nonisolated struct YouTubeMusicSessionsPayload: Equatable, Sendable {
+    let sequence: Int
+    let selectedTabID: Int?
+    let sessions: [YouTubeMusicTabSessionPayload]
+}
+
+nonisolated struct YouTubeMusicTabSessionPayload: Equatable, Sendable {
+    let tabID: Int
+    let state: PlaybackState
+    let title: String
+    let artist: String
+    let isVisible: Bool
+    let updatedAt: Date
+}
+
 nonisolated struct YouTubeMusicHelloMessage: Decodable, Sendable {
     let type: String
     let protocolVersion: Int
     let extensionVersion: String
     let extensionID: String
+    let browserName: String?
 
     enum CodingKeys: String, CodingKey {
         case type
         case protocolVersion
         case extensionVersion
         case extensionID = "extensionId"
+        case browserName
     }
 
     func validate() throws {
@@ -173,6 +286,7 @@ nonisolated struct YouTubeMusicHelloMessage: Decodable, Sendable {
         try validateProtocolVersion(protocolVersion)
         guard !extensionVersion.isEmpty,
               extensionVersion.count <= 64,
+              (browserName?.count ?? 0) <= 64,
               [
                   YouTubeMusicBridgeProtocol.extensionID,
                   YouTubeMusicBridgeProtocol.firefoxExtensionID,
@@ -183,6 +297,14 @@ nonisolated struct YouTubeMusicHelloMessage: Decodable, Sendable {
 
     var browser: YouTubeMusicBrowserKind? {
         YouTubeMusicBrowserKind(extensionID: extensionID)
+    }
+
+    var resolvedBrowserName: String {
+        let browserName = sanitized(browserName ?? "", maximumLength: 64)
+        if !browserName.isEmpty {
+            return browserName
+        }
+        return browser?.displayName ?? "Browser"
     }
 }
 

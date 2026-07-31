@@ -15,7 +15,9 @@ actor YouTubeMusicBridge {
     private var activeConnectionID: UUID?
     private var connectionIdentities: [UUID: ConnectionIdentity] = [:]
     private var connectionSnapshots: [UUID: ConnectionSnapshot] = [:]
+    private var connectionSessionLists: [UUID: ConnectionSessionList] = [:]
     private var lastSequences: [UUID: Int] = [:]
+    private var lastSessionSequences: [UUID: Int] = [:]
     private var extensionVersion: String?
     private var pendingCommandConnections: [String: UUID] = [:]
     private var commandResults: [String: Result<Void, Error>] = [:]
@@ -63,7 +65,9 @@ actor YouTubeMusicBridge {
         activeConnectionID = nil
         connectionIdentities.removeAll()
         connectionSnapshots.removeAll()
+        connectionSessionLists.removeAll()
         lastSequences.removeAll()
+        lastSessionSequences.removeAll()
         extensionVersion = nil
         pendingCommandConnections.removeAll()
         commandResults.removeAll()
@@ -81,33 +85,74 @@ actor YouTubeMusicBridge {
     func sessions(at date: Date = Date()) -> [YouTubeMusicSession] {
         _ = selectActiveConnection(at: date)
 
-        return connectionIdentities.compactMap { connectionID, identity in
+        return connectionIdentities.flatMap { connectionID, identity in
             guard let browser = YouTubeMusicBrowserKind(
                 extensionID: identity.extensionID
             ) else {
-                return nil
+                return [YouTubeMusicSession]()
             }
 
-            let connectionSnapshot = connectionSnapshots[connectionID]
-            let payload = connectionSnapshot?.payload
-            let isStale = connectionSnapshot.map {
-                date.timeIntervalSince($0.receivedAt)
-                    > YouTubeMusicBridgeProtocol.staleSnapshotInterval
-            } ?? true
+            if let sessionList = connectionSessionLists[connectionID] {
+                return sessionList.payload.sessions.map { tab in
+                    let isFresh = date.timeIntervalSince(tab.updatedAt)
+                        <= YouTubeMusicBridgeProtocol.staleSnapshotInterval
+                    let isSelected = sessionList.payload.selectedTabID
+                        == tab.tabID
+                    return YouTubeMusicSession(
+                        id: Self.sessionIdentifier(
+                            connectionID: connectionID,
+                            tabID: tab.tabID
+                        ),
+                        connectionID: connectionID,
+                        browser: browser,
+                        browserName: identity.browserName,
+                        extensionID: identity.extensionID,
+                        extensionVersion: identity.extensionVersion,
+                        tabID: tab.tabID,
+                        state: tab.state,
+                        title: tab.title,
+                        artist: tab.artist,
+                        isSelected: isSelected,
+                        isActive: isFresh
+                            && activeConnectionID == connectionID
+                            && isSelected,
+                        isVisible: tab.isVisible,
+                        lastUpdatedAt: tab.updatedAt,
+                        isFresh: isFresh
+                    )
+                }
+            }
 
-            return YouTubeMusicSession(
-                id: connectionID,
+            // Compatibility with extensions that only report the selected
+            // snapshot and do not yet send a full tab session list.
+            guard let connectionSnapshot = connectionSnapshots[connectionID],
+                  let tabID = connectionSnapshot.payload.tabID else {
+                return [YouTubeMusicSession]()
+            }
+            let payload = connectionSnapshot.payload
+            let isStale = date.timeIntervalSince(connectionSnapshot.receivedAt)
+                > YouTubeMusicBridgeProtocol.staleSnapshotInterval
+
+            return [YouTubeMusicSession(
+                id: Self.sessionIdentifier(
+                    connectionID: connectionID,
+                    tabID: tabID
+                ),
+                connectionID: connectionID,
                 browser: browser,
+                browserName: identity.browserName,
                 extensionID: identity.extensionID,
                 extensionVersion: identity.extensionVersion,
-                tabID: payload?.tabID,
-                state: payload?.state ?? .stopped,
-                title: payload?.title ?? "",
-                artist: payload?.artist ?? "",
+                tabID: tabID,
+                state: payload.state,
+                title: payload.title,
+                artist: payload.artist,
+                isSelected: true,
                 isActive: !isStale && activeConnectionID == connectionID,
-                lastUpdatedAt: connectionSnapshot?.receivedAt,
+                isVisible: false,
+                lastUpdatedAt: connectionSnapshot.receivedAt,
                 isFresh: !isStale
-            )
+            )]
         }
         .sorted { lhs, rhs in
             if lhs.isActive != rhs.isActive {
@@ -116,10 +161,14 @@ actor YouTubeMusicBridge {
             if lhs.browser.rawValue != rhs.browser.rawValue {
                 return lhs.browser.rawValue < rhs.browser.rawValue
             }
+            if lhs.connectionID != rhs.connectionID {
+                return lhs.connectionID.uuidString
+                    < rhs.connectionID.uuidString
+            }
             if lhs.tabID != rhs.tabID {
                 return (lhs.tabID ?? .max) < (rhs.tabID ?? .max)
             }
-            return lhs.id.uuidString < rhs.id.uuidString
+            return lhs.id < rhs.id
         }
     }
 
@@ -226,7 +275,9 @@ actor YouTubeMusicBridge {
             activeConnectionID = nil
             connectionIdentities.removeAll()
             connectionSnapshots.removeAll()
+            connectionSessionLists.removeAll()
             lastSequences.removeAll()
+            lastSessionSequences.removeAll()
             extensionVersion = nil
             clearArtwork()
         }
@@ -249,7 +300,8 @@ actor YouTubeMusicBridge {
                 try message.validate()
                 connectionIdentities[connectionID] = ConnectionIdentity(
                     extensionID: message.extensionID,
-                    extensionVersion: message.extensionVersion
+                    extensionVersion: message.extensionVersion,
+                    browserName: message.resolvedBrowserName
                 )
             } catch {
                 return
@@ -320,6 +372,26 @@ actor YouTubeMusicBridge {
                     from: selectedConnectionID
                 )
             }
+
+        case let .sessions(message):
+            guard connectionIdentities[connectionID] != nil else {
+                return
+            }
+            let payload: YouTubeMusicSessionsPayload
+            do {
+                payload = try message.validated()
+            } catch {
+                return
+            }
+            guard payload.sequence
+                    >= (lastSessionSequences[connectionID] ?? -1) else {
+                return
+            }
+
+            lastSessionSequences[connectionID] = payload.sequence
+            connectionSessionLists[connectionID] = ConnectionSessionList(
+                payload: payload
+            )
         }
     }
 
@@ -409,7 +481,9 @@ actor YouTubeMusicBridge {
     private func connectionClosed(_ connectionID: UUID) async {
         connectionIdentities[connectionID] = nil
         connectionSnapshots[connectionID] = nil
+        connectionSessionLists[connectionID] = nil
         lastSequences[connectionID] = nil
+        lastSessionSequences[connectionID] = nil
         for (commandID, targetConnectionID) in pendingCommandConnections
         where targetConnectionID == connectionID {
             commandResults[commandID] = .failure(
@@ -501,6 +575,13 @@ actor YouTubeMusicBridge {
         }
         return 0
     }
+
+    private nonisolated static func sessionIdentifier(
+        connectionID: UUID,
+        tabID: Int?
+    ) -> String {
+        "\(connectionID.uuidString):\(tabID.map(String.init) ?? "pending")"
+    }
 }
 
 nonisolated private struct ConnectionSnapshot: Sendable {
@@ -509,9 +590,14 @@ nonisolated private struct ConnectionSnapshot: Sendable {
     let observedAt: Date
 }
 
+nonisolated private struct ConnectionSessionList: Sendable {
+    let payload: YouTubeMusicSessionsPayload
+}
+
 nonisolated private struct ConnectionIdentity: Sendable {
     let extensionID: String
     let extensionVersion: String
+    let browserName: String
 }
 
 nonisolated private struct CommandDispatch: Sendable {
