@@ -315,6 +315,21 @@ struct PlayerPopoverView: View {
         .accessibilityIdentifier("settingsButton")
     }
 
+    private var exitButton: some View {
+        Button {
+            NSApp.terminate(nil)
+        } label: {
+            Image(systemName: "rectangle.portrait.and.arrow.right")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 19, height: 19)
+        }
+        .buttonStyle(.plain)
+        .help("Reprise 종료")
+        .accessibilityLabel("Reprise 종료")
+        .accessibilityIdentifier("exitButton")
+    }
+
     private var footer: some View {
         HStack(spacing: 8) {
             Text(appVersionText)
@@ -326,6 +341,8 @@ struct PlayerPopoverView: View {
             volumeButton
 
             settingsButton
+
+            exitButton
         }
         .padding(.horizontal, 14)
         .frame(height: 30)
