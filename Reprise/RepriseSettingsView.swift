@@ -445,7 +445,7 @@ private struct ThemePanelPreview: View {
         case .white:
             Color.white
         case .black:
-            Color.black
+            PlayerPanelPalette.darkBackground
         case .liquid:
             LiquidPanelBackground(cornerRadius: 16)
         case .system:

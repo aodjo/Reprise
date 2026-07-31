@@ -161,7 +161,7 @@ enum PlayerPanelTheme: String, CaseIterable, Identifiable {
     var displayName: String {
         switch self {
         case .white: "화이트"
-        case .black: "블랙"
+        case .black: "다크"
         case .liquid: "Liquid"
         case .system: "시스템 설정"
         }

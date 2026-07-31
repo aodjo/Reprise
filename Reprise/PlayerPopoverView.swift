@@ -6,6 +6,10 @@
 import AppKit
 import SwiftUI
 
+enum PlayerPanelPalette {
+    static let darkBackground = Color(white: 0.12)
+}
+
 struct LiquidPanelBackground: View {
     let cornerRadius: CGFloat
 
@@ -178,7 +182,7 @@ struct PlayerPopoverView: View {
         case .white:
             Color.white
         case .black:
-            Color.black
+            PlayerPanelPalette.darkBackground
         case .liquid:
             LiquidPanelBackground(
                 cornerRadius: PlayerPanelLayout.cornerRadius
