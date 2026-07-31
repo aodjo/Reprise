@@ -145,6 +145,10 @@ struct PlayerPopoverView: View {
             panelBackground
         }
         .preferredColorScheme(preferredColorScheme)
+        .onContinuousHover { phase in
+            guard case .active = phase else { return }
+            NSCursor.arrow.set()
+        }
         .task {
             await store.refresh()
             syncVolume()
@@ -1175,6 +1179,10 @@ private struct VolumeSliderPanelContent: View {
             LiquidPanelBackground(cornerRadius: 10)
         }
         .preferredColorScheme(colorScheme)
+        .onContinuousHover { phase in
+            guard case .active = phase else { return }
+            NSCursor.arrow.set()
+        }
     }
 }
 
