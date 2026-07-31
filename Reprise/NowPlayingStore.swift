@@ -210,6 +210,11 @@ final class NowPlayingStore {
         for player in playersToPause {
             await pauseAutomatically(player)
         }
+
+        if !playersToPause.isEmpty {
+            synchronizeLyricsWithActiveTrack(observedAt: Date())
+            onMenuBarContentChange?()
+        }
     }
 
     func perform(_ command: PlaybackCommand) async {
