@@ -89,6 +89,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         self.instanceLock = instanceLock
+        UpdateController.shared.start()
 
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         guard let button = statusItem.button else { return }

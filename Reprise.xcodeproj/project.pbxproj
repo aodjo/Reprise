@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		B8A1F100304B000100000001 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = B8A1F102304B000100000001 /* Sparkle */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A97F196A30174F14003C6056 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -29,9 +33,22 @@
 		A97F197330174F14003C6056 /* RepriseUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RepriseUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		B8A1F103304B000100000001 /* Exceptions for "Reprise" folder in "Reprise" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A97F195930174F13003C6056 /* Reprise */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		A97F195C30174F13003C6056 /* Reprise */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				B8A1F103304B000100000001 /* Exceptions for "Reprise" folder in "Reprise" target */,
+			);
 			path = Reprise;
 			sourceTree = "<group>";
 		};
@@ -57,6 +74,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B8A1F100304B000100000001 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -118,6 +136,7 @@
 			);
 			name = Reprise;
 			packageProductDependencies = (
+				B8A1F102304B000100000001 /* Sparkle */,
 			);
 			productName = Reprise;
 			productReference = A97F195A30174F13003C6056 /* Reprise.app */;
@@ -201,6 +220,9 @@
 			);
 			mainGroup = A97F195130174F13003C6056;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				B8A1F101304B000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A97F195B30174F13003C6056 /* Products */;
 			projectDirPath = "";
@@ -404,10 +426,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Spotify와 Apple Music의 재생 정보를 표시하고 재생을 제어하기 위해 접근합니다.";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Reprise/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -452,10 +472,8 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.music";
-				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Spotify와 Apple Music의 재생 정보를 표시하고 재생을 제어하기 위해 접근합니다.";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Reprise/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -629,6 +647,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B8A1F101304B000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.9.4;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		B8A1F102304B000100000001 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B8A1F101304B000100000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A97F195230174F13003C6056 /* Project object */;
 }

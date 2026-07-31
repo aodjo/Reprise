@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"
+     xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+  <channel>
+    <title>Reprise Updates</title>
+    <link>https://raw.githubusercontent.com/aodjo/Reprise/main/appcast.xml</link>
+    <description>Reprise release updates</description>
+    <language>ko</language>
+  </channel>
+</rss>

@@ -1129,6 +1129,16 @@ private struct SystemInfoSettingsView: View {
                     LabeledContent("버전", value: version)
                 }
 
+                Section {
+                    UpdateSettingsView()
+                } header: {
+                    Text("업데이트")
+                } footer: {
+                    Text(
+                        "자동 확인은 하루에 한 번 실행됩니다. 자동 다운로드를 끄면 새 버전이 있을 때 설치 알림만 표시합니다."
+                    )
+                }
+
                 Section("시스템") {
                     LabeledContent("운영체제", value: operatingSystem)
                 }
@@ -1165,6 +1175,50 @@ private struct SystemInfoSettingsView: View {
         let width = Int(screen.frame.width * screen.backingScaleFactor)
         let height = Int(screen.frame.height * screen.backingScaleFactor)
         return "\(width) × \(height)"
+    }
+}
+
+private struct UpdateSettingsView: View {
+    @ObservedObject private var updateController: UpdateController
+    @State private var automaticallyChecksForUpdates: Bool
+    @State private var automaticallyDownloadsUpdates: Bool
+
+    init() {
+        let updateController = UpdateController.shared
+        self.updateController = updateController
+        _automaticallyChecksForUpdates = State(
+            initialValue: updateController.automaticallyChecksForUpdates
+        )
+        _automaticallyDownloadsUpdates = State(
+            initialValue: updateController.automaticallyDownloadsUpdates
+        )
+    }
+
+    var body: some View {
+        Toggle(
+            "자동으로 업데이트 확인",
+            isOn: $automaticallyChecksForUpdates
+        )
+        .onChange(of: automaticallyChecksForUpdates) { _, enabled in
+            updateController.setAutomaticallyChecksForUpdates(enabled)
+        }
+
+        Toggle(
+            "업데이트 자동 다운로드",
+            isOn: $automaticallyDownloadsUpdates
+        )
+        .disabled(!automaticallyChecksForUpdates)
+        .onChange(of: automaticallyDownloadsUpdates) { _, enabled in
+            updateController.setAutomaticallyDownloadsUpdates(enabled)
+        }
+
+        Button("업데이트 확인…") {
+            updateController.checkForUpdates()
+        }
+        .disabled(!updateController.canCheckForUpdates)
+        .task {
+            updateController.start()
+        }
     }
 }
 

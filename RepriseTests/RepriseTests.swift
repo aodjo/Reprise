@@ -1113,6 +1113,23 @@ struct RepriseTests {
         #expect(lyrics.line(at: 12) == nil)
     }
 
+    @Test
+    func sparkleUsesTheSignedRepriseAppcast() {
+        let info = Bundle.main.infoDictionary
+
+        #expect(
+            info?["SUFeedURL"] as? String
+                == "https://raw.githubusercontent.com/aodjo/Reprise/main/appcast.xml"
+        )
+        #expect(
+            info?["SUPublicEDKey"] as? String
+                == "JnauH8qHts9UuOjiOibjqdvtjSeryPHVXRFj5R8pUGc="
+        )
+        #expect(info?["SUEnableAutomaticChecks"] as? Bool == true)
+        #expect(info?["SUAutomaticallyUpdate"] as? Bool == false)
+        #expect(info?["SUEnableInstallerLauncherService"] as? Bool == true)
+    }
+
     private func makeSnapshot(
         player: MediaPlayerKind,
         state: PlaybackState,
