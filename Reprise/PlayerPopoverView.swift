@@ -1208,8 +1208,8 @@ private final class VolumeSliderPanel: NSPanel {
     }
 }
 
-#Preview {
-    PlayerPopoverView(store: NowPlayingStore())
+#Preview("홍보용 데모") {
+    PlayerPopoverView(store: NowPlayingStore(demoMode: true))
 }
 
 extension Notification.Name {
