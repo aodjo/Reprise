@@ -23,6 +23,7 @@ final class NowPlayingStore {
 
     private let automation = MediaAutomationService()
     private let lyricsService: LyricsService
+    private let isDemoMode: Bool
     private var pollingTask: Task<Void, Never>?
     private var lyricsTask: Task<Void, Never>?
     private var lyricsDisplayTask: Task<Void, Never>?
@@ -34,8 +35,16 @@ final class NowPlayingStore {
     private var volumeOperationIDs: [MediaPlayerKind: UUID] = [:]
     private var seekOperationIDs: [MediaPlayerKind: UUID] = [:]
 
-    init(lyricsService: LyricsService = LyricsService()) {
+    init(
+        lyricsService: LyricsService = LyricsService(),
+        demoMode: Bool = RepriseDemoMode.isEnabled()
+    ) {
         self.lyricsService = lyricsService
+        isDemoMode = demoMode
+
+        if demoMode {
+            installDemoContent()
+        }
     }
 
     var activeSnapshot: PlayerSnapshot {
@@ -146,13 +155,18 @@ final class NowPlayingStore {
     }
 
     func start() {
-        guard pollingTask == nil else { return }
+        guard pollingTask == nil, lyricsDisplayTask == nil else { return }
 
         lyricsDisplayTask = Task { [weak self] in
             while !Task.isCancelled {
                 self?.updateDisplayedLyric()
                 try? await Task.sleep(for: .milliseconds(100))
             }
+        }
+
+        guard !isDemoMode else {
+            onMenuBarContentChange?()
+            return
         }
 
         pollingTask = Task { [weak self] in
@@ -164,6 +178,10 @@ final class NowPlayingStore {
     }
 
     func refresh() async {
+        guard !isDemoMode else {
+            updateDisplayedLyric()
+            return
+        }
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
@@ -233,6 +251,10 @@ final class NowPlayingStore {
 
     func perform(_ command: PlaybackCommand) async {
         commandError = nil
+        if isDemoMode {
+            performDemoCommand(command)
+            return
+        }
         stateMutationRevision &+= 1
         let targetPlayer = activeSnapshot.player
 
@@ -247,6 +269,17 @@ final class NowPlayingStore {
 
     func setVolume(_ volume: Int, for player: MediaPlayerKind) async {
         commandError = nil
+        if isDemoMode {
+            guard player == RepriseDemoContent.player else { return }
+            updateSnapshot(
+                snapshot(for: player).withVolume(
+                    PlayerVolume.clamped(volume)
+                ),
+                for: player
+            )
+            onMenuBarContentChange?()
+            return
+        }
         stateMutationRevision &+= 1
         let previousSnapshot = snapshot(for: player)
         let volume = PlayerVolume.clamped(volume)
@@ -292,6 +325,25 @@ final class NowPlayingStore {
         for player: MediaPlayerKind
     ) async {
         commandError = nil
+        if isDemoMode {
+            guard player == RepriseDemoContent.player,
+                  let track = snapshot(for: player).track else {
+                return
+            }
+            updateSnapshot(
+                snapshot(for: player).withPosition(
+                    PlaybackPosition.clamped(
+                        position,
+                        duration: track.duration
+                    )
+                ),
+                for: player
+            )
+            installDemoPlaybackAnchor()
+            updateDisplayedLyric()
+            onMenuBarContentChange?()
+            return
+        }
         stateMutationRevision &+= 1
         let previousSnapshot = snapshot(for: player)
         guard let track = previousSnapshot.track,
@@ -572,6 +624,60 @@ final class NowPlayingStore {
         case .youtubeMusic:
             youtubeMusic = snapshot
         }
+    }
+
+    private func installDemoContent() {
+        youtubeMusic = RepriseDemoContent.snapshot()
+        lyricsState = .available(RepriseDemoContent.lyrics)
+        lyricsQuery = youtubeMusic.track.map(LyricsTrackQuery.init)
+        hasCompletedInitialRefresh = true
+        installDemoPlaybackAnchor()
+        updateDisplayedLyric()
+    }
+
+    private func installDemoPlaybackAnchor() {
+        guard let track = youtubeMusic.track else {
+            playbackAnchor = nil
+            return
+        }
+        playbackAnchor = PlaybackAnchor(
+            query: LyricsTrackQuery(track: track),
+            position: track.position,
+            duration: track.duration,
+            state: youtubeMusic.state,
+            playbackRate: youtubeMusic.playbackRate,
+            observedAt: Date()
+        )
+    }
+
+    private func performDemoCommand(_ command: PlaybackCommand) {
+        let current = youtubeMusic
+        let state: PlaybackState
+        var position = current.track?.position ?? RepriseDemoContent.position
+
+        switch command {
+        case .pause:
+            state = .paused
+        case .playPause:
+            state = current.state.isPlaying ? .paused : .playing
+        case .stop:
+            state = .stopped
+        case .previous:
+            state = .playing
+            position = 32
+        case .next:
+            state = .playing
+            position = 116
+        }
+
+        youtubeMusic = RepriseDemoContent.snapshot(
+            state: state,
+            position: position,
+            volume: current.volume ?? RepriseDemoContent.volume
+        )
+        installDemoPlaybackAnchor()
+        updateDisplayedLyric()
+        onMenuBarContentChange?()
     }
 
     private func mergingPendingMutations(
