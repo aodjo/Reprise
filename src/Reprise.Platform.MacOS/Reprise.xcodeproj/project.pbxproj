@@ -64,7 +64,7 @@
 		};
 		B8A1F001304B000100000001 /* BrowserExtension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = BrowserExtension;
+			path = ../../BrowserExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
