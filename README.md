@@ -71,7 +71,7 @@ Download the latest `.dmg` from the
 ```bash
 git clone https://github.com/aodjo/reprise.git
 cd reprise
-open Reprise.xcodeproj
+open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 ```
 
 Build and run the `Reprise` scheme in Xcode 16 or later.

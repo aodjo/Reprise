@@ -70,7 +70,7 @@ brew install --cask aodjo/tap/reprise
 ```bash
 git clone https://github.com/aodjo/reprise.git
 cd reprise
-open Reprise.xcodeproj
+open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 ```
 
 Xcode 16 이상에서 `Reprise` 스킴을 빌드하고 실행하세요.
