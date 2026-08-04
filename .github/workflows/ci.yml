@@ -1,0 +1,144 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - migration/cross-platform
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  repository-layout:
+    name: Repository layout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate cross-platform boundaries
+        shell: bash
+        run: |
+          required_directories=(
+            src/Reprise.Core
+            src/Reprise.Desktop
+            src/Reprise.Platform.MacOS
+            src/Reprise.Platform.Windows
+            src/Reprise.Platform.Linux
+            tests/unit/Reprise.Core.Tests
+            tests/contracts/Reprise.Platform.Contracts.Tests
+            tests/integration/macos/common
+            tests/integration/windows/common
+            tests/integration/linux/common
+            packaging/macos
+            packaging/windows
+            packaging/linux
+            BrowserExtension/Shared
+          )
+
+          for directory in "${required_directories[@]}"; do
+            if [[ ! -d "$directory" ]]; then
+              echo "Missing required directory: $directory" >&2
+              exit 1
+            fi
+          done
+
+  browser-extension:
+    name: Browser extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate JavaScript syntax
+        shell: bash
+        run: |
+          find BrowserExtension/Chromium BrowserExtension/Mozilla \
+            -type f -name '*.js' -print0 \
+            | xargs -0 -n 1 node --check
+
+      - name: Validate extension manifests
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            for (const file of [
+              "BrowserExtension/Chromium/manifest.json",
+              "BrowserExtension/Mozilla/manifest.json",
+            ]) {
+              JSON.parse(fs.readFileSync(file, "utf8"));
+              console.log(`Validated ${file}`);
+            }
+          '
+
+      - name: Run browser extension tests
+        run: node --test BrowserExtension/Tests/*.test.mjs
+
+  macos-legacy:
+    name: Legacy macOS (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: macos-15-arm64
+            runner: macos-15
+            architecture: arm64
+          - target: macos-15-x64
+            runner: macos-15-intel
+            architecture: x86_64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show build environment
+        shell: bash
+        run: |
+          uname -a
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve Swift packages
+        shell: bash
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project src/Reprise.Platform.MacOS/Reprise.xcodeproj \
+            -scheme Reprise
+
+      - name: Run macOS unit tests
+        shell: bash
+        run: |
+          mkdir -p TestResults
+          xcodebuild test \
+            -project src/Reprise.Platform.MacOS/Reprise.xcodeproj \
+            -scheme Reprise \
+            -destination 'platform=macOS,arch=${{ matrix.architecture }}' \
+            -only-testing:RepriseTests \
+            -derivedDataPath 'DerivedData/${{ matrix.target }}' \
+            -resultBundlePath 'TestResults/${{ matrix.target }}.xcresult' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload macOS test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-xcresult
+          path: TestResults/${{ matrix.target }}.xcresult
+          if-no-files-found: warn
+          retention-days: 7

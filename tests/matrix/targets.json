@@ -1,0 +1,60 @@
+{
+  "targets": [
+    {
+      "target": "macos-15-arm64",
+      "runner": "macos-15",
+      "platform": "macos",
+      "architecture": "arm64",
+      "runtime": "osx-arm64",
+      "execution": "native"
+    },
+    {
+      "target": "macos-15-x64",
+      "runner": "macos-15-intel",
+      "platform": "macos",
+      "architecture": "x64",
+      "runtime": "osx-x64",
+      "execution": "native"
+    },
+    {
+      "target": "windows-2025-x86",
+      "runner": "windows-2025",
+      "platform": "windows",
+      "architecture": "x86",
+      "runtime": "win-x86",
+      "execution": "compatibility"
+    },
+    {
+      "target": "windows-2025-x64",
+      "runner": "windows-2025",
+      "platform": "windows",
+      "architecture": "x64",
+      "runtime": "win-x64",
+      "execution": "native"
+    },
+    {
+      "target": "windows-11-arm64",
+      "runner": "windows-11-arm",
+      "platform": "windows",
+      "architecture": "arm64",
+      "runtime": "win-arm64",
+      "execution": "native-preview"
+    },
+    {
+      "target": "ubuntu-24.04-x64",
+      "runner": "ubuntu-24.04",
+      "platform": "linux",
+      "architecture": "x64",
+      "runtime": "linux-x64",
+      "execution": "native"
+    },
+    {
+      "target": "ubuntu-24.04-arm64",
+      "runner": "ubuntu-24.04-arm",
+      "platform": "linux",
+      "architecture": "arm64",
+      "runtime": "linux-arm64",
+      "execution": "native"
+    }
+  ]
+}
