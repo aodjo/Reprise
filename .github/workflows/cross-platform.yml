@@ -1,0 +1,202 @@
+name: Cross-platform
+
+on:
+  push:
+    branches:
+      - main
+      - migration/cross-platform
+    paths:
+      - src/**
+      - tests/**
+      - packaging/**
+      - Reprise.sln
+      - Reprise.slnx
+      - global.json
+      - Directory.Build.*
+      - Directory.Packages.props
+      - .github/workflows/cross-platform.yml
+  pull_request:
+    paths:
+      - src/**
+      - tests/**
+      - packaging/**
+      - Reprise.sln
+      - Reprise.slnx
+      - global.json
+      - Directory.Build.*
+      - Directory.Packages.props
+      - .github/workflows/cross-platform.yml
+  workflow_dispatch:
+
+concurrency:
+  group: cross-platform-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-matrix:
+    name: Prepare test matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.prepare.outputs.matrix }}
+      ready: ${{ steps.prepare.outputs.ready }}
+      solution: ${{ steps.prepare.outputs.solution }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate targets and detect solution
+        id: prepare
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          matrix_path = Path("tests/matrix/targets.json")
+          payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+          targets = payload.get("targets")
+          if not isinstance(targets, list) or not targets:
+              raise SystemExit("tests/matrix/targets.json must contain targets")
+
+          required = {
+              "target",
+              "runner",
+              "platform",
+              "architecture",
+              "runtime",
+              "execution",
+          }
+          names = set()
+          for index, target in enumerate(targets):
+              missing = required.difference(target)
+              if missing:
+                  raise SystemExit(
+                      f"target {index} is missing: {sorted(missing)}"
+                  )
+              name = target["target"]
+              if name in names:
+                  raise SystemExit(f"duplicate target: {name}")
+              names.add(name)
+
+          projects = list(Path("src").rglob("*.csproj"))
+          projects.extend(Path("tests").rglob("*.csproj"))
+          solution = next(
+              (
+                  candidate
+                  for candidate in (Path("Reprise.slnx"), Path("Reprise.sln"))
+                  if candidate.is_file()
+              ),
+              None,
+          )
+
+          if projects and solution is None:
+              raise SystemExit(
+                  "Cross-platform projects exist, but Reprise.slnx or "
+                  "Reprise.sln is missing"
+              )
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(
+                  "matrix="
+                  + json.dumps({"include": targets}, separators=(",", ":"))
+                  + "\n"
+              )
+              output.write(f"ready={'true' if projects else 'false'}\n")
+              output.write(f"solution={solution or ''}\n")
+
+          if not projects:
+              print("Cross-platform projects are not scaffolded yet; matrix jobs are skipped.")
+          PY
+
+  build-and-test:
+    name: ${{ matrix.target }}
+    needs: test-matrix
+    if: needs.test-matrix.outputs.ready == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.test-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Show target environment
+        shell: bash
+        run: |
+          echo 'Target: ${{ matrix.target }}'
+          echo 'Runtime: ${{ matrix.runtime }}'
+          echo 'Execution: ${{ matrix.execution }}'
+          uname -a || true
+          echo "PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-not-set}"
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        shell: bash
+        run: |
+          dotnet restore '${{ needs.test-matrix.outputs.solution }}' \
+            --runtime '${{ matrix.runtime }}'
+
+      - name: Build
+        shell: bash
+        run: |
+          dotnet build '${{ needs.test-matrix.outputs.solution }}' \
+            --configuration Release \
+            --runtime '${{ matrix.runtime }}' \
+            --no-restore
+
+      - name: Run applicable tests
+        shell: bash
+        run: |
+          result_directory="$GITHUB_WORKSPACE/TestResults/${{ matrix.target }}"
+          mkdir -p "$result_directory"
+
+          search_directories=(
+            tests/unit
+            tests/contracts
+            tests/integration/${{ matrix.platform }}/common
+            tests/integration/${{ matrix.platform }}/${{ matrix.architecture }}
+          )
+
+          test_projects=()
+          for directory in "${search_directories[@]}"; do
+            if [[ -d "$directory" ]]; then
+              while IFS= read -r project; do
+                test_projects+=("$project")
+              done < <(find "$directory" -type f -name '*.csproj' -print | sort)
+            fi
+          done
+
+          if [[ "${#test_projects[@]}" -eq 0 ]]; then
+            echo 'No applicable test projects were found.'
+            exit 0
+          fi
+
+          for project in "${test_projects[@]}"; do
+            project_name="$(basename "$project" .csproj)"
+            dotnet test "$project" \
+              --configuration Release \
+              --runtime '${{ matrix.runtime }}' \
+              --no-restore \
+              --results-directory "$result_directory" \
+              --logger "trx;LogFileName=${project_name}.trx"
+          done
+
+      - name: Upload cross-platform test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}-test-results
+          path: TestResults/${{ matrix.target }}
+          if-no-files-found: ignore
+          retention-days: 7
