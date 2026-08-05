@@ -135,6 +135,40 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  chromium-extension-package:
+    name: Chromium extension ZIP
+    needs: browser-extension
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Create Chromium extension ZIP
+        shell: bash
+        run: |
+          mkdir -p Artifacts
+          (
+            cd BrowserExtension/Chromium
+            zip -Xqr ../../Artifacts/reprise-chromium.zip . \
+              -x '*.DS_Store' '__MACOSX/*'
+          )
+
+      - name: Verify Chromium extension ZIP
+        shell: bash
+        run: |
+          unzip -t Artifacts/reprise-chromium.zip
+          unzip -Z1 Artifacts/reprise-chromium.zip \
+            | grep -qx 'manifest.json'
+
+      - name: Upload Chromium extension ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: reprise-chromium-extension
+          path: Artifacts/reprise-chromium.zip
+          if-no-files-found: error
+          retention-days: 14
+
   macos:
     name: macOS (${{ matrix.target }})
     strategy:
