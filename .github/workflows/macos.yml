@@ -49,7 +49,7 @@ jobs:
             runner: macos-26-intel
             architecture: x86_64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -77,6 +77,7 @@ jobs:
             -scheme Reprise \
             -destination 'platform=macOS,arch=${{ matrix.architecture }}' \
             -only-testing:RepriseTests \
+            '-skip-testing:RepriseTests/YouTubeMusicBridgeTests/localWebSocketTransfersSnapshotsAndCommands()' \
             -derivedDataPath 'DerivedData/${{ matrix.target }}' \
             -resultBundlePath 'TestResults/${{ matrix.target }}.xcresult' \
             CODE_SIGNING_ALLOWED=NO \
@@ -88,5 +89,50 @@ jobs:
         with:
           name: ${{ matrix.target }}-xcresult
           path: TestResults/${{ matrix.target }}.xcresult
+          if-no-files-found: warn
+          retention-days: 7
+
+  websocket-integration:
+    name: macOS WebSocket integration (macos-15-arm64)
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Show build environment
+        shell: bash
+        run: |
+          uname -a
+          xcodebuild -version
+          swift --version
+
+      - name: Resolve Swift packages
+        shell: bash
+        run: |
+          xcodebuild -resolvePackageDependencies \
+            -project src/Reprise.Platform.MacOS/Reprise.xcodeproj \
+            -scheme Reprise
+
+      - name: Run WebSocket integration test
+        shell: bash
+        run: |
+          mkdir -p TestResults
+          xcodebuild test \
+            -project src/Reprise.Platform.MacOS/Reprise.xcodeproj \
+            -scheme Reprise \
+            -destination 'platform=macOS,arch=arm64' \
+            '-only-testing:RepriseTests/YouTubeMusicBridgeTests/localWebSocketTransfersSnapshotsAndCommands()' \
+            -derivedDataPath DerivedData/macos-15-arm64-websocket \
+            -resultBundlePath TestResults/macos-15-arm64-websocket.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+
+      - name: Upload WebSocket integration results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-15-arm64-websocket-xcresult
+          path: TestResults/macos-15-arm64-websocket.xcresult
           if-no-files-found: warn
           retention-days: 7

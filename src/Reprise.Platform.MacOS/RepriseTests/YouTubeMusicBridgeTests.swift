@@ -281,21 +281,31 @@ struct YouTubeMusicBridgeTests {
         #expect(playersToPause == [.spotify, .appleMusic])
     }
 
-    @Test
+    @Test(.timeLimit(.minutes(1)))
     func localWebSocketTransfersSnapshotsAndCommands() async throws {
-        let bridge = YouTubeMusicBridge()
+        let bridge = YouTubeMusicBridge(port: 0)
         await bridge.start()
+        defer {
+            Task {
+                await bridge.stop()
+            }
+        }
 
-        for _ in 0..<20 {
+        for _ in 0..<200 {
             if await bridge.connectionStatus() == .waiting {
                 break
             }
             try await Task.sleep(for: .milliseconds(25))
         }
+        guard await bridge.connectionStatus() == .waiting else {
+            await bridge.stop()
+            throw WebSocketTestTimeoutError.listenerNotReady
+        }
+        let listeningPort = try #require(await bridge.listeningPort())
 
         var request = URLRequest(
             url: URL(
-                string: "ws://127.0.0.1:\(YouTubeMusicBridgeProtocol.port)"
+                string: "ws://127.0.0.1:\(listeningPort)"
             )!
         )
         request.setValue(
@@ -309,40 +319,59 @@ struct YouTubeMusicBridgeTests {
         let session = URLSession(configuration: .ephemeral)
         let task = session.webSocketTask(with: request)
         task.resume()
+        defer {
+            task.cancel(with: .normalClosure, reason: nil)
+            session.invalidateAndCancel()
+        }
 
-        try await task.send(
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"hello","protocolVersion":1,"extensionVersion":"1.0.0","extensionId":"apmolpbmjjndmedbogieopgmapoehdlp","browserName":"Google Chrome"}"#
             )
         )
-        try await task.send(
+        for _ in 0..<200 {
+            if await bridge.connectionStatus() == .connected {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(25))
+        }
+        guard await bridge.connectionStatus() == .connected else {
+            await bridge.stop()
+            throw WebSocketTestTimeoutError.clientNotConnected
+        }
+
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":100,"tabId":7,"state":"playing","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":12,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
             )
         )
         let sessionTimestamp = Date().timeIntervalSince1970 * 1_000
-        try await task.send(
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"sessions","protocolVersion":1,"sequence":0,"selectedTabId":7,"sessions":[{"tabId":7,"state":"playing","title":"Bridge Song","artist":"Bridge Artist","visible":true,"updatedAtMs":\#(sessionTimestamp)},{"tabId":9,"state":"paused","title":"Background Song","artist":"Background Artist","visible":false,"updatedAtMs":\#(sessionTimestamp)}]}"#
             )
         )
 
-        var receivedSnapshot: PlayerSnapshot?
-        for _ in 0..<40 {
+        var pendingSnapshot: PlayerSnapshot?
+        var initialSessions: [YouTubeMusicSession] = []
+        for _ in 0..<200 {
             let snapshot = await bridge.snapshot()
-            if snapshot.track?.title == "Bridge Song" {
-                receivedSnapshot = snapshot
+            let sessions = await bridge.sessions()
+            if snapshot.track?.title == "Bridge Song",
+               sessions.contains(where: { $0.tabID == 7 }) {
+                pendingSnapshot = snapshot
+                initialSessions = sessions
                 break
             }
             try await Task.sleep(for: .milliseconds(25))
         }
 
-        #expect(receivedSnapshot?.player == .youtubeMusic)
-        #expect(receivedSnapshot?.state == .playing)
-        #expect(receivedSnapshot?.volume == 64)
-        #expect(receivedSnapshot?.playbackRate == 1.25)
+        let receivedSnapshot = try #require(pendingSnapshot)
+        #expect(receivedSnapshot.player == .youtubeMusic)
+        #expect(receivedSnapshot.state == .playing)
+        #expect(receivedSnapshot.volume == 64)
+        #expect(receivedSnapshot.playbackRate == 1.25)
 
-        let initialSessions = await bridge.sessions()
         let initialSession = try #require(
             initialSessions.first { $0.tabID == 7 }
         )
@@ -372,7 +401,7 @@ struct YouTubeMusicBridgeTests {
         let commandTask = Task {
             try await bridge.perform(.next)
         }
-        let outbound = try await task.receive()
+        let outbound = try await task.receiveWithTimeout()
         let outboundData: Data
         switch outbound {
         case let .data(data):
@@ -397,7 +426,11 @@ struct YouTubeMusicBridgeTests {
         let secondSession = URLSession(configuration: .ephemeral)
         let secondTask = secondSession.webSocketTask(with: firefoxRequest)
         secondTask.resume()
-        try await secondTask.send(
+        defer {
+            secondTask.cancel(with: .normalClosure, reason: nil)
+            secondSession.invalidateAndCancel()
+        }
+        try await secondTask.sendWithTimeout(
             .string(
                 #"{"type":"hello","protocolVersion":1,"extensionVersion":"2.0.0","extensionId":"reprise-youtube-music@junx.dev","browserName":"Firefox"}"#
             )
@@ -410,12 +443,12 @@ struct YouTubeMusicBridgeTests {
             !sessionsWithoutFirefoxTabs.contains { $0.browser == .firefox }
         )
 
-        try await secondTask.send(
+        try await secondTask.sendWithTimeout(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":0,"tabId":8,"state":"playing","title":"Second Browser Song","album":"Second Album","artist":"Second Artist","duration":240,"position":30,"volume":55,"playbackRate":1,"artworkUrl":null,"videoId":"second123","trackUrl":"https://music.youtube.com/watch?v=second123"}"#
             )
         )
-        try await secondTask.send(
+        try await secondTask.sendWithTimeout(
             .string(
                 #"{"type":"sessions","protocolVersion":1,"sequence":0,"selectedTabId":8,"sessions":[{"tabId":8,"state":"playing","title":"Second Browser Song","artist":"Second Artist","visible":true,"updatedAtMs":\#(sessionTimestamp)},{"tabId":10,"state":"paused","title":"Firefox Background","artist":"Another Artist","visible":false,"updatedAtMs":\#(sessionTimestamp)}]}"#
             )
@@ -442,7 +475,7 @@ struct YouTubeMusicBridgeTests {
         #expect(firefoxSession.title == "Second Browser Song")
         #expect(!firefoxSession.isActive)
 
-        try await task.send(
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"ack","protocolVersion":1,"id":"\#(commandID)","success":true,"error":null}"#
             )
@@ -451,13 +484,13 @@ struct YouTubeMusicBridgeTests {
 
         // Once the first browser pauses, the already-playing second browser
         // becomes active without requiring either extension to reconnect.
-        try await task.send(
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":101,"tabId":7,"state":"paused","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":14,"volume":64,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
             )
         )
         let switchedTimestamp = Date().timeIntervalSince1970 * 1_000
-        try await task.send(
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"sessions","protocolVersion":1,"sequence":1,"selectedTabId":7,"sessions":[{"tabId":7,"state":"paused","title":"Bridge Song","artist":"Bridge Artist","visible":true,"updatedAtMs":\#(switchedTimestamp)},{"tabId":9,"state":"paused","title":"Background Song","artist":"Background Artist","visible":false,"updatedAtMs":\#(switchedTimestamp)}]}"#
             )
@@ -490,7 +523,7 @@ struct YouTubeMusicBridgeTests {
             await completionProbe.store(actualVolume)
             return actualVolume
         }
-        let volumeOutbound = try await secondTask.receive()
+        let volumeOutbound = try await secondTask.receiveWithTimeout()
         let volumeOutboundData: Data
         switch volumeOutbound {
         case let .data(data):
@@ -509,7 +542,7 @@ struct YouTubeMusicBridgeTests {
         let volumeCommandID = try #require(
             volumeCommand?["id"] as? String
         )
-        try await secondTask.send(
+        try await secondTask.sendWithTimeout(
             .string(
                 #"{"type":"ack","protocolVersion":1,"id":"\#(volumeCommandID)","success":true,"error":null}"#
             )
@@ -519,7 +552,7 @@ struct YouTubeMusicBridgeTests {
 
         // A matching snapshot from another browser cannot confirm a command
         // that was sent to the selected browser.
-        try await task.send(
+        try await task.sendWithTimeout(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":102,"tabId":7,"state":"paused","title":"Bridge Song","album":"Bridge Album","artist":"Bridge Artist","duration":180,"position":15,"volume":37,"playbackRate":1.25,"artworkUrl":null,"videoId":"bridge123","trackUrl":"https://music.youtube.com/watch?v=bridge123"}"#
             )
@@ -527,7 +560,7 @@ struct YouTubeMusicBridgeTests {
         try await Task.sleep(for: .milliseconds(100))
         #expect(await completionProbe.value() == nil)
 
-        try await secondTask.send(
+        try await secondTask.sendWithTimeout(
             .string(
                 #"{"type":"snapshot","protocolVersion":1,"sequence":1,"tabId":8,"state":"playing","title":"Second Browser Song","album":"Second Album","artist":"Second Artist","duration":240,"position":31,"volume":37,"playbackRate":1,"artworkUrl":null,"videoId":"second123","trackUrl":"https://music.youtube.com/watch?v=second123"}"#
             )
@@ -570,6 +603,68 @@ struct YouTubeMusicBridgeTests {
             ),
             errorMessage: nil
         )
+    }
+}
+
+private enum WebSocketTestTimeoutError: Error, LocalizedError {
+    case listenerNotReady
+    case clientNotConnected
+    case send
+    case receive
+
+    var errorDescription: String? {
+        switch self {
+        case .listenerNotReady:
+            "The local WebSocket listener did not become ready in time."
+        case .clientNotConnected:
+            "The WebSocket test client did not connect in time."
+        case .send:
+            "Sending a WebSocket test message exceeded five seconds."
+        case .receive:
+            "Receiving a WebSocket test message exceeded five seconds."
+        }
+    }
+}
+
+private extension URLSessionWebSocketTask {
+    func sendWithTimeout(
+        _ message: Message,
+        timeout: Duration = .seconds(5)
+    ) async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            group.addTask {
+                try await self.send(message)
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                self.cancel(with: .goingAway, reason: nil)
+                throw WebSocketTestTimeoutError.send
+            }
+            defer { group.cancelAll() }
+
+            _ = try await group.next()
+        }
+    }
+
+    func receiveWithTimeout(
+        timeout: Duration = .seconds(5)
+    ) async throws -> Message {
+        try await withThrowingTaskGroup(of: Message.self) { group in
+            group.addTask {
+                try await self.receive()
+            }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                self.cancel(with: .goingAway, reason: nil)
+                throw WebSocketTestTimeoutError.receive
+            }
+            defer { group.cancelAll() }
+
+            guard let message = try await group.next() else {
+                throw CancellationError()
+            }
+            return message
+        }
     }
 }
 
