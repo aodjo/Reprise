@@ -42,8 +42,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.prepare.outputs.matrix }}
-      ready: ${{ steps.prepare.outputs.ready }}
-      solution: ${{ steps.prepare.outputs.solution }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
@@ -82,23 +80,10 @@ jobs:
               if name in names:
                   raise SystemExit(f"duplicate target: {name}")
               names.add(name)
-
-          projects = list(Path("src").rglob("*.csproj"))
-          projects.extend(Path("tests").rglob("*.csproj"))
-          solution = next(
-              (
-                  candidate
-                  for candidate in (Path("Reprise.slnx"), Path("Reprise.sln"))
-                  if candidate.is_file()
-              ),
-              None,
-          )
-
-          if projects and solution is None:
-              raise SystemExit(
-                  "Cross-platform projects exist, but Reprise.slnx or "
-                  "Reprise.sln is missing"
-              )
+              if target["platform"] not in {"windows", "linux"}:
+                  raise SystemExit(
+                      f"unsupported placeholder platform: {target['platform']}"
+                  )
 
           output_path = Path(os.environ["GITHUB_OUTPUT"])
           with output_path.open("a", encoding="utf-8") as output:
@@ -107,17 +92,13 @@ jobs:
                   + json.dumps({"include": targets}, separators=(",", ":"))
                   + "\n"
               )
-              output.write(f"ready={'true' if projects else 'false'}\n")
-              output.write(f"solution={solution or ''}\n")
 
-          if not projects:
-              print("Cross-platform projects are not scaffolded yet; matrix jobs are skipped.")
+          print(f"Prepared {len(targets)} platform test targets.")
           PY
 
-  build-and-test:
-    name: ${{ matrix.target }}
+  platform-tests:
+    name: Platform tests (${{ matrix.target }})
     needs: test-matrix
-    if: needs.test-matrix.outputs.ready == 'true'
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.test-matrix.outputs.matrix) }}
@@ -136,26 +117,47 @@ jobs:
           uname -a || true
           echo "PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-not-set}"
 
+      - name: Discover platform tests
+        id: discover
+        shell: bash
+        run: |
+          search_directories=(
+            tests/unit
+            tests/contracts
+            tests/integration/${{ matrix.platform }}/common
+            tests/integration/${{ matrix.platform }}/${{ matrix.architecture }}
+          )
+
+          test_projects=()
+          for directory in "${search_directories[@]}"; do
+            if [[ -d "$directory" ]]; then
+              while IFS= read -r project; do
+                test_projects+=("$project")
+              done < <(find "$directory" -type f -name '*.csproj' -print | sort)
+            fi
+          done
+
+          if [[ "${#test_projects[@]}" -eq 0 ]]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            {
+              echo '### ${{ matrix.target }}'
+              echo
+              echo 'No platform test projects exist yet. Test steps were skipped.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          printf 'Discovered test project: %s\n' "${test_projects[@]}"
+
       - name: Set up .NET
+        if: steps.discover.outputs.ready == 'true'
         uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
-      - name: Restore
-        shell: bash
-        run: |
-          dotnet restore '${{ needs.test-matrix.outputs.solution }}' \
-            --runtime '${{ matrix.runtime }}'
-
-      - name: Build
-        shell: bash
-        run: |
-          dotnet build '${{ needs.test-matrix.outputs.solution }}' \
-            --configuration Release \
-            --runtime '${{ matrix.runtime }}' \
-            --no-restore
-
       - name: Run applicable tests
+        if: steps.discover.outputs.ready == 'true'
         shell: bash
         run: |
           result_directory="$GITHUB_WORKSPACE/TestResults/${{ matrix.target }}"
@@ -187,13 +189,12 @@ jobs:
             dotnet test "$project" \
               --configuration Release \
               --runtime '${{ matrix.runtime }}' \
-              --no-restore \
               --results-directory "$result_directory" \
               --logger "trx;LogFileName=${project_name}.trx"
           done
 
       - name: Upload cross-platform test results
-        if: always()
+        if: ${{ always() && steps.discover.outputs.ready == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-test-results
