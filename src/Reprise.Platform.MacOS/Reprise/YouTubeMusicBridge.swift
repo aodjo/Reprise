@@ -12,6 +12,7 @@ import Network
 actor YouTubeMusicBridge {
     static let shared = YouTubeMusicBridge()
 
+    private let port: UInt16
     private var server: YouTubeMusicWebSocketServer?
     private var status = YouTubeMusicBridgeStatus.stopped
     private var activeConnectionID: UUID?
@@ -28,10 +29,15 @@ actor YouTubeMusicBridge {
     private var artworkURL: URL?
     private var artworkData: Data?
 
+    init(port: UInt16 = YouTubeMusicBridgeProtocol.port) {
+        self.port = port
+    }
+
     func start() {
         guard server == nil else { return }
 
         let server = YouTubeMusicWebSocketServer(
+            port: port,
             onMessage: { [weak self] connectionID, data in
                 Task {
                     await self?.receive(
@@ -55,7 +61,6 @@ actor YouTubeMusicBridge {
 
         do {
             try server.start()
-            status = .waiting
         } catch {
             status = .failed(error.localizedDescription)
         }
@@ -79,6 +84,10 @@ actor YouTubeMusicBridge {
 
     func connectionStatus() -> YouTubeMusicBridgeStatus {
         status
+    }
+
+    func listeningPort() -> UInt16? {
+        server?.listeningPort
     }
 
     func connectedExtensionVersion() -> String? {
@@ -756,18 +765,27 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
     private let onMessage: @Sendable (UUID, Data) -> Void
     private let onStatusChange: @Sendable (YouTubeMusicBridgeStatus) -> Void
     private let onConnectionClosed: @Sendable (UUID) -> Void
+    private let port: UInt16
     private var listener: NWListener?
     private var connections: [UUID: NWConnection] = [:]
     private var readyConnectionIDs: Set<UUID> = []
 
     init(
+        port: UInt16,
         onMessage: @escaping @Sendable (UUID, Data) -> Void,
         onStatusChange: @escaping @Sendable (YouTubeMusicBridgeStatus) -> Void,
         onConnectionClosed: @escaping @Sendable (UUID) -> Void
     ) {
+        self.port = port
         self.onMessage = onMessage
         self.onStatusChange = onStatusChange
         self.onConnectionClosed = onConnectionClosed
+    }
+
+    var listeningPort: UInt16? {
+        queue.sync {
+            listener?.port?.rawValue
+        }
     }
 
     func start() throws {
@@ -802,7 +820,7 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         )
 
         guard let port = NWEndpoint.Port(
-            rawValue: YouTubeMusicBridgeProtocol.port
+            rawValue: port
         ) else {
             throw YouTubeMusicWebSocketServerError.invalidPort
         }
