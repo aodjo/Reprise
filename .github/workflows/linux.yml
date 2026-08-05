@@ -9,6 +9,7 @@ on:
       - src/Reprise.Core/**
       - src/Reprise.Desktop/**
       - src/Reprise.Platform.Linux/**
+      - BrowserExtension/Chromium/icons/icon32.png
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
@@ -26,6 +27,7 @@ on:
       - src/Reprise.Core/**
       - src/Reprise.Desktop/**
       - src/Reprise.Platform.Linux/**
+      - BrowserExtension/Chromium/icons/icon32.png
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
@@ -174,6 +176,33 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Restore Linux application
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          dotnet restore \
+            src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj \
+            --runtime '${{ matrix.runtime }}'
+
+      - name: Publish Linux application
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          publish_directory="$GITHUB_WORKSPACE/Artifacts/${{ matrix.target }}/app"
+          dotnet publish \
+            src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj \
+            --configuration Release \
+            --runtime '${{ matrix.runtime }}' \
+            --self-contained true \
+            --no-restore \
+            --output "$publish_directory"
+
+      - name: Smoke test Linux executable
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          'Artifacts/${{ matrix.target }}/app/reprise' --health-check
+
       - name: Run applicable tests
         if: steps.discover.outputs.ready == 'true'
         shell: bash
@@ -205,6 +234,27 @@ jobs:
               --results-directory "$result_directory" \
               --logger "trx;LogFileName=${project_name}.trx"
           done
+
+      - name: Package Linux application
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          artifact_directory="Artifacts/${{ matrix.target }}"
+          cp packaging/linux/dev.junx.Reprise.desktop "$artifact_directory/"
+          cp packaging/linux/README.md "$artifact_directory/"
+          tar \
+            -C Artifacts \
+            -czf "Artifacts/reprise-${{ matrix.runtime }}.tar.gz" \
+            '${{ matrix.target }}'
+
+      - name: Upload Linux application
+        if: steps.discover.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: reprise-${{ matrix.runtime }}
+          path: Artifacts/reprise-${{ matrix.runtime }}.tar.gz
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Upload Linux test results
         if: ${{ always() && steps.discover.outputs.ready == 'true' }}

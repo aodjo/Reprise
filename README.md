@@ -76,6 +76,19 @@ open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 
 Build and run the `Reprise` scheme in Xcode 16 or later.
 
+### Linux alpha
+
+The Linux implementation is under active development on `develop`. It uses
+Avalonia for the desktop and `playerctl` for local MPRIS media sessions.
+
+```bash
+sudo apt install playerctl
+dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
+```
+
+Closing the Linux window keeps Reprise available in the system tray. Linux CI
+also publishes self-contained `linux-x64` and `linux-arm64` archives.
+
 ## Usage
 
 Click the Reprise icon in your menu bar to open the player panel.
