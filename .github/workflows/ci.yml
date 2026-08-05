@@ -52,8 +52,20 @@ jobs:
           done
 
   browser-extension:
-    name: Browser extension
-    runs-on: ubuntu-24.04
+    name: Browser extension (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-2025-x64
+            runner: windows-2025
+          - target: windows-11-arm64
+            runner: windows-11-arm
+          - target: ubuntu-24.04-x64
+            runner: ubuntu-24.04
+          - target: ubuntu-24.04-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
       - name: Check out repository
@@ -86,10 +98,23 @@ jobs:
           '
 
       - name: Run browser extension tests
-        run: node --test BrowserExtension/Tests/*.test.mjs
+        shell: bash
+        run: |
+          mkdir -p TestResults
+          node --test BrowserExtension/Tests/*.test.mjs \
+            | tee 'TestResults/${{ matrix.target }}.tap'
 
-  macos-legacy:
-    name: Legacy macOS (${{ matrix.target }})
+      - name: Upload browser extension test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-extension-${{ matrix.target }}-test-results
+          path: TestResults/${{ matrix.target }}.tap
+          if-no-files-found: warn
+          retention-days: 7
+
+  macos:
+    name: macOS (${{ matrix.target }})
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +124,12 @@ jobs:
             architecture: arm64
           - target: macos-15-x64
             runner: macos-15-intel
+            architecture: x86_64
+          - target: macos-26-arm64
+            runner: macos-26
+            architecture: arm64
+          - target: macos-26-x64
+            runner: macos-26-intel
             architecture: x86_64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
