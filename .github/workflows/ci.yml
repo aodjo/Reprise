@@ -147,10 +147,25 @@ jobs:
       - name: Create Chromium extension ZIP
         shell: bash
         run: |
-          mkdir -p Artifacts
+          mkdir -p Artifacts/chromium-web-store
+          cp -R BrowserExtension/Chromium/. Artifacts/chromium-web-store/
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest_path = Path("Artifacts/chromium-web-store/manifest.json")
+          manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+          manifest.pop("key", None)
+          manifest_path.write_text(
+              json.dumps(manifest, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
           (
-            cd BrowserExtension/Chromium
-            zip -Xqr ../../Artifacts/reprise-chromium.zip . \
+            cd Artifacts/chromium-web-store
+            zip -Xqr ../reprise-chromium.zip . \
               -x '*.DS_Store' '__MACOSX/*'
           )
 
@@ -160,6 +175,15 @@ jobs:
           unzip -t Artifacts/reprise-chromium.zip
           unzip -Z1 Artifacts/reprise-chromium.zip \
             | grep -qx 'manifest.json'
+          unzip -p Artifacts/reprise-chromium.zip manifest.json \
+            | python3 -c '
+          import json
+          import sys
+
+          manifest = json.load(sys.stdin)
+          if "key" in manifest:
+              raise SystemExit("Web Store manifest must not contain key")
+          '
 
       - name: Upload Chromium extension ZIP
         uses: actions/upload-artifact@v7
