@@ -28,3 +28,9 @@ Mozilla 서명을 받은 XPI로 제공해야 합니다.
 두 확장 모두 `music.youtube.com`에만 접근합니다. Chromium은 고정 manifest
 키, Firefox는 고정 Add-on ID를 사용하며 Reprise와의 통신은 로컬 컴퓨터
 안에서만 처리됩니다.
+
+## Privacy
+
+See the [Reprise for YouTube Music Privacy Policy](PRIVACY.md) for details
+about the playback information processed by the extensions and their local-only
+connection to Reprise.
