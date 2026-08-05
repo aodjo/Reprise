@@ -1,0 +1,64 @@
+name: Repository layout
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - src/**
+      - tests/**
+      - packaging/**
+      - BrowserExtension/**
+      - .github/workflows/repository-layout.yml
+  pull_request:
+    paths:
+      - src/**
+      - tests/**
+      - packaging/**
+      - BrowserExtension/**
+      - .github/workflows/repository-layout.yml
+  workflow_dispatch:
+
+concurrency:
+  group: repository-layout-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Repository layout
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate cross-platform boundaries
+        shell: bash
+        run: |
+          required_directories=(
+            src/Reprise.Core
+            src/Reprise.Desktop
+            src/Reprise.Platform.MacOS
+            src/Reprise.Platform.Windows
+            src/Reprise.Platform.Linux
+            tests/unit/Reprise.Core.Tests
+            tests/contracts/Reprise.Platform.Contracts.Tests
+            tests/integration/macos/common
+            tests/integration/windows/common
+            tests/integration/linux/common
+            packaging/macos
+            packaging/windows
+            packaging/linux
+            BrowserExtension/Shared
+          )
+
+          for directory in "${required_directories[@]}"; do
+            if [[ ! -d "$directory" ]]; then
+              echo "Missing required directory: $directory" >&2
+              exit 1
+            fi
+          done

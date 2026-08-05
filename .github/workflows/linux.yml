@@ -1,4 +1,4 @@
-name: Cross-platform
+name: Linux
 
 on:
   push:
@@ -6,30 +6,42 @@ on:
       - main
       - develop
     paths:
-      - src/**
-      - tests/**
-      - packaging/**
+      - src/Reprise.Core/**
+      - src/Reprise.Desktop/**
+      - src/Reprise.Platform.Linux/**
+      - tests/unit/**
+      - tests/contracts/**
+      - tests/integration/linux/**
+      - tests/fixtures/**
+      - tests/matrix/targets.json
+      - packaging/linux/**
       - Reprise.sln
       - Reprise.slnx
       - global.json
       - Directory.Build.*
       - Directory.Packages.props
-      - .github/workflows/cross-platform.yml
+      - .github/workflows/linux.yml
   pull_request:
     paths:
-      - src/**
-      - tests/**
-      - packaging/**
+      - src/Reprise.Core/**
+      - src/Reprise.Desktop/**
+      - src/Reprise.Platform.Linux/**
+      - tests/unit/**
+      - tests/contracts/**
+      - tests/integration/linux/**
+      - tests/fixtures/**
+      - tests/matrix/targets.json
+      - packaging/linux/**
       - Reprise.sln
       - Reprise.slnx
       - global.json
       - Directory.Build.*
       - Directory.Packages.props
-      - .github/workflows/cross-platform.yml
+      - .github/workflows/linux.yml
   workflow_dispatch:
 
 concurrency:
-  group: cross-platform-${{ github.workflow }}-${{ github.ref }}
+  group: linux-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -37,7 +49,7 @@ permissions:
 
 jobs:
   test-matrix:
-    name: Prepare test matrix
+    name: Prepare Linux test matrix
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
@@ -46,7 +58,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Validate targets and detect solution
+      - name: Validate and filter Linux targets
         id: prepare
         shell: bash
         run: |
@@ -55,6 +67,7 @@ jobs:
           import os
           from pathlib import Path
 
+          expected_platform = "linux"
           matrix_path = Path("tests/matrix/targets.json")
           payload = json.loads(matrix_path.read_text(encoding="utf-8"))
           targets = payload.get("targets")
@@ -70,6 +83,7 @@ jobs:
               "execution",
           }
           names = set()
+          selected = []
           for index, target in enumerate(targets):
               missing = required.difference(target)
               if missing:
@@ -84,20 +98,25 @@ jobs:
                   raise SystemExit(
                       f"unsupported placeholder platform: {target['platform']}"
                   )
+              if target["platform"] == expected_platform:
+                  selected.append(target)
+
+          if not selected:
+              raise SystemExit("no Linux targets were configured")
 
           output_path = Path(os.environ["GITHUB_OUTPUT"])
           with output_path.open("a", encoding="utf-8") as output:
               output.write(
                   "matrix="
-                  + json.dumps({"include": targets}, separators=(",", ":"))
+                  + json.dumps({"include": selected}, separators=(",", ":"))
                   + "\n"
               )
 
-          print(f"Prepared {len(targets)} platform test targets.")
+          print(f"Prepared {len(selected)} Linux test targets.")
           PY
 
   platform-tests:
-    name: Platform tests (${{ matrix.target }})
+    name: Linux (${{ matrix.target }})
     needs: test-matrix
     strategy:
       fail-fast: false
@@ -114,18 +133,17 @@ jobs:
           echo 'Target: ${{ matrix.target }}'
           echo 'Runtime: ${{ matrix.runtime }}'
           echo 'Execution: ${{ matrix.execution }}'
-          uname -a || true
-          echo "PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-not-set}"
+          uname -a
 
-      - name: Discover platform tests
+      - name: Discover Linux tests
         id: discover
         shell: bash
         run: |
           search_directories=(
             tests/unit
             tests/contracts
-            tests/integration/${{ matrix.platform }}/common
-            tests/integration/${{ matrix.platform }}/${{ matrix.architecture }}
+            tests/integration/linux/common
+            tests/integration/linux/${{ matrix.architecture }}
           )
 
           test_projects=()
@@ -142,7 +160,7 @@ jobs:
             {
               echo '### ${{ matrix.target }}'
               echo
-              echo 'No platform test projects exist yet. Test steps were skipped.'
+              echo 'No Linux test projects exist yet. Test steps were skipped.'
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
@@ -166,8 +184,8 @@ jobs:
           search_directories=(
             tests/unit
             tests/contracts
-            tests/integration/${{ matrix.platform }}/common
-            tests/integration/${{ matrix.platform }}/${{ matrix.architecture }}
+            tests/integration/linux/common
+            tests/integration/linux/${{ matrix.architecture }}
           )
 
           test_projects=()
@@ -179,11 +197,6 @@ jobs:
             fi
           done
 
-          if [[ "${#test_projects[@]}" -eq 0 ]]; then
-            echo 'No applicable test projects were found.'
-            exit 0
-          fi
-
           for project in "${test_projects[@]}"; do
             project_name="$(basename "$project" .csproj)"
             dotnet test "$project" \
@@ -193,7 +206,7 @@ jobs:
               --logger "trx;LogFileName=${project_name}.trx"
           done
 
-      - name: Upload cross-platform test results
+      - name: Upload Linux test results
         if: ${{ always() && steps.discover.outputs.ready == 'true' }}
         uses: actions/upload-artifact@v7
         with:

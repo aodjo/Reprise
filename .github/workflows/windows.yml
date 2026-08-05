@@ -1,0 +1,217 @@
+name: Windows
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - src/Reprise.Core/**
+      - src/Reprise.Desktop/**
+      - src/Reprise.Platform.Windows/**
+      - tests/unit/**
+      - tests/contracts/**
+      - tests/integration/windows/**
+      - tests/fixtures/**
+      - tests/matrix/targets.json
+      - packaging/windows/**
+      - Reprise.sln
+      - Reprise.slnx
+      - global.json
+      - Directory.Build.*
+      - Directory.Packages.props
+      - .github/workflows/windows.yml
+  pull_request:
+    paths:
+      - src/Reprise.Core/**
+      - src/Reprise.Desktop/**
+      - src/Reprise.Platform.Windows/**
+      - tests/unit/**
+      - tests/contracts/**
+      - tests/integration/windows/**
+      - tests/fixtures/**
+      - tests/matrix/targets.json
+      - packaging/windows/**
+      - Reprise.sln
+      - Reprise.slnx
+      - global.json
+      - Directory.Build.*
+      - Directory.Packages.props
+      - .github/workflows/windows.yml
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test-matrix:
+    name: Prepare Windows test matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.prepare.outputs.matrix }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Validate and filter Windows targets
+        id: prepare
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          expected_platform = "windows"
+          matrix_path = Path("tests/matrix/targets.json")
+          payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+          targets = payload.get("targets")
+          if not isinstance(targets, list) or not targets:
+              raise SystemExit("tests/matrix/targets.json must contain targets")
+
+          required = {
+              "target",
+              "runner",
+              "platform",
+              "architecture",
+              "runtime",
+              "execution",
+          }
+          names = set()
+          selected = []
+          for index, target in enumerate(targets):
+              missing = required.difference(target)
+              if missing:
+                  raise SystemExit(
+                      f"target {index} is missing: {sorted(missing)}"
+                  )
+              name = target["target"]
+              if name in names:
+                  raise SystemExit(f"duplicate target: {name}")
+              names.add(name)
+              if target["platform"] not in {"windows", "linux"}:
+                  raise SystemExit(
+                      f"unsupported placeholder platform: {target['platform']}"
+                  )
+              if target["platform"] == expected_platform:
+                  selected.append(target)
+
+          if not selected:
+              raise SystemExit("no Windows targets were configured")
+
+          output_path = Path(os.environ["GITHUB_OUTPUT"])
+          with output_path.open("a", encoding="utf-8") as output:
+              output.write(
+                  "matrix="
+                  + json.dumps({"include": selected}, separators=(",", ":"))
+                  + "\n"
+              )
+
+          print(f"Prepared {len(selected)} Windows test targets.")
+          PY
+
+  platform-tests:
+    name: Windows (${{ matrix.target }})
+    needs: test-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.test-matrix.outputs.matrix) }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Show target environment
+        shell: bash
+        run: |
+          echo 'Target: ${{ matrix.target }}'
+          echo 'Runtime: ${{ matrix.runtime }}'
+          echo 'Execution: ${{ matrix.execution }}'
+          uname -a || true
+          echo "PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-not-set}"
+
+      - name: Discover Windows tests
+        id: discover
+        shell: bash
+        run: |
+          search_directories=(
+            tests/unit
+            tests/contracts
+            tests/integration/windows/common
+            tests/integration/windows/${{ matrix.architecture }}
+          )
+
+          test_projects=()
+          for directory in "${search_directories[@]}"; do
+            if [[ -d "$directory" ]]; then
+              while IFS= read -r project; do
+                test_projects+=("$project")
+              done < <(find "$directory" -type f -name '*.csproj' -print | sort)
+            fi
+          done
+
+          if [[ "${#test_projects[@]}" -eq 0 ]]; then
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+            {
+              echo '### ${{ matrix.target }}'
+              echo
+              echo 'No Windows test projects exist yet. Test steps were skipped.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          echo 'ready=true' >> "$GITHUB_OUTPUT"
+          printf 'Discovered test project: %s\n' "${test_projects[@]}"
+
+      - name: Set up .NET
+        if: steps.discover.outputs.ready == 'true'
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Run applicable tests
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          result_directory="$GITHUB_WORKSPACE/TestResults/${{ matrix.target }}"
+          mkdir -p "$result_directory"
+
+          search_directories=(
+            tests/unit
+            tests/contracts
+            tests/integration/windows/common
+            tests/integration/windows/${{ matrix.architecture }}
+          )
+
+          test_projects=()
+          for directory in "${search_directories[@]}"; do
+            if [[ -d "$directory" ]]; then
+              while IFS= read -r project; do
+                test_projects+=("$project")
+              done < <(find "$directory" -type f -name '*.csproj' -print | sort)
+            fi
+          done
+
+          for project in "${test_projects[@]}"; do
+            project_name="$(basename "$project" .csproj)"
+            dotnet test "$project" \
+              --configuration Release \
+              --runtime '${{ matrix.runtime }}' \
+              --results-directory "$result_directory" \
+              --logger "trx;LogFileName=${project_name}.trx"
+          done
+
+      - name: Upload Windows test results
+        if: ${{ always() && steps.discover.outputs.ready == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.target }}-test-results
+          path: TestResults/${{ matrix.target }}
+          if-no-files-found: ignore
+          retention-days: 7
