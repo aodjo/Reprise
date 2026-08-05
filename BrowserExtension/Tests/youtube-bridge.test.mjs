@@ -10,18 +10,23 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 
-const pageBridgeSource = readFileSync(
-  new URL("../Chromium/page-bridge.js", import.meta.url),
-  "utf8"
+const extensionTarget = process.env.REPRISE_EXTENSION_TARGET ?? "Chromium";
+const supportedExtensionTargets = new Set(["Chromium", "Mozilla"]);
+assert.ok(
+  supportedExtensionTargets.has(extensionTarget),
+  `Unsupported extension target: ${extensionTarget}`
 );
-const contentScriptSource = readFileSync(
-  new URL("../Chromium/content-script.js", import.meta.url),
-  "utf8"
-);
-const serviceWorkerSource = readFileSync(
-  new URL("../Chromium/service-worker.js", import.meta.url),
-  "utf8"
-);
+
+function readExtensionSource(fileName) {
+  return readFileSync(
+    new URL(`../${extensionTarget}/${fileName}`, import.meta.url),
+    "utf8"
+  );
+}
+
+const pageBridgeSource = readExtensionSource("page-bridge.js");
+const contentScriptSource = readExtensionSource("content-script.js");
+const serviceWorkerSource = readExtensionSource("service-worker.js");
 
 function numericConstant(source, name) {
   const match = source.match(new RegExp(`const ${name} = (\\d+);`));
