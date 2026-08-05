@@ -16,6 +16,7 @@ struct LiquidPanelBackground: View {
     let cornerRadius: CGFloat
 
     var body: some View {
+#if compiler(>=6.2)
         if #available(macOS 26.0, *) {
             Color.clear
                 .glassEffect(
@@ -26,12 +27,19 @@ struct LiquidPanelBackground: View {
                     )
                 )
         } else {
-            RoundedRectangle(
-                cornerRadius: cornerRadius,
-                style: .continuous
-            )
-            .fill(.ultraThinMaterial)
+            materialBackground
         }
+#else
+        materialBackground
+#endif
+    }
+
+    private var materialBackground: some View {
+        RoundedRectangle(
+            cornerRadius: cornerRadius,
+            style: .continuous
+        )
+        .fill(.ultraThinMaterial)
     }
 }
 
