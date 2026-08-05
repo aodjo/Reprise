@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - migration/cross-platform
+      - develop
   pull_request:
   workflow_dispatch:
 
