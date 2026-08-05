@@ -22,6 +22,12 @@ xcuserdata/
 .build/
 .swiftpm/
 
+# .NET
+**/bin/
+**/obj/
+TestResults/
+Artifacts/
+
 # Local editor and tool state
 .idea/
 .vscode/

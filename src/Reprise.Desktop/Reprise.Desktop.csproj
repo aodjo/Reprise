@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Shared Avalonia desktop interface for Reprise.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <PackageReference Include="Avalonia.Themes.Fluent" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Reprise.Core/Reprise.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <AvaloniaResource
+      Include="../../BrowserExtension/Chromium/icons/icon32.png"
+      Link="Assets/reprise.png" />
+  </ItemGroup>
+</Project>

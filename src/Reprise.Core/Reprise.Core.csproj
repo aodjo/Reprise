@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <Description>Shared playback models and selection behavior for Reprise.</Description>
+  </PropertyGroup>
+</Project>
