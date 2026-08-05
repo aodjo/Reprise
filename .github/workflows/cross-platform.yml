@@ -46,7 +46,7 @@ jobs:
       solution: ${{ steps.prepare.outputs.solution }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Validate targets and detect solution
         id: prepare
@@ -125,7 +125,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Show target environment
         shell: bash
@@ -137,7 +137,7 @@ jobs:
           echo "PROCESSOR_ARCHITECTURE=${PROCESSOR_ARCHITECTURE:-not-set}"
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 10.0.x
 
@@ -194,7 +194,7 @@ jobs:
 
       - name: Upload cross-platform test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}-test-results
           path: TestResults/${{ matrix.target }}
