@@ -1,0 +1,87 @@
+name: Browser extension - Mozilla
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - BrowserExtension/Mozilla/**
+      - BrowserExtension/Shared/**
+      - BrowserExtension/Tests/**
+      - .github/workflows/browser-mozilla.yml
+  pull_request:
+    paths:
+      - BrowserExtension/Mozilla/**
+      - BrowserExtension/Shared/**
+      - BrowserExtension/Tests/**
+      - .github/workflows/browser-mozilla.yml
+  workflow_dispatch:
+
+concurrency:
+  group: browser-mozilla-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Mozilla (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-2025-x64
+            runner: windows-2025
+          - target: windows-11-arm64
+            runner: windows-11-arm
+          - target: ubuntu-24.04-x64
+            runner: ubuntu-24.04
+          - target: ubuntu-24.04-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Validate JavaScript syntax
+        shell: bash
+        run: |
+          find BrowserExtension/Mozilla \
+            -type f -name '*.js' -print0 \
+            | xargs -0 -n 1 node --check
+
+      - name: Validate extension manifest
+        shell: bash
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const file = process.argv[1];
+            JSON.parse(fs.readFileSync(file, "utf8"));
+            console.log(`Validated ${file}`);
+          ' BrowserExtension/Mozilla/manifest.json
+
+      - name: Run Mozilla extension tests
+        shell: bash
+        env:
+          REPRISE_EXTENSION_TARGET: Mozilla
+        run: |
+          mkdir -p TestResults
+          node --test BrowserExtension/Tests/*.test.mjs \
+            | tee 'TestResults/Mozilla-${{ matrix.target }}.tap'
+
+      - name: Upload Mozilla test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: browser-extension-Mozilla-${{ matrix.target }}-test-results
+          path: TestResults/Mozilla-${{ matrix.target }}.tap
+          if-no-files-found: warn
+          retention-days: 7
