@@ -358,7 +358,8 @@ struct YouTubeMusicBridgeTests {
             let snapshot = await bridge.snapshot()
             let sessions = await bridge.sessions()
             if snapshot.track?.title == "Bridge Song",
-               sessions.contains(where: { $0.tabID == 7 }) {
+               sessions.contains(where: { $0.tabID == 7 }),
+               sessions.contains(where: { $0.tabID == 9 }) {
                 pendingSnapshot = snapshot
                 initialSessions = sessions
                 break
