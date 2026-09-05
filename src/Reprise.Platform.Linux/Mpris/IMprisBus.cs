@@ -3,7 +3,7 @@ using Tmds.DBus.Protocol;
 namespace Reprise.Platform.Linux.Mpris;
 
 /// <summary>
-/// The three D-Bus operations MPRIS support is built from.
+/// The D-Bus operations MPRIS support is built from.
 /// </summary>
 /// <remarks>
 /// Exists to keep <see cref="MprisMediaSessionService"/> testable: a real
@@ -86,5 +86,70 @@ internal interface IMprisBus
     Task InvokeAsync(
         string serviceName,
         string member,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves one player to an absolute position within a track.
+    /// </summary>
+    /// <remarks>
+    /// MPRIS ties an absolute seek to a track id so a request that arrives
+    /// after the track has changed is ignored by the player instead of
+    /// landing somewhere in the next song.
+    /// </remarks>
+    /// <param name="serviceName">Bus name of the target player.</param>
+    /// <param name="trackId">
+    /// Object path of the track the position belongs to, as published in
+    /// the player's <c>mpris:trackid</c> metadata.
+    /// </param>
+    /// <param name="positionMicroseconds">
+    /// Offset from the start of the track, in microseconds.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancels the call. Defaults to <c>default</c>.
+    /// </param>
+    /// <returns>A task that completes once the player has replied.</returns>
+    /// <exception cref="MprisUnavailableException">
+    /// Thrown when the session bus is unreachable.
+    /// </exception>
+    /// <exception cref="DBusErrorReplyException">
+    /// Thrown when the player rejects the call.
+    /// </exception>
+    /// <example>
+    /// <code>
+    /// await bus.SetPositionAsync(
+    ///     "org.mpris.MediaPlayer2.spotify",
+    ///     "/com/spotify/track/1",
+    ///     90_000_000);
+    /// </code>
+    /// </example>
+    Task SetPositionAsync(
+        string serviceName,
+        string trackId,
+        long positionMicroseconds,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Writes the <c>Volume</c> property of one player.
+    /// </summary>
+    /// <param name="serviceName">Bus name of the target player.</param>
+    /// <param name="volume">Level from 0 to 1.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the call. Defaults to <c>default</c>.
+    /// </param>
+    /// <returns>A task that completes once the player has replied.</returns>
+    /// <exception cref="MprisUnavailableException">
+    /// Thrown when the session bus is unreachable.
+    /// </exception>
+    /// <exception cref="DBusErrorReplyException">
+    /// Thrown when the player rejects the write.
+    /// </exception>
+    /// <example>
+    /// <code>
+    /// await bus.SetVolumeAsync("org.mpris.MediaPlayer2.spotify", 0.5);
+    /// </code>
+    /// </example>
+    Task SetVolumeAsync(
+        string serviceName,
+        double volume,
         CancellationToken cancellationToken = default);
 }

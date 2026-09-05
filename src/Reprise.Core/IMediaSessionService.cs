@@ -6,7 +6,7 @@ namespace Reprise.Core;
 /// <remarks>
 /// One implementation exists per platform - MPRIS over D-Bus on Linux, and
 /// the native player APIs elsewhere - and each hides its transport entirely
-/// behind these two calls. The desktop layer depends only on this interface,
+/// behind these few calls. The desktop layer depends only on this interface,
 /// which is also what lets the UI be exercised against a stub in tests.
 /// </remarks>
 public interface IMediaSessionService
@@ -73,5 +73,89 @@ public interface IMediaSessionService
     Task SendCommandAsync(
         string playerId,
         PlaybackCommand command,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Moves playback of one player to an absolute position in its current
+    /// track.
+    /// </summary>
+    /// <remarks>
+    /// Positions are absolute rather than relative so the panel can send the
+    /// value the user released the scrubber at, without depending on a
+    /// possibly stale idea of where playback currently is. Completion means
+    /// the player accepted the request; the new position becomes visible on
+    /// a later <see cref="GetSessionsAsync"/> read.
+    /// </remarks>
+    /// <param name="playerId">
+    /// <see cref="MediaSessionSnapshot.PlayerId"/> of the target player.
+    /// </param>
+    /// <param name="position">
+    /// Offset from the start of the track. Values past the end are clamped
+    /// by the player.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancels the in-flight request. Defaults to <c>default</c>.
+    /// </param>
+    /// <returns>A task that completes once the player accepted the seek.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="playerId"/> is null, empty, or whitespace.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="position"/> is negative.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the player cannot seek, rejects the request, or is no
+    /// longer reachable.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">
+    /// Thrown when <paramref name="cancellationToken"/> is cancelled.
+    /// </exception>
+    /// <example>
+    /// <code>
+    /// await service.SeekAsync(active.PlayerId, TimeSpan.FromSeconds(90));
+    /// </code>
+    /// </example>
+    Task SeekAsync(
+        string playerId,
+        TimeSpan position,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Sets the output volume of one player.
+    /// </summary>
+    /// <remarks>
+    /// The scale is normalised so the desktop layer never has to know whether
+    /// a platform counts in percent, decibels, or fractions. Implementations
+    /// clamp out-of-range values rather than reject them, since a slider can
+    /// overshoot by rounding.
+    /// </remarks>
+    /// <param name="playerId">
+    /// <see cref="MediaSessionSnapshot.PlayerId"/> of the target player.
+    /// </param>
+    /// <param name="volume">Level from 0, silent, to 1, full volume.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the in-flight request. Defaults to <c>default</c>.
+    /// </param>
+    /// <returns>A task that completes once the player accepted the level.</returns>
+    /// <exception cref="ArgumentException">
+    /// Thrown when <paramref name="playerId"/> is null, empty, or whitespace.
+    /// </exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// Thrown when <paramref name="volume"/> is not a number.
+    /// </exception>
+    /// <exception cref="InvalidOperationException">
+    /// Thrown when the player rejects the request or is no longer reachable.
+    /// </exception>
+    /// <exception cref="OperationCanceledException">
+    /// Thrown when <paramref name="cancellationToken"/> is cancelled.
+    /// </exception>
+    /// <example>
+    /// <code>
+    /// await service.SetVolumeAsync(active.PlayerId, 0.5);
+    /// </code>
+    /// </example>
+    Task SetVolumeAsync(
+        string playerId,
+        double volume,
         CancellationToken cancellationToken = default);
 }

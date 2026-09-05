@@ -199,6 +199,109 @@ public sealed class MprisMediaSessionServiceTests
     }
 
     /// <summary>
+    /// A seek is addressed to the track the player currently reports.
+    /// </summary>
+    /// <remarks>
+    /// The track id is what makes an MPRIS seek safe against a track change
+    /// racing the request, so it has to come from the player rather than be
+    /// invented, and the position has to arrive in microseconds.
+    /// </remarks>
+    [Fact]
+    public async Task SeekUsesTheReportedTrackId()
+    {
+        var bus = new FakeMprisBus
+        {
+            Players =
+            {
+                ["org.mpris.MediaPlayer2.spotify"] = PlayerProperties(
+                    status: "Playing",
+                    title: "Bridge Song",
+                    artists: ["Bridge Artist"],
+                    album: "Bridge Album",
+                    lengthMicroseconds: 180_000_000,
+                    positionMicroseconds: 12_000_000,
+                    volume: 0.64,
+                    artUrl: null),
+            },
+        };
+        var service = new MprisMediaSessionService(bus);
+
+        await service.SeekAsync("spotify", TimeSpan.FromSeconds(90));
+
+        Assert.Equal("org.mpris.MediaPlayer2.spotify", bus.SeekedService);
+        Assert.Equal("/org/fake/track/1", bus.SeekedTrackId);
+        Assert.Equal(90_000_000, bus.SeekedPositionMicroseconds);
+    }
+
+    /// <summary>
+    /// A player without a track id is reported as unseekable, not guessed at.
+    /// </summary>
+    [Fact]
+    public async Task SeekWithoutTrackIdFails()
+    {
+        var bus = new FakeMprisBus
+        {
+            Players =
+            {
+                ["org.mpris.MediaPlayer2.stream"] = new Dictionary<string, VariantValue>
+                {
+                    [MprisPropertyMapper.PlaybackStatusKey] = VariantValue.String("Playing"),
+                },
+            },
+        };
+        var service = new MprisMediaSessionService(bus);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SeekAsync("stream", TimeSpan.FromSeconds(1)));
+        Assert.Null(bus.SeekedService);
+    }
+
+    /// <summary>
+    /// Volume writes are clamped into the range MPRIS defines.
+    /// </summary>
+    /// <param name="requested">Level handed to the service.</param>
+    /// <param name="expected">Level that should reach the bus.</param>
+    [Theory]
+    [InlineData(0.5, 0.5)]
+    [InlineData(1.2, 1.0)]
+    [InlineData(-0.1, 0.0)]
+    public async Task VolumeIsClampedBeforeItIsWritten(double requested, double expected)
+    {
+        var bus = new FakeMprisBus();
+        var service = new MprisMediaSessionService(bus);
+
+        await service.SetVolumeAsync("vlc", requested);
+
+        Assert.Equal("org.mpris.MediaPlayer2.vlc", bus.VolumeService);
+        Assert.Equal(expected, bus.WrittenVolume);
+    }
+
+    /// <summary>
+    /// A rejection that arrives as a stack trace is reduced to its last line.
+    /// </summary>
+    /// <remarks>
+    /// Python-based players reply with the whole traceback; the panel has
+    /// room for one line, and the last one is the one that names the fault.
+    /// </remarks>
+    [Fact]
+    public async Task MultiLineBusErrorsAreReducedToTheirLastLine()
+    {
+        var bus = new FakeMprisBus
+        {
+            InvokeFailure = new DBusErrorReplyException(
+                "org.freedesktop.DBus.Error.UnknownMethod",
+                "Traceback (most recent call last):\n  File \"service.py\", line 659\n\nUnknown method: Next is not a valid method\n"),
+        };
+        var service = new MprisMediaSessionService(bus);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.SendCommandAsync("vlc", PlaybackCommand.Next));
+
+        Assert.Equal("MPRIS Next failed: Unknown method: Next is not a valid method", exception.Message);
+        Assert.IsType<DBusErrorReplyException>(exception.InnerException);
+    }
+
+    /// <summary>
     /// Builds a property dictionary shaped the way a real player publishes
     /// one.
     /// </summary>
@@ -233,6 +336,8 @@ public sealed class MprisMediaSessionServiceTests
     {
         var metadata = new Dictionary<string, VariantValue>
         {
+            [MprisPropertyMapper.TrackIdKey] =
+                VariantValue.ObjectPath(new ObjectPath("/org/fake/track/1")),
             [MprisPropertyMapper.TitleKey] = VariantValue.String(title),
             [MprisPropertyMapper.ArtistKey] = VariantValue.Array(artists),
             [MprisPropertyMapper.AlbumKey] = VariantValue.String(album),
@@ -278,6 +383,38 @@ public sealed class MprisMediaSessionServiceTests
         /// if it was never called.
         /// </summary>
         public string? InvokedMember { get; private set; }
+
+        /// <summary>
+        /// Error every <see cref="InvokeAsync"/> replies with, or null to accept.
+        /// </summary>
+        public DBusErrorReplyException? InvokeFailure { get; set; }
+
+        /// <summary>
+        /// Bus name from the most recent <see cref="SetPositionAsync"/>, or
+        /// null if it was never called.
+        /// </summary>
+        public string? SeekedService { get; private set; }
+
+        /// <summary>
+        /// Track id from the most recent <see cref="SetPositionAsync"/>.
+        /// </summary>
+        public string? SeekedTrackId { get; private set; }
+
+        /// <summary>
+        /// Position from the most recent <see cref="SetPositionAsync"/>.
+        /// </summary>
+        public long? SeekedPositionMicroseconds { get; private set; }
+
+        /// <summary>
+        /// Bus name from the most recent <see cref="SetVolumeAsync"/>, or
+        /// null if it was never called.
+        /// </summary>
+        public string? VolumeService { get; private set; }
+
+        /// <summary>
+        /// Level from the most recent <see cref="SetVolumeAsync"/>.
+        /// </summary>
+        public double? WrittenVolume { get; private set; }
 
         /// <summary>
         /// Returns the configured bus names in the order the real bus would.
@@ -332,6 +469,43 @@ public sealed class MprisMediaSessionServiceTests
         {
             InvokedService = serviceName;
             InvokedMember = member;
+            return InvokeFailure is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Records a seek instead of sending it.
+        /// </summary>
+        /// <param name="serviceName">Bus name the seek was addressed to.</param>
+        /// <param name="trackId">Track id the seek carried.</param>
+        /// <param name="positionMicroseconds">Requested position.</param>
+        /// <param name="cancellationToken">Ignored.</param>
+        /// <returns>An already completed task.</returns>
+        public Task SetPositionAsync(
+            string serviceName,
+            string trackId,
+            long positionMicroseconds,
+            CancellationToken cancellationToken = default)
+        {
+            SeekedService = serviceName;
+            SeekedTrackId = trackId;
+            SeekedPositionMicroseconds = positionMicroseconds;
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Records a volume write instead of sending it.
+        /// </summary>
+        /// <param name="serviceName">Bus name the write was addressed to.</param>
+        /// <param name="volume">Requested level.</param>
+        /// <param name="cancellationToken">Ignored.</param>
+        /// <returns>An already completed task.</returns>
+        public Task SetVolumeAsync(
+            string serviceName,
+            double volume,
+            CancellationToken cancellationToken = default)
+        {
+            VolumeService = serviceName;
+            WrittenVolume = volume;
             return Task.CompletedTask;
         }
     }

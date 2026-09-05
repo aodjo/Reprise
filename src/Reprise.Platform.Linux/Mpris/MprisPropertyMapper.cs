@@ -44,6 +44,20 @@ internal static class MprisPropertyMapper
     internal const string VolumeKey = "Volume";
 
     /// <summary>
+    /// Metadata key for the player's opaque track identifier, an object path.
+    /// </summary>
+    internal const string TrackIdKey = "mpris:trackid";
+
+    /// <summary>
+    /// Track id a player publishes when no track is loaded at all.
+    /// </summary>
+    /// <remarks>
+    /// Reserved by the MPRIS specification. Seeking against it is
+    /// meaningless, so it is reported as no track id rather than passed on.
+    /// </remarks>
+    internal const string NoTrackId = "/org/mpris/MediaPlayer2/TrackList/NoTrack";
+
+    /// <summary>
     /// Metadata key for the track title, from the Xesam ontology.
     /// </summary>
     internal const string TitleKey = "xesam:title";
@@ -168,6 +182,48 @@ internal static class MprisPropertyMapper
         playerId.StartsWith(DBusMprisBus.ServicePrefix, StringComparison.Ordinal)
             ? playerId
             : DBusMprisBus.ServicePrefix + playerId;
+
+    /// <summary>
+    /// Reads the id of the track a player currently has loaded.
+    /// </summary>
+    /// <remarks>
+    /// The specification types this as an object path, but a string is
+    /// accepted too because some players publish it that way. The reserved
+    /// no-track path counts as absent.
+    /// </remarks>
+    /// <param name="properties">
+    /// Player properties as returned by
+    /// <see cref="IMprisBus.GetPlayerPropertiesAsync"/>.
+    /// </param>
+    /// <returns>
+    /// The track id, or null when the player publishes none or has no track
+    /// loaded.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// var trackId = MprisPropertyMapper.ReadTrackId(properties);
+    /// // "/com/spotify/track/4uLU6hMCjMI75M1A2tKUQC"
+    /// </code>
+    /// </example>
+    internal static string? ReadTrackId(
+        IReadOnlyDictionary<string, VariantValue> properties)
+    {
+        if (!TryUnwrap(ReadMetadata(properties), TrackIdKey, out var value))
+        {
+            return null;
+        }
+
+        var trackId = value.Type switch
+        {
+            VariantValueType.ObjectPath => value.GetObjectPathAsString(),
+            VariantValueType.String => value.GetString(),
+            _ => null,
+        };
+
+        return string.IsNullOrEmpty(trackId) || trackId == NoTrackId
+            ? null
+            : trackId;
+    }
 
     /// <summary>
     /// Extracts the nested Metadata dictionary from a player's properties.

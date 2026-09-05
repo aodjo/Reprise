@@ -204,6 +204,94 @@ internal sealed class DBusMprisBus : IMprisBus
     }
 
     /// <summary>
+    /// Moves one player to an absolute position within a track.
+    /// </summary>
+    /// <remarks>
+    /// Goes through <c>SetPosition</c> rather than the relative <c>Seek</c>
+    /// because the panel knows where the user let go of the scrubber, not
+    /// how far that is from wherever playback has drifted to since the last
+    /// poll. Rejections propagate for the same reason as
+    /// <see cref="InvokeAsync"/>.
+    /// </remarks>
+    /// <param name="serviceName">Bus name of the target player.</param>
+    /// <param name="trackId">Object path of the track being seeked.</param>
+    /// <param name="positionMicroseconds">
+    /// Offset from the start of the track, in microseconds.
+    /// </param>
+    /// <param name="cancellationToken">
+    /// Cancels the call. Defaults to <c>default</c>.
+    /// </param>
+    /// <returns>A task that completes once the player has replied.</returns>
+    /// <exception cref="MprisUnavailableException">
+    /// Thrown when the session bus is unreachable.
+    /// </exception>
+    /// <exception cref="DBusErrorReplyException">
+    /// Thrown when the player rejects the call, which includes a player that
+    /// cannot seek or has already quit.
+    /// </exception>
+    /// <exception cref="TimeoutException">
+    /// Thrown when the player does not reply within <see cref="CallTimeout"/>.
+    /// </exception>
+    /// <example>
+    /// <code>
+    /// await bus.SetPositionAsync(name, "/com/spotify/track/1", 90_000_000);
+    /// </code>
+    /// </example>
+    public async Task SetPositionAsync(
+        string serviceName,
+        string trackId,
+        long positionMicroseconds,
+        CancellationToken cancellationToken = default)
+    {
+        var connection = await ConnectAsync(cancellationToken);
+        await connection
+            .CallMethodAsync(CreateSetPositionMessage(
+                connection,
+                serviceName,
+                trackId,
+                positionMicroseconds))
+            .WaitAsync(CallTimeout, cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes the <c>Volume</c> property of one player.
+    /// </summary>
+    /// <remarks>
+    /// Uses the standard <c>Properties.Set</c> call, since MPRIS exposes
+    /// volume as a writable property rather than a method.
+    /// </remarks>
+    /// <param name="serviceName">Bus name of the target player.</param>
+    /// <param name="volume">Level from 0 to 1.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the call. Defaults to <c>default</c>.
+    /// </param>
+    /// <returns>A task that completes once the player has replied.</returns>
+    /// <exception cref="MprisUnavailableException">
+    /// Thrown when the session bus is unreachable.
+    /// </exception>
+    /// <exception cref="DBusErrorReplyException">
+    /// Thrown when the player rejects the write.
+    /// </exception>
+    /// <exception cref="TimeoutException">
+    /// Thrown when the player does not reply within <see cref="CallTimeout"/>.
+    /// </exception>
+    /// <example>
+    /// <code>
+    /// await bus.SetVolumeAsync("org.mpris.MediaPlayer2.spotify", 0.5);
+    /// </code>
+    /// </example>
+    public async Task SetVolumeAsync(
+        string serviceName,
+        double volume,
+        CancellationToken cancellationToken = default)
+    {
+        var connection = await ConnectAsync(cancellationToken);
+        await connection
+            .CallMethodAsync(CreateSetVolumeMessage(connection, serviceName, volume))
+            .WaitAsync(CallTimeout, cancellationToken);
+    }
+
+    /// <summary>
     /// Builds the <c>GetAll</c> request for a player's Player interface.
     /// </summary>
     /// <remarks>
@@ -257,6 +345,71 @@ internal sealed class DBusMprisBus : IMprisBus
             path: ObjectPath,
             @interface: PlayerInterface,
             member: member);
+        return writer.CreateMessage();
+    }
+
+    /// <summary>
+    /// Builds the <c>SetPosition</c> call for a player's Player interface.
+    /// </summary>
+    /// <remarks>
+    /// Split out for the same ref struct reason as
+    /// <see cref="CreateGetAllMessage"/>.
+    /// </remarks>
+    /// <param name="connection">
+    /// Connection whose writer allocates the buffer and assigns the message
+    /// serial.
+    /// </param>
+    /// <param name="serviceName">Bus name of the target player.</param>
+    /// <param name="trackId">Object path of the track being seeked.</param>
+    /// <param name="positionMicroseconds">Target offset in microseconds.</param>
+    /// <returns>An encoded method call ready to send.</returns>
+    private static MessageBuffer CreateSetPositionMessage(
+        DBusConnection connection,
+        string serviceName,
+        string trackId,
+        long positionMicroseconds)
+    {
+        using var writer = connection.GetMessageWriter();
+        writer.WriteMethodCallHeader(
+            destination: serviceName,
+            path: ObjectPath,
+            @interface: PlayerInterface,
+            member: "SetPosition",
+            signature: "ox");
+        writer.WriteObjectPath(trackId);
+        writer.WriteInt64(positionMicroseconds);
+        return writer.CreateMessage();
+    }
+
+    /// <summary>
+    /// Builds the <c>Properties.Set</c> call that writes a player's volume.
+    /// </summary>
+    /// <remarks>
+    /// Split out for the same ref struct reason as
+    /// <see cref="CreateGetAllMessage"/>.
+    /// </remarks>
+    /// <param name="connection">
+    /// Connection whose writer allocates the buffer and assigns the message
+    /// serial.
+    /// </param>
+    /// <param name="serviceName">Bus name of the target player.</param>
+    /// <param name="volume">Level from 0 to 1.</param>
+    /// <returns>An encoded method call ready to send.</returns>
+    private static MessageBuffer CreateSetVolumeMessage(
+        DBusConnection connection,
+        string serviceName,
+        double volume)
+    {
+        using var writer = connection.GetMessageWriter();
+        writer.WriteMethodCallHeader(
+            destination: serviceName,
+            path: ObjectPath,
+            @interface: PropertiesInterface,
+            member: "Set",
+            signature: "ssv");
+        writer.WriteString(PlayerInterface);
+        writer.WriteString(MprisPropertyMapper.VolumeKey);
+        writer.WriteVariantDouble(volume);
         return writer.CreateMessage();
     }
 
