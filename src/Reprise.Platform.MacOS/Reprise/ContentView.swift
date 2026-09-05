@@ -8,9 +8,14 @@
 import SwiftUI
 
 /// Xcode previews and UI tests use the same content as the menu bar popover.
+///
+/// Wraps ``PlayerPopoverView`` in a view that owns its own store, since the
+/// real popover receives one from ``StatusBarController``. Without this,
+/// previewing the panel would mean standing up the whole status bar stack.
 struct ContentView: View {
     @State private var store = NowPlayingStore()
 
+    /// The popover panel, with polling started once the view appears.
     var body: some View {
         PlayerPopoverView(store: store)
             .task {

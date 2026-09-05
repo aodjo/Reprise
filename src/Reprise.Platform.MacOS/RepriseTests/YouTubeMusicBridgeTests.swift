@@ -9,9 +9,26 @@ import Foundation
 import Testing
 @testable import Reprise
 
+/// Covers the browser extension bridge, protocol and transport alike.
+///
+/// Serialized because the transport test binds a real socket and drives a real
+/// `URLSessionWebSocketTask`; running alongside another test would let the two
+/// contend for ports and timing.
+///
+/// Most cases here are validation: the bridge listens on loopback, so anything
+/// on the machine can connect to it, and the protocol's checks are the only
+/// thing separating the extension from an arbitrary client.
 @Suite(.serialized)
 @MainActor
 struct YouTubeMusicBridgeTests {
+    /// The handshake accepts only our extension, on either browser family.
+    ///
+    /// Five cases, and the rejections carry the weight. The wrong subprotocol
+    /// covers something that merely found the port. A Firefox origin is
+    /// accepted by shape, since its per-install UUID cannot be pinned - but
+    /// one whose host is not a UUID is refused, which is what stops the
+    /// `moz-extension` scheme becoming a way in. And an ordinary web origin is
+    /// refused outright, so a page cannot reach the bridge.
     @Test
     func handshakeRequiresTheFixedExtensionOriginAndSubprotocol() {
         let validHeaders = [
@@ -67,6 +84,14 @@ struct YouTubeMusicBridgeTests {
         )
     }
 
+    /// A snapshot is decoded, sanitised, and clamped.
+    ///
+    /// The payload is deliberately awkward: a padded title that must be
+    /// trimmed before it reaches the menu bar, and a volume of 140 that must
+    /// clamp to 100. Both are the kind of value a page can produce, and
+    /// neither should reach the UI as sent.
+    ///
+    /// - Throws: Rethrows a decode or validation failure to the test runner.
     @Test
     func snapshotMessagesAreValidatedAndClamped() throws {
         let data = Data(
@@ -91,6 +116,13 @@ struct YouTubeMusicBridgeTests {
         #expect(snapshot.trackURL?.host == "music.youtube.com")
     }
 
+    /// A session list preserves every tab and its selection.
+    ///
+    /// Timestamps are taken from the current clock rather than hardcoded,
+    /// because validation rejects anything far in the future and a fixed value
+    /// would eventually go stale.
+    ///
+    /// - Throws: Rethrows a decode or validation failure to the test runner.
     @Test
     func sessionMessagesExposeEveryBrowserTab() throws {
         let nowMilliseconds = Date().timeIntervalSince1970 * 1_000
@@ -117,6 +149,13 @@ struct YouTubeMusicBridgeTests {
         #expect(!payload.sessions[1].isVisible)
     }
 
+    /// Only the two known extension ids may identify themselves.
+    ///
+    /// The second gate after the origin check. The Firefox case also confirms
+    /// a reported browser name is preferred over the family name, so a
+    /// LibreWolf user does not simply see "Firefox".
+    ///
+    /// - Throws: Rethrows a decode failure to the test runner.
     @Test
     func helloMessagesRequireAKnownBrowserExtensionID() throws {
         let firefoxHello = Data(
@@ -148,6 +187,12 @@ struct YouTubeMusicBridgeTests {
         }
     }
 
+    /// A wrong protocol version or an off-site track URL is rejected.
+    ///
+    /// The URL case is the security-relevant half: the track link is opened
+    /// from Reprise, so a snapshot that could point it at an arbitrary host
+    /// would turn a play button into a redirect. Pinning the host to
+    /// `music.youtube.com` closes that.
     @Test
     func snapshotRejectsUnsupportedProtocolAndUntrustedTrackURL() {
         let unsupportedVersion = Data(
@@ -190,6 +235,13 @@ struct YouTubeMusicBridgeTests {
         }
     }
 
+    /// Commands encode with their version, clamped values, and tab target.
+    ///
+    /// Asserted against the real JSON rather than the Swift value, since the
+    /// extension parses the wire form and a renamed key would break it
+    /// silently. Fixed UUIDs make the output deterministic.
+    ///
+    /// - Throws: Rethrows an encoding failure to the test runner.
     @Test
     func commandMessagesUseTheVersionedProtocol() throws {
         let command = YouTubeMusicCommandMessage.setVolume(
@@ -220,6 +272,12 @@ struct YouTubeMusicBridgeTests {
         #expect(targetedObject?["tabId"] as? Int == 42)
     }
 
+    /// YouTube Music behaves like any other player in the store's rules.
+    ///
+    /// It has no app of its own, so it is worth confirming it is not treated
+    /// as a second-class player: it can win the display priority, and it
+    /// triggers the automatic pause - including pausing two other players at
+    /// once when both were playing.
     @Test
     func youtubeMusicParticipatesInPriorityAndAutomaticPause() {
         let spotify = makeSnapshot(
@@ -281,6 +339,28 @@ struct YouTubeMusicBridgeTests {
         #expect(playersToPause == [.spotify, .appleMusic])
     }
 
+    /// End-to-end run of the bridge over a real loopback WebSocket.
+    ///
+    /// The only test that exercises the transport rather than the protocol
+    /// types, and it is deliberately one long scenario: the behaviours worth
+    /// checking are all about how the bridge moves between states, which
+    /// cannot be reached without the steps before them. It walks through
+    /// connect, snapshot, session list, command round trip, a second browser
+    /// joining, the active connection switching, and a disconnect.
+    ///
+    /// Port 0 is requested so the OS assigns a free one, letting the test run
+    /// even when a real Reprise holds the fixed port.
+    ///
+    /// The polling loops exist because state arrives through the network
+    /// queue: a fixed sleep would be both slower and flakier than checking for
+    /// the condition. The one-minute limit and the send/receive timeouts stop
+    /// a hung socket from stalling the whole suite.
+    ///
+    /// The three moments most worth reading are marked inline, since each
+    /// concerns a specific assertion in the middle of the sequence.
+    ///
+    /// - Throws: Rethrows socket, timeout, and requirement failures to the
+    ///   test runner.
     @Test(.timeLimit(.minutes(1)))
     func localWebSocketTransfersSnapshotsAndCommands() async throws {
         let bridge = YouTubeMusicBridge(port: 0)
@@ -357,6 +437,11 @@ struct YouTubeMusicBridgeTests {
         for _ in 0..<200 {
             let snapshot = await bridge.snapshot()
             let sessions = await bridge.sessions()
+            // Waiting on the background tab, not the selected one: until the
+            // session list is processed, `sessions()` synthesises a single
+            // entry for the selected tab from the snapshot alone. Tab 7 alone
+            // would therefore let this break one message too early, with the
+            // real list still in flight.
             if snapshot.track?.title == "Bridge Song",
                sessions.contains(where: { $0.tabID == 7 }),
                sessions.contains(where: { $0.tabID == 9 }) {
@@ -588,6 +673,13 @@ struct YouTubeMusicBridgeTests {
         secondSession.invalidateAndCancel()
     }
 
+    /// Builds a snapshot for the store's selection rules.
+    ///
+    /// - Parameters:
+    ///   - player: Player the snapshot describes.
+    ///   - state: Transport state.
+    ///   - title: Track title; album and artist are fixed placeholders.
+    /// - Returns: A running snapshot with a loaded track.
     private func makeSnapshot(
         player: MediaPlayerKind,
         state: PlaybackState,
@@ -607,12 +699,25 @@ struct YouTubeMusicBridgeTests {
     }
 }
 
+/// Failures raised when the WebSocket test does not progress in time.
+///
+/// Distinct cases so a failure report names the stage that stalled, which is
+/// the difference between a bridge that never listened and one that listened
+/// but refused the handshake.
 private enum WebSocketTestTimeoutError: Error, LocalizedError {
+    /// The bridge never reached the listening state.
     case listenerNotReady
+
+    /// The test client never completed its handshake.
     case clientNotConnected
+
+    /// A send exceeded its timeout.
     case send
+
+    /// A receive exceeded its timeout.
     case receive
 
+    /// Description shown in the test report.
     var errorDescription: String? {
         switch self {
         case .listenerNotReady:
@@ -628,6 +733,21 @@ private enum WebSocketTestTimeoutError: Error, LocalizedError {
 }
 
 private extension URLSessionWebSocketTask {
+    /// Sends a message, failing if it does not complete in time.
+    ///
+    /// `URLSessionWebSocketTask` has no per-operation timeout: a send against
+    /// a wedged socket simply never returns, which would hang the test until
+    /// the suite's own limit fired with no indication of where. Racing it
+    /// against a sleep bounds it and names the stage.
+    ///
+    /// The task is cancelled on timeout so the pending send is torn down
+    /// rather than left running after the group returns.
+    ///
+    /// - Parameters:
+    ///   - message: Message to send.
+    ///   - timeout: How long to allow. Defaults to five seconds.
+    /// - Throws: ``WebSocketTestTimeoutError/send`` on timeout, or the send's
+    ///   own error.
     func sendWithTimeout(
         _ message: Message,
         timeout: Duration = .seconds(5)
@@ -647,6 +767,16 @@ private extension URLSessionWebSocketTask {
         }
     }
 
+    /// Receives a message, failing if none arrives in time.
+    ///
+    /// Same reasoning as ``sendWithTimeout(_:timeout:)``, and more necessary:
+    /// a receive that never resolves is the likeliest way this test would
+    /// hang, since it waits on the bridge sending a command.
+    ///
+    /// - Parameter timeout: How long to allow. Defaults to five seconds.
+    /// - Returns: The received message.
+    /// - Throws: ``WebSocketTestTimeoutError/receive`` on timeout, or the
+    ///   receive's own error.
     func receiveWithTimeout(
         timeout: Duration = .seconds(5)
     ) async throws -> Message {
@@ -669,13 +799,25 @@ private extension URLSessionWebSocketTask {
     }
 }
 
+/// Records whether a volume command has completed yet.
+///
+/// The test needs to assert that a command has *not* completed, which awaiting
+/// the task cannot express - awaiting it would block until it did. Writing the
+/// result into shared state instead lets the absence be observed. An actor
+/// because the command task and the test body reach it concurrently.
 private actor VolumeCompletionProbe {
     private var storedValue: Int?
 
+    /// Records the completed volume.
+    ///
+    /// - Parameter value: Level the command settled on.
     func store(_ value: Int) {
         storedValue = value
     }
 
+    /// The recorded volume, or `nil` if the command has not completed.
+    ///
+    /// - Returns: The stored level, or `nil`.
     func value() -> Int? {
         storedValue
     }

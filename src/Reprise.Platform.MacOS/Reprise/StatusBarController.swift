@@ -11,13 +11,39 @@ import CoreText
 import Darwin
 import SwiftUI
 
+/// Four-character code identifying Reprise's hot key registration.
+///
+/// Carbon hot keys are process-global, so the signature is what keeps this
+/// registration distinct from any other in the process.
 private let settingsHotKeySignature: OSType = 0x5250_5253
+
+/// Identifier distinguishing the Settings hot key from any future one.
 private let settingsHotKeyIdentifier: UInt32 = 1
 
+/// How a menu bar title change should be animated.
 enum MenuBarTitleTransitionStyle: Equatable {
+    /// Replace the text with no animation.
     case immediate
+
+    /// Push the new line up from below, as a lyric advancing.
     case lyricsUpward
 
+    /// Chooses the transition for a title change.
+    ///
+    /// The upward push is reserved for one line of lyrics giving way to the
+    /// next within the same track. Every condition here rules out a case where
+    /// it would mislead: animating a track change as a lyric advance would
+    /// suggest continuity that is not there, and animating the first title
+    /// would push in from an empty menu bar.
+    ///
+    /// - Parameters:
+    ///   - previousTitle: Title currently shown, or `nil` if none.
+    ///   - currentTitle: Title about to be shown.
+    ///   - previousTrackKey: Track the previous title belonged to.
+    ///   - currentTrackKey: Track the new title belongs to.
+    ///   - isDisplayingLyrics: Whether the title is a lyric rather than a
+    ///     track name.
+    /// - Returns: The transition to use.
     static func resolved(
         previousTitle: String?,
         currentTitle: String,
@@ -36,7 +62,17 @@ enum MenuBarTitleTransitionStyle: Equatable {
     }
 }
 
+/// Decides whether another app activating should dismiss the player panel.
 enum PlayerPanelActivationPolicy {
+    /// Whether the panel should close because a different app came forward.
+    ///
+    /// Reprise's own windows are exempt, so opening Settings from the panel
+    /// does not dismiss the panel that opened it.
+    ///
+    /// - Parameters:
+    ///   - activatedProcessIdentifier: Process that just activated.
+    ///   - repriseProcessIdentifier: Reprise's own process.
+    /// - Returns: `true` when the panel should close.
     static func shouldDismiss(
         activatedProcessIdentifier: pid_t,
         repriseProcessIdentifier: pid_t
@@ -45,6 +81,15 @@ enum PlayerPanelActivationPolicy {
     }
 }
 
+/// Carbon callback for the Command-comma hot key.
+///
+/// A C function pointer, so it cannot capture context: the delegate is passed
+/// through Carbon's `userData` and recovered here. Taken unretained because
+/// the delegate outlives the handler it installed.
+///
+/// The identity check matters because the handler is installed on the
+/// application event target and sees every hot key press in the process, not
+/// only Reprise's.
 private let settingsHotKeyEventHandler: EventHandlerUPP = {
     _, event, userData in
     guard let event, let userData else {
@@ -76,6 +121,13 @@ private let settingsHotKeyEventHandler: EventHandlerUPP = {
     return noErr
 }
 
+/// Owns the menu bar item, the player panel, and the app's lifecycle.
+///
+/// The panel is a borderless `NSPanel` rather than an `NSPopover` because it
+/// has to stay open while the user interacts with other Reprise windows and
+/// close on its own terms otherwise - behaviour a popover's dismissal model
+/// does not allow. That choice is why dismissal is assembled by hand from
+/// three separate monitors below.
 @MainActor
 final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     private let store = NowPlayingStore()
@@ -89,6 +141,15 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     private var settingsHotKeyHandler: EventHandlerRef?
     private var instanceLock: RepriseInstanceLock?
 
+    /// Builds the menu bar item and panel, and starts polling.
+    ///
+    /// Two guards come first. Under XCTest the app target is loaded by the
+    /// test host, and proceeding would put a status item in the tester's menu
+    /// bar and send Apple Events to their music apps. The instance lock then
+    /// ensures only one Reprise runs: two would fight over the bridge port and
+    /// each show their own menu bar item.
+    ///
+    /// - Parameter notification: Launch notification; unused.
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Unit-test hosts also load the app target. Avoid creating a status
         // item or sending Apple Events to the user's media apps during tests.
@@ -139,6 +200,12 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         store.start()
     }
 
+    /// Tears down monitors and the Carbon hot key registration.
+    ///
+    /// Carbon hot keys and event handlers are process-global and not cleaned
+    /// up automatically, so they are released explicitly.
+    ///
+    /// - Parameter notification: Termination notification; unused.
     func applicationWillTerminate(_ notification: Notification) {
         renderer?.invalidate()
         removeEventMonitors()
@@ -147,6 +214,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         removeSettingsHotKeyHandler()
     }
 
+    /// Shows or hides the player panel.
     @objc
     private func togglePopover() {
         guard let button = statusItem?.button,
@@ -161,6 +229,20 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Gives the panel its floating, rounded, shadowed appearance.
+    ///
+    /// The panel window is transparent and the rounding lives on the content
+    /// layer, so the SwiftUI content is what gets clipped rather than the
+    /// window. `canJoinAllSpaces` and `fullScreenAuxiliary` let it appear over
+    /// a full-screen app, which a menu bar utility has to do; `.transient`
+    /// keeps it out of Exposé and the window cycle.
+    ///
+    /// Animation is disabled because the panel is positioned manually and any
+    /// implicit animation shows as a slide from the wrong place.
+    ///
+    /// - Parameters:
+    ///   - panel: Panel to configure.
+    ///   - contentView: Its hosted content view.
     private func configurePanelAppearance(
         _ panel: PlayerPanel,
         contentView: NSView
@@ -189,6 +271,15 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
             .cgColor
     }
 
+    /// Positions and shows the panel, then arms its dismissal.
+    ///
+    /// `orderFrontRegardless` is required because the panel is
+    /// non-activating: an ordinary `orderFront` would not show it without
+    /// bringing Reprise forward.
+    ///
+    /// - Parameters:
+    ///   - panel: Panel to show.
+    ///   - button: Status item button to anchor beneath.
     private func showPlayerPanel(
         _ panel: PlayerPanel,
         below button: NSStatusBarButton
@@ -204,6 +295,19 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         registerSettingsHotKey()
     }
 
+    /// Sizes the panel to its content and places it under the status item.
+    ///
+    /// Width is fixed while height follows the content, so the panel grows for
+    /// lyrics without changing shape. Placement is clamped to the screen's
+    /// visible frame, which matters for a status item near the right edge
+    /// where the panel would otherwise hang off screen.
+    ///
+    /// The x origin is floored to a device pixel: a half-pixel window origin
+    /// makes the whole panel's text render blurred.
+    ///
+    /// - Parameters:
+    ///   - panel: Panel to position.
+    ///   - button: Status item button to anchor beneath.
     private func layoutPlayerPanel(
         _ panel: PlayerPanel,
         below button: NSStatusBarButton
@@ -237,6 +341,12 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         panel.setFrameOrigin(origin)
     }
 
+    /// Re-sizes the panel after its SwiftUI content changes height.
+    ///
+    /// Resized twice on purpose. The yield catches the new size once SwiftUI
+    /// has laid out, and the delayed second pass catches content that animates
+    /// into place - the lyrics section expanding - where the fitting size
+    /// keeps growing after the first measurement.
     @objc
     private func playerPanelContentSizeDidChange() {
         Task { @MainActor [weak self] in
@@ -248,6 +358,7 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Re-runs panel layout, but only while it is on screen.
     private func resizePlayerPanelIfVisible() {
         guard let playerPanel,
               playerPanel.isVisible,
@@ -257,6 +368,10 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         layoutPlayerPanel(playerPanel, below: button)
     }
 
+    /// Hides the panel and disarms its dismissal machinery.
+    ///
+    /// The hot key is unregistered here so Command-comma only reaches Reprise
+    /// while the panel is open, leaving it to other apps otherwise.
     private func closePlayerPanel() {
         playerPanel?.orderOut(nil)
         NotificationCenter.default.post(
@@ -268,6 +383,15 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         unregisterSettingsHotKey()
     }
 
+    /// Arms the three ways the panel gets dismissed.
+    ///
+    /// Three are needed because no single one covers every case. The local
+    /// monitor sees clicks inside Reprise, where a `nil` window means the
+    /// click landed on the menu bar or the desktop rather than one of our
+    /// windows. The global monitor sees clicks in other apps, and checks the
+    /// point against Reprise's windows because a click on Settings arrives
+    /// there too. The workspace observer catches an app being activated
+    /// without a click at all - through Command-Tab, or a launch.
     private func installEventMonitors() {
         removeEventMonitors()
 
@@ -326,6 +450,14 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
             }
     }
 
+    /// Whether a screen point lands on one of Reprise's own windows.
+    ///
+    /// The status bar window is excluded so clicking the menu bar item reaches
+    /// the toggle rather than being read as a click inside the app, which
+    /// would leave the panel open.
+    ///
+    /// - Parameter point: Point in screen coordinates.
+    /// - Returns: `true` when the point is over a Reprise window.
     private func isPointInsideRepriseWindow(_ point: NSPoint) -> Bool {
         let statusBarWindow = statusItem?.button?.window
 
@@ -336,6 +468,10 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Disarms every dismissal monitor.
+    ///
+    /// Called both on close and before re-arming, so monitors never stack up
+    /// across repeated openings.
     private func removeEventMonitors() {
         if let localEventMonitor {
             NSEvent.removeMonitor(localEventMonitor)
@@ -353,6 +489,11 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Installs the Carbon handler that receives hot key presses.
+    ///
+    /// Installed once for the app's lifetime, separate from registering the
+    /// key itself, which comes and goes with the panel. `passUnretained` is
+    /// safe because the delegate outlives the handler.
     private func installSettingsHotKeyHandler() {
         guard settingsHotKeyHandler == nil else { return }
 
@@ -371,12 +512,22 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
+    /// Removes the Carbon event handler.
     private func removeSettingsHotKeyHandler() {
         guard let settingsHotKeyHandler else { return }
         RemoveEventHandler(settingsHotKeyHandler)
         self.settingsHotKeyHandler = nil
     }
 
+    /// Claims Command-comma while the panel is open.
+    ///
+    /// A Carbon hot key is system-wide, which is the only way to catch the
+    /// shortcut for a non-activating panel that never becomes key. It is
+    /// therefore registered only while the panel is visible, so Reprise does
+    /// not hold Command-comma away from whatever app the user is in.
+    ///
+    /// A failed registration is ignored: another app may already hold the
+    /// combination, and the gear button remains.
     private func registerSettingsHotKey() {
         guard settingsHotKey == nil else { return }
 
@@ -397,12 +548,18 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
         settingsHotKey = hotKey
     }
 
+    /// Releases Command-comma back to the system.
     private func unregisterSettingsHotKey() {
         guard let settingsHotKey else { return }
         UnregisterEventHotKey(settingsHotKey)
         self.settingsHotKey = nil
     }
 
+    /// Opens Settings in response to the hot key.
+    ///
+    /// Activation comes first because the panel is non-activating, so Reprise
+    /// is not frontmost and the Settings window would otherwise open behind
+    /// whatever the user is looking at.
     fileprivate func openSettingsFromHotKey() {
         NSApp.activate(ignoringOtherApps: true)
         NotificationCenter.default.post(
@@ -412,9 +569,18 @@ final class RepriseAppDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
+/// Holds an exclusive lock so only one Reprise runs at a time.
+///
+/// A file lock rather than a bundle-identifier check, because it is released
+/// by the kernel when the process dies: a crashed Reprise leaves nothing
+/// behind that would block the next launch.
 private final class RepriseInstanceLock {
     private let fileDescriptor: Int32
 
+    /// Acquires the lock, or fails when another instance holds it.
+    ///
+    /// `LOCK_NB` makes this fail immediately rather than wait, so a second
+    /// launch terminates at once instead of hanging invisibly.
     init?() {
         let lockURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("dev.junx.Reprise.instance.lock")
@@ -431,14 +597,22 @@ private final class RepriseInstanceLock {
         self.fileDescriptor = fileDescriptor
     }
 
+    /// Releases the lock and closes the descriptor.
     deinit {
         flock(fileDescriptor, LOCK_UN)
         Darwin.close(fileDescriptor)
     }
 }
 
+/// Borderless floating window hosting the player panel.
+///
+/// `nonactivatingPanel` is what lets the panel appear without pulling Reprise
+/// to the front, so opening it does not take focus from the user's work.
 @MainActor
 private final class PlayerPanel: NSPanel {
+    /// Creates the panel around its content controller.
+    ///
+    /// - Parameter contentViewController: Controller hosting the SwiftUI panel.
     init(contentViewController: NSViewController) {
         super.init(
             contentRect: NSRect(origin: .zero, size: PlayerPanelLayout.defaultSize),
@@ -451,21 +625,56 @@ private final class PlayerPanel: NSPanel {
         becomesKeyOnlyIfNeeded = true
     }
 
+    /// Allows the panel to take key status.
+    ///
+    /// Overridden because a borderless window refuses key by default, which
+    /// would leave the sliders and buttons inside unable to receive events.
     override var canBecomeKey: Bool {
         true
     }
 
+    /// Keeps the panel from becoming the main window.
+    ///
+    /// Becoming main would make Reprise present as the active application,
+    /// which is exactly what a non-activating panel exists to avoid.
     override var canBecomeMain: Bool {
         false
     }
 }
 
+/// Geometry for the player panel.
 enum PlayerPanelLayout {
+    /// Panel size before content is measured.
     static let defaultSize = NSSize(width: 360, height: 140)
+
+    /// Corner rounding of the panel's content.
     static let cornerRadius: CGFloat = 16
+
+    /// Gap between the status item and the panel's top edge.
     static let anchorSpacing: CGFloat = 5
+
+    /// Minimum gap kept between the panel and the screen edges.
     static let screenMargin: CGFloat = 6
 
+    /// Places the panel under its status item, kept on screen.
+    ///
+    /// Aligns the panel's left edge with the status item, then clamps it
+    /// within the visible frame, which is what keeps a panel anchored near the
+    /// right of the menu bar fully visible.
+    ///
+    /// The clamp is written so the lower bound wins on a screen too narrow to
+    /// hold the panel: better to overflow the right edge, away from the menu
+    /// bar's controls, than the left.
+    ///
+    /// The x origin is floored to a device pixel, since a fractional window
+    /// origin blurs everything drawn inside it.
+    ///
+    /// - Parameters:
+    ///   - anchorFrame: Status item frame in screen coordinates.
+    ///   - panelSize: Size of the panel.
+    ///   - visibleFrame: Usable area of the screen.
+    ///   - backingScale: Display scale factor.
+    /// - Returns: The panel's origin in screen coordinates.
     static func origin(
         anchorFrame: NSRect,
         panelSize: NSSize,
@@ -484,6 +693,15 @@ enum PlayerPanelLayout {
     }
 }
 
+/// Keeps the menu bar item's contents in step with the store.
+///
+/// The status item hosts a custom view rather than using its title and image,
+/// because the menu bar has to show a scrolling title, a rotating disc, or an
+/// animated level meter - none of which `NSStatusItem` provides.
+///
+/// Rebuilding that view is expensive, so every update is gated on a content
+/// key: the store changes several times a second and almost none of those
+/// changes alter what the menu bar draws.
 @MainActor
 private final class MenuBarStatusRenderer: NSObject {
     private let statusItem: NSStatusItem
@@ -494,6 +712,19 @@ private final class MenuBarStatusRenderer: NSObject {
     private var lastRenderedTrackKey: String?
     private var isPanelVisible = false
 
+    /// Installs the marquee view into the status item and starts observing.
+    ///
+    /// The button's own title and image are cleared, since the custom view
+    /// draws everything; constraints pin it to the button so the status item's
+    /// variable length governs the size.
+    ///
+    /// `UserDefaults.didChangeNotification` is observed so a settings change
+    /// is reflected at once without a channel of its own.
+    ///
+    /// - Parameters:
+    ///   - statusItem: Status item to render into.
+    ///   - store: Store to read playback state from.
+    ///   - onClick: Called when the item is clicked.
     init(
         statusItem: NSStatusItem,
         store: NowPlayingStore,
@@ -539,12 +770,22 @@ private final class MenuBarStatusRenderer: NSObject {
         updateContent()
     }
 
+    /// Stops observing and animating, before termination.
+    ///
+    /// The store's callback is cleared explicitly because it holds a closure
+    /// referencing this renderer.
     func invalidate() {
         NotificationCenter.default.removeObserver(self)
         store.onMenuBarContentChange = nil
         marqueeView.stopAnimation()
     }
 
+    /// Notes whether the panel is open and pauses the marquee if wanted.
+    ///
+    /// The setting exists because a title scrolling in the menu bar while the
+    /// same title sits still in the open panel is distracting.
+    ///
+    /// - Parameter isVisible: Whether the panel is on screen.
     func setPanelVisible(_ isVisible: Bool) {
         isPanelVisible = isVisible
         let preferences = MarqueePreferences.current()
@@ -553,6 +794,17 @@ private final class MenuBarStatusRenderer: NSObject {
         )
     }
 
+    /// Rebuilds the menu bar item from the current state.
+    ///
+    /// The title resolves in priority order: hidden wins outright, then a
+    /// lyric if lyrics are enabled and one is showing, then the formatted
+    /// track title.
+    ///
+    /// The content key check is what makes this cheap enough to call as often
+    /// as it is - it returns immediately unless something visible changed.
+    ///
+    /// The status item's length is set from the measured content width, since
+    /// a variable-length item does not size itself to a hosted view.
     @objc
     private func updateContent() {
         guard let button = statusItem.button else { return }
@@ -622,11 +874,31 @@ private final class MenuBarStatusRenderer: NSObject {
         statusItem.length = contentWidth + MenuBarMarquee.horizontalPadding
     }
 
+    /// Rebuilds the item in response to a notification.
+    ///
+    /// - Parameter notification: Triggering notification; unused, since both
+    ///   observed names lead to the same full rebuild.
     @objc
     private func refreshRequested(_ notification: Notification) {
         updateContent()
     }
 
+    /// Builds a string that changes only when the menu bar's look does.
+    ///
+    /// Every input that affects rendering is folded in, and nothing else:
+    /// position and volume are excluded because they change constantly and
+    /// are not drawn. Artwork contributes only its byte count, which is enough
+    /// to notice a different cover without hashing the image.
+    ///
+    /// - Parameters:
+    ///   - title: Text about to be drawn.
+    ///   - snapshot: Player state, or `nil`.
+    ///   - preferences: Current appearance settings.
+    ///   - appearanceName: Name of the menu bar's effective appearance. Part
+    ///     of the key because the title and glyphs are baked with a colour
+    ///     resolved from it, so a light-to-dark switch changes what is drawn
+    ///     without changing anything else here.
+    /// - Returns: A key to compare against the previous render.
     private static func contentKey(
         title: String,
         snapshot: PlayerSnapshot?,
@@ -671,6 +943,15 @@ private final class MenuBarStatusRenderer: NSObject {
         ].joined(separator: "|")
     }
 
+    /// Identifies a track, for deciding whether a title change stayed within
+    /// one song.
+    ///
+    /// Distinct from the content key: this ignores appearance settings and the
+    /// rendered title, so it changes only when the actual track does. That is
+    /// what lets a lyric advance be animated while a track change is not.
+    ///
+    /// - Parameter snapshot: Player state, or `nil`.
+    /// - Returns: The track identity, or `nil` when no track is loaded.
     private static func trackKey(
         for snapshot: PlayerSnapshot?
     ) -> String? {
@@ -687,8 +968,16 @@ private final class MenuBarStatusRenderer: NSObject {
     }
 }
 
+/// The custom view drawn inside the menu bar item.
+///
+/// Draws a leading visual - cover, spinning disc, or level meter - beside a
+/// title that scrolls when it overflows. Built from Core Animation layers
+/// rather than `draw(_:)` so the animations run on the render server and cost
+/// the app nothing per frame, which matters for a view that may animate
+/// continuously for hours.
 @MainActor
 private final class MenuBarMarqueeView: NSView {
+    /// Called when the item is clicked.
     var onClick: (() -> Void)?
 
     /// Called when the menu bar's appearance changes.
@@ -716,6 +1005,13 @@ private final class MenuBarMarqueeView: NSView {
     private var marqueeStartedAt: CFTimeInterval?
     private var isPaused = false
 
+    /// Builds the layer tree.
+    ///
+    /// The title layers sit inside a clipping viewport layer, which is what
+    /// bounds the scrolling text; the view's own layer must not clip, or the
+    /// panel's shadow would be cut off.
+    ///
+    /// - Parameter frameRect: Initial frame.
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
@@ -744,15 +1040,29 @@ private final class MenuBarMarqueeView: NSView {
         scrollingLayer.addSublayer(secondTitleLayer)
     }
 
+    /// Unavailable; this view is never loaded from a nib.
+    ///
+    /// - Parameter coder: Unarchiver; unused.
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
     }
 
+    /// Claims every click within the view.
+    ///
+    /// Returns `self` unconditionally so a click anywhere - including the gaps
+    /// between layers - opens the panel, rather than falling through to the
+    /// status button and doing nothing.
+    ///
+    /// - Parameter point: Point being tested; unused.
+    /// - Returns: Always this view.
     override func hitTest(_ point: NSPoint) -> NSView? {
         self
     }
 
+    /// Opens the panel on click.
+    ///
+    /// - Parameter event: Mouse event; unused.
     override func mouseDown(with event: NSEvent) {
         onClick?()
     }
@@ -931,6 +1241,13 @@ private final class MenuBarMarqueeView: NSView {
         return contentWidth
     }
 
+    /// Arms the push animation for a lyric line change.
+    ///
+    /// A `CATransition` on the viewport animates whatever its contents become
+    /// next, so it is added before the new bitmap is assigned. Any previous
+    /// transition is removed first, or a rapid change would stack them.
+    ///
+    /// - Parameter style: Transition to apply.
     private func prepareTitleTransition(
         _ style: MenuBarTitleTransitionStyle
     ) {
@@ -952,6 +1269,17 @@ private final class MenuBarMarqueeView: NSView {
         )
     }
 
+    /// Switches between the cover, disc, and meter treatments.
+    ///
+    /// Every branch stops the animations belonging to the other styles, so a
+    /// style change cannot leave a rotation or a meter running on a hidden
+    /// layer and burning frames.
+    ///
+    /// - Parameters:
+    ///   - style: Visual to show.
+    ///   - availableHeight: Height of the menu bar item.
+    ///   - isPlaying: Whether the visual should animate.
+    ///   - foregroundColor: Colour resolved for the current menu bar.
     private func updateLeadingVisual(
         style: MenuBarArtworkStyle,
         availableHeight: CGFloat,
@@ -987,6 +1315,10 @@ private final class MenuBarMarqueeView: NSView {
         }
     }
 
+    /// Cuts the centre hole that makes the cover read as a record.
+    ///
+    /// Two ellipses with an even-odd fill rule: the outer one rounds the
+    /// artwork and the inner one punches the spindle hole out of it.
     private func updateDiscMask() {
         let bounds = CGRect(
             origin: .zero,
@@ -1010,6 +1342,12 @@ private final class MenuBarMarqueeView: NSView {
         artworkLayer.mask = artworkMaskLayer
     }
 
+    /// Spins the disc while playing.
+    ///
+    /// Left alone if already running, so the rotation continues smoothly
+    /// across a track change instead of snapping back to zero.
+    ///
+    /// - Parameter isPlaying: Whether playback is advancing.
     private func updateDiscAnimation(isPlaying: Bool) {
         guard isPlaying else {
             stopDiscAnimation()
@@ -1029,6 +1367,7 @@ private final class MenuBarMarqueeView: NSView {
         artworkLayer.add(animation, forKey: "discRotation")
     }
 
+    /// Stops the disc and returns it upright.
     private func stopDiscAnimation() {
         artworkLayer.removeAnimation(forKey: "discRotation")
         artworkLayer.setAffineTransform(.identity)
@@ -1070,6 +1409,14 @@ private final class MenuBarMarqueeView: NSView {
         }
     }
 
+    /// Animates the level meter while playing.
+    ///
+    /// Each bar gets a slightly different duration and start delay, so they
+    /// drift out of phase and never resynchronise into an obvious loop. The
+    /// meter is decorative - it reflects that audio is playing, not its actual
+    /// level, which the players do not expose.
+    ///
+    /// - Parameter isPlaying: Whether playback is advancing.
     private func updateIndicatorAnimation(isPlaying: Bool) {
         guard isPlaying else {
             stopIndicatorAnimation()
@@ -1089,12 +1436,14 @@ private final class MenuBarMarqueeView: NSView {
         }
     }
 
+    /// Freezes the level meter at its resting heights.
     private func stopIndicatorAnimation() {
         for bar in indicatorBars {
             bar.removeAnimation(forKey: "level")
         }
     }
 
+    /// Halts the marquee and returns the title to its start.
     func stopAnimation() {
         scrollingLayer.removeAnimation(forKey: "marquee")
         scrollingLayer.removeAnimation(forKey: "returnToStart")
@@ -1103,6 +1452,12 @@ private final class MenuBarMarqueeView: NSView {
         marqueeStartedAt = nil
     }
 
+    /// Pauses or resumes scrolling as the panel opens and closes.
+    ///
+    /// Pausing rewinds through ``returnToStart()`` rather than freezing where
+    /// it is, so reopening the panel does not leave the title stopped mid-word.
+    ///
+    /// - Parameter paused: Whether scrolling should stop.
     func setPaused(_ paused: Bool) {
         guard isPaused != paused else { return }
         isPaused = paused
@@ -1121,6 +1476,18 @@ private final class MenuBarMarqueeView: NSView {
         )
     }
 
+    /// Rewinds a scrolled title with a short glide-and-fade.
+    ///
+    /// Snapping back would read as a glitch, so the title continues briefly in
+    /// its direction of travel while fading out, then reappears at the start.
+    /// The jump happens under cover of zero opacity, which is what the tightly
+    /// spaced key times at 0.4 achieve.
+    ///
+    /// Skipped entirely when the title was resting in its initial pause, since
+    /// there is nothing to rewind and the animation would be noise.
+    ///
+    /// The current offset is read from the presentation layer, the only place
+    /// the in-flight animated value exists.
     private func returnToStart() {
         let wasMoving = isMarqueeInMotion
         let currentX = CGFloat((
@@ -1161,6 +1528,11 @@ private final class MenuBarMarqueeView: NSView {
         scrollingLayer.add(transition, forKey: "returnToStart")
     }
 
+    /// Whether the title is currently moving rather than resting.
+    ///
+    /// Derived from elapsed time within the animation's cycle rather than read
+    /// from Core Animation, which exposes no such state. Used to decide
+    /// whether a rewind animation is worth playing at all.
     private var isMarqueeInMotion: Bool {
         guard let marqueeStartedAt,
               let pendingAnimation else {
@@ -1179,6 +1551,15 @@ private final class MenuBarMarqueeView: NSView {
         return cycleTime > MenuBarMarquee.initialPause
     }
 
+    /// Starts the pixel-aligned scroll.
+    ///
+    /// The start time is recorded so ``isMarqueeInMotion`` can work out where
+    /// in its cycle the animation is.
+    ///
+    /// - Parameters:
+    ///   - distance: Travel distance in points.
+    ///   - scale: Backing scale factor.
+    ///   - pointsPerSecond: Scroll speed.
     private func startAnimation(
         distance: CGFloat,
         scale: CGFloat,
@@ -1197,6 +1578,19 @@ private final class MenuBarMarqueeView: NSView {
         marqueeStartedAt = CACurrentMediaTime()
     }
 
+    /// Rasterises the menu bar title.
+    ///
+    /// The colour is baked into the bitmap and cannot adapt afterwards, since
+    /// layer contents are composited as-is. It therefore has to be resolved
+    /// for the menu bar's current appearance by the caller, and the bitmap
+    /// rebuilt whenever that appearance changes.
+    ///
+    /// - Parameters:
+    ///   - title: Text to draw.
+    ///   - scale: Backing scale factor.
+    ///   - foregroundColor: Colour resolved for the current menu bar.
+    /// - Returns: The image and its point size, or `nil` if the context could
+    ///   not be created.
     private static func titleBitmap(
         _ title: String,
         scale: CGFloat,
@@ -1249,6 +1643,24 @@ private final class MenuBarMarqueeView: NSView {
         return (image, pointSize)
     }
 
+    /// Resolves what to draw in the artwork slot.
+    ///
+    /// Falls back to the player's SF Symbol, so the slot is never empty and
+    /// the item's width does not change when a track happens to have no cover.
+    ///
+    /// Real cover art is used as-is; the fallback symbol is tinted, because a
+    /// symbol rasterises to a single opaque colour that would disappear
+    /// against half the menu bar appearances. Tinting is done by drawing the
+    /// glyph and filling through it with `sourceIn`, which keeps the fill only
+    /// where the glyph is opaque.
+    ///
+    /// - Parameters:
+    ///   - data: Cover art, or `nil`.
+    ///   - symbolName: Fallback SF Symbol name.
+    ///   - foregroundColor: Colour resolved for the current menu bar.
+    /// - Returns: The image, or `nil` if neither could be produced. Falls back
+    ///   to the untinted glyph if a drawing context cannot be created, since a
+    ///   symbol in the wrong colour still beats an empty slot.
     private static func artworkContents(
         data: Data?,
         symbolName: String,
@@ -1299,27 +1711,72 @@ private final class MenuBarMarqueeView: NSView {
     }
 }
 
+/// Metrics and measurement for the menu bar item.
+///
+/// Separated from the view so the width arithmetic - which decides how much of
+/// the user's menu bar Reprise occupies - can be tested without AppKit.
 enum MenuBarMarquee {
+    /// Text width budget when showing track titles.
     static let maximumTextWidth = CGFloat(
         MenuBarLyricsWidth.defaultValue
     )
+
+    /// Edge length of the leading visual.
     static let artworkSize: CGFloat = 18
+
+    /// Gap between the leading visual and the title.
     static let artworkTitleSpacing: CGFloat = 5
+
+    /// Inset of the disc's spindle hole.
     static let discHoleInset: CGFloat = 7
+
+    /// Seconds for one full rotation of the disc.
     static let discRotationDuration: TimeInterval = 4
+
+    /// Width of one level meter bar.
     static let indicatorBarWidth: CGFloat = 2
+
+    /// Gap between level meter bars.
     static let indicatorBarSpacing: CGFloat = 2
+
+    /// Inset before the first level meter bar.
     static let indicatorHorizontalInset: CGFloat = 2
+
+    /// Resting heights of the meter bars, uneven so it reads as a level.
     static let indicatorBarHeights: [CGFloat] = [8, 13, 10, 15]
+
+    /// Padding added around the item's content.
     static let horizontalPadding: CGFloat = 8
+
+    /// Blank space between the two copies of a scrolling title.
     static let titleGap: CGFloat = 28
+
+    /// How long a title rests before scrolling.
     static let initialPause: TimeInterval = 1.4
+
+    /// Default scroll speed, used where no preference applies.
     static let pointsPerSecond: CGFloat = 30
+
+    /// Nudge applied after pixel alignment.
+    ///
+    /// The menu bar's own text sits fractionally lower than a purely
+    /// arithmetic centring puts it; this matches Reprise's title to the items
+    /// beside it.
     static let titleVerticalAdjustment: CGFloat = 0.5
+
+    /// How far a rewinding title glides before jumping back.
     static let returnGlideDistance: CGFloat = 4
+
+    /// Duration of the rewind transition.
     static let returnTransitionDuration: TimeInterval = 0.24
+
+    /// Duration of the lyric line push.
     static let lyricsTransitionDuration: TimeInterval = 0.28
+
+    /// The system menu bar font, at its natural size.
     static let font = NSFont.menuBarFont(ofSize: 0)
+
+    /// Extra tracking between characters; none, matching system text.
     static let characterSpacing: CGFloat = 0
 
     /// Resolves the colour the menu bar item must draw itself in.
@@ -1364,6 +1821,12 @@ enum MenuBarMarquee {
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
     }
 
+    /// Whether a title is too wide to show at once.
+    ///
+    /// - Parameters:
+    ///   - titleWidth: Measured title width.
+    ///   - maximumWidth: Budget. Defaults to ``maximumTextWidth``.
+    /// - Returns: `true` when the title must scroll.
     static func requiresScrolling(
         titleWidth: CGFloat,
         maximumWidth: CGFloat = maximumTextWidth
@@ -1371,6 +1834,17 @@ enum MenuBarMarquee {
         titleWidth > maximumWidth
     }
 
+    /// How wide the text area should be.
+    ///
+    /// Reserving the full width keeps the item from resizing as each lyric
+    /// line arrives, which would jitter every status item to its left.
+    ///
+    /// - Parameters:
+    ///   - titleWidth: Measured title width.
+    ///   - reservesMaximumTextWidth: Whether to always claim the full budget.
+    ///     Defaults to `false`.
+    ///   - maximumWidth: Budget. Defaults to ``maximumTextWidth``.
+    /// - Returns: Width of the text viewport in points.
     static func viewportWidth(
         for titleWidth: CGFloat,
         reservesMaximumTextWidth: Bool = false,
@@ -1381,6 +1855,15 @@ enum MenuBarMarquee {
             : min(titleWidth, maximumWidth)
     }
 
+    /// Width the leading visual occupies, including its trailing gap.
+    ///
+    /// The gap is dropped when there is no title, so an artwork-only item is
+    /// not padded on its right.
+    ///
+    /// - Parameters:
+    ///   - artworkStyle: Which visual is shown.
+    ///   - titleWidth: Measured title width.
+    /// - Returns: Width in points; 0 when the visual is hidden.
     static func leadingVisualWidth(
         for artworkStyle: MenuBarArtworkStyle,
         titleWidth: CGFloat
@@ -1389,6 +1872,15 @@ enum MenuBarMarquee {
         return artworkSize + (titleWidth > 0 ? artworkTitleSpacing : 0)
     }
 
+    /// Total content width of the menu bar item.
+    ///
+    /// - Parameters:
+    ///   - titleWidth: Measured title width.
+    ///   - artworkStyle: Which visual is shown. Defaults to album artwork.
+    ///   - reservesMaximumTextWidth: Whether to always claim the full text
+    ///     budget. Defaults to `false`.
+    ///   - maximumWidth: Text budget. Defaults to ``maximumTextWidth``.
+    /// - Returns: Width in points, before the status item's padding.
     static func totalWidth(
         for titleWidth: CGFloat,
         artworkStyle: MenuBarArtworkStyle = .albumArtwork,
@@ -1405,6 +1897,17 @@ enum MenuBarMarquee {
         )
     }
 
+    /// Where the title bitmap should sit vertically.
+    ///
+    /// Centres the glyphs by cap height and descender rather than centring the
+    /// bitmap box, then snaps to a device pixel and applies
+    /// ``titleVerticalAdjustment`` so Reprise's title lines up with the system
+    /// items beside it.
+    ///
+    /// - Parameters:
+    ///   - availableHeight: Height of the menu bar item.
+    ///   - scale: Backing scale factor.
+    /// - Returns: The bitmap's y origin in points.
     static func titleOriginY(
         availableHeight: CGFloat,
         scale: CGFloat
@@ -1416,6 +1919,17 @@ enum MenuBarMarquee {
         return pixelAlignedOrigin + titleVerticalAdjustment
     }
 
+    /// Where a scrolling title would be after a given elapsed time.
+    ///
+    /// The animation itself runs on the render server, so this is not used to
+    /// drive it; it expresses the same timing in a form that can be asserted
+    /// against, covering the initial pause and the constant-speed travel.
+    ///
+    /// - Parameters:
+    ///   - elapsed: Seconds since the scroll began.
+    ///   - titleWidth: Measured title width.
+    /// - Returns: The horizontal offset, 0 or negative. Always 0 for a title
+    ///   that fits or during the initial pause.
     static func offset(elapsed: TimeInterval, titleWidth: CGFloat) -> CGFloat {
         guard requiresScrolling(titleWidth: titleWidth) else { return 0 }
 

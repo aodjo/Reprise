@@ -4,6 +4,21 @@ using Reprise.Core;
 
 namespace Reprise.Desktop;
 
+/// <summary>
+/// Presentation state for the now-playing window.
+/// </summary>
+/// <remarks>
+/// Sits between the platform's <see cref="IMediaSessionService"/> and the
+/// window, turning a polled list of sessions into the single session, status
+/// line, and error message the UI binds to. Keeping that translation here is
+/// what lets the behaviour be exercised without a display, and what keeps the
+/// window free of any knowledge of how sessions are obtained.
+/// <para>
+/// Not thread-safe by design: it is driven from the UI thread's refresh
+/// timer, and the only concurrency it guards against is refreshes
+/// overlapping.
+/// </para>
+/// </remarks>
 public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly IMediaSessionService _mediaSessionService;
@@ -14,13 +29,35 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     private string? _errorText;
     private bool _disposed;
 
+    /// <summary>
+    /// Creates a view model over the given media session backend.
+    /// </summary>
+    /// <param name="mediaSessionService">
+    /// Platform backend polled for sessions and used to dispatch playback
+    /// commands.
+    /// </param>
+    /// <example>
+    /// <code>
+    /// var viewModel = new NowPlayingViewModel(new MprisMediaSessionService());
+    /// </code>
+    /// </example>
     public NowPlayingViewModel(IMediaSessionService mediaSessionService)
     {
         _mediaSessionService = mediaSessionService;
     }
 
+    /// <summary>
+    /// Raised on the calling thread whenever a bound property changes.
+    /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// <summary>
+    /// The session currently on display, or null when nothing is playing.
+    /// </summary>
+    /// <remarks>
+    /// Set only by <see cref="RefreshAsync"/>, from whichever session
+    /// <see cref="ActiveSessionSelector"/> picks out of the latest poll.
+    /// </remarks>
     public MediaSessionSnapshot? ActiveSession
     {
         get => _activeSession;
@@ -36,6 +73,9 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Short line describing the playback state, shown under the header.
+    /// </summary>
     public string StatusText
     {
         get => _statusText;
@@ -51,6 +91,9 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Message from the most recent failure, or null while things are fine.
+    /// </summary>
     public string? ErrorText
     {
         get => _errorText;
@@ -66,6 +109,31 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Polls the backend once and republishes the resulting state.
+    /// </summary>
+    /// <remarks>
+    /// Called every second by the window's timer. A refresh already in flight
+    /// causes this call to return immediately rather than queue: with a fixed
+    /// tick, queueing a backend slower than the interval would build a
+    /// backlog of polls whose results are stale by the time they arrive.
+    /// <para>
+    /// Failures are surfaced through <see cref="ErrorText"/> instead of
+    /// thrown, because the caller is a timer tick with nowhere to report to,
+    /// and a transient bus error should not tear down the UI. Cancellation
+    /// during disposal is swallowed for the same reason - it is expected
+    /// shutdown, not a fault.
+    /// </para>
+    /// </remarks>
+    /// <returns>
+    /// A task that completes once the poll has finished and properties have
+    /// been updated. Never faults.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// timer.Tick += async (_, _) => await viewModel.RefreshAsync();
+    /// </code>
+    /// </example>
     public async Task RefreshAsync()
     {
         if (_disposed)
@@ -109,6 +177,30 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Sends a playback command to the session currently on display.
+    /// </summary>
+    /// <remarks>
+    /// Targets the snapshot the user is looking at rather than re-reading the
+    /// active session, so a poll landing between the click and the dispatch
+    /// cannot redirect the command to a different player.
+    /// <para>
+    /// Refreshes immediately afterwards so the transport buttons reflect the
+    /// new state without waiting out the remainder of the timer interval.
+    /// </para>
+    /// </remarks>
+    /// <param name="command">Transport control to invoke.</param>
+    /// <returns>
+    /// A task that completes once the command has been sent and the state
+    /// re-read. Does nothing when no session is active. Never faults;
+    /// failures land in <see cref="ErrorText"/>.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// nextButton.Click += async (_, _) =>
+    ///     await viewModel.SendAsync(PlaybackCommand.Next);
+    /// </code>
+    /// </example>
     public async Task SendAsync(PlaybackCommand command)
     {
         if (_disposed)
@@ -139,6 +231,15 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         }
     }
 
+    /// <summary>
+    /// Cancels any in-flight work and blocks further backend calls.
+    /// </summary>
+    /// <remarks>
+    /// Safe to call more than once. The refresh gate is intentionally not
+    /// disposed: a poll may still be unwinding through its finally block, and
+    /// releasing a disposed semaphore would throw on a path that has no
+    /// handler. The disposed flag is what actually stops new work.
+    /// </remarks>
     public void Dispose()
     {
         if (_disposed)
@@ -151,6 +252,12 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         _lifetime.Dispose();
     }
 
+    /// <summary>
+    /// Raises <see cref="PropertyChanged"/> for the calling property.
+    /// </summary>
+    /// <param name="propertyName">
+    /// Filled in by the compiler from the calling member's name.
+    /// </param>
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

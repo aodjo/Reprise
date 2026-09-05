@@ -7,25 +7,38 @@
 
 import XCTest
 
+/// Captures a launch screenshot for each UI configuration.
+///
+/// Separate from ``RepriseUITests`` because these run once per appearance and
+/// language combination Xcode is configured with, and exist to produce
+/// attachments for review rather than to assert anything.
 final class RepriseUITestsLaunchTests: XCTestCase {
 
+    /// Runs the tests once per target application UI configuration.
+    ///
+    /// What turns a single launch check into one screenshot per appearance and
+    /// localisation, which is the point of this class.
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }
 
+    /// Stops the run at the first failure.
+    ///
+    /// - Throws: Rethrows any setup failure to XCTest.
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
 
+    /// Launches the app and attaches a screenshot.
+    ///
+    /// The attachment is kept regardless of outcome, since its value is the
+    /// visual record rather than evidence of a failure.
+    ///
+    /// - Throws: Rethrows any launch failure to XCTest.
     @MainActor
     func testLaunch() throws {
         let app = XCUIApplication()
         app.launch()
-
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
         attachment.name = "Launch Screen"

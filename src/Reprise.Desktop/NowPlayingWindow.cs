@@ -8,10 +8,32 @@ using Reprise.Core;
 
 namespace Reprise.Desktop;
 
+/// <summary>
+/// The now-playing panel: artwork, track details, timeline, and transport.
+/// </summary>
+/// <remarks>
+/// Built in code rather than XAML so the desktop assembly stays a plain
+/// library with no compiled markup, which keeps the platform heads that
+/// reference it free of Avalonia's XAML build steps.
+/// <para>
+/// The window keeps its own references to the controls it updates and pushes
+/// values into them from <see cref="UpdateView"/>, instead of using bindings.
+/// At this size that is both less machinery and easier to follow than a
+/// binding graph.
+/// </para>
+/// </remarks>
 public sealed class NowPlayingWindow : Window
 {
+    /// <summary>
+    /// Secondary text colour, for labels and metadata below the title.
+    /// </summary>
     private static readonly IBrush MutedBrush = Brush.Parse("#99A3B5");
+
+    /// <summary>
+    /// Reprise accent, used for the header, artwork, and progress fill.
+    /// </summary>
     private static readonly IBrush AccentBrush = Brush.Parse("#8B7CFF");
+
     private readonly NowPlayingViewModel _viewModel;
     private readonly DispatcherTimer _refreshTimer;
     private readonly TextBlock _status;
@@ -26,8 +48,32 @@ public sealed class NowPlayingWindow : Window
     private readonly Button _playPauseButton;
     private readonly Button _nextButton;
 
+    /// <summary>
+    /// Whether a close request should actually close the window.
+    /// </summary>
+    /// <remarks>
+    /// False during normal use, so the close button hides the window to the
+    /// tray instead. The tray's quit item sets this to true first, which is
+    /// the only way the window is allowed to close for real.
+    /// </remarks>
     public bool AllowClose { get; set; }
 
+    /// <summary>
+    /// Builds the panel and starts polling for playback state.
+    /// </summary>
+    /// <remarks>
+    /// Also wires the window's lifetime to the view model's: refreshing when
+    /// shown, stopping the timer and disposing the view model when the window
+    /// finally closes. Because the window owns the view model's lifetime,
+    /// this takes ownership of the instance passed in.
+    /// </remarks>
+    /// <param name="viewModel">State to display and command.</param>
+    /// <example>
+    /// <code>
+    /// desktop.MainWindow = new NowPlayingWindow(
+    ///     new NowPlayingViewModel(service));
+    /// </code>
+    /// </example>
     public NowPlayingWindow(NowPlayingViewModel viewModel)
     {
         _viewModel = viewModel;
@@ -99,6 +145,16 @@ public sealed class NowPlayingWindow : Window
         UpdateView();
     }
 
+    /// <summary>
+    /// Assembles the panel layout from the controls created in the constructor.
+    /// </summary>
+    /// <remarks>
+    /// Laid out top to bottom as header, now-playing row, timeline,
+    /// transport, and error line. The error line sits last and stays in the
+    /// tree even when empty, so a message appearing does not shift the
+    /// controls above it.
+    /// </remarks>
+    /// <returns>The window's content tree.</returns>
     private Control BuildContent()
     {
         var header = new StackPanel
@@ -220,6 +276,18 @@ public sealed class NowPlayingWindow : Window
         };
     }
 
+    /// <summary>
+    /// Marshals a view model change onto the UI thread and redraws.
+    /// </summary>
+    /// <remarks>
+    /// The view model raises <see cref="INotifyPropertyChanged.PropertyChanged"/>
+    /// from whichever thread completed its backend call, so the update is
+    /// posted rather than applied directly. Which property changed is
+    /// ignored: <see cref="UpdateView"/> rewrites the whole panel, and
+    /// posting one redraw per notification coalesces naturally.
+    /// </remarks>
+    /// <param name="sender">The view model raising the change.</param>
+    /// <param name="eventArgs">Name of the changed property; unused.</param>
     private void HandleViewModelChanged(
         object? sender,
         PropertyChangedEventArgs eventArgs)
@@ -227,6 +295,18 @@ public sealed class NowPlayingWindow : Window
         Dispatcher.UIThread.Post(UpdateView);
     }
 
+    /// <summary>
+    /// Rewrites every control from the current view model state.
+    /// </summary>
+    /// <remarks>
+    /// Each field falls back to placeholder text when the backend has nothing
+    /// to report, so the panel reads as waiting rather than broken. Transport
+    /// buttons are disabled without an active session, since there would be
+    /// no player to address.
+    /// <para>
+    /// Must be called on the UI thread.
+    /// </para>
+    /// </remarks>
     private void UpdateView()
     {
         var session = _viewModel.ActiveSession;
@@ -252,6 +332,24 @@ public sealed class NowPlayingWindow : Window
             : "재생";
     }
 
+    /// <summary>
+    /// Renders the elapsed and total time pair shown beside the progress bar.
+    /// </summary>
+    /// <remarks>
+    /// Both halves are required: a player reporting one without the other - a
+    /// live stream, typically - gets placeholders rather than a half-filled
+    /// readout that would imply a length it never gave.
+    /// </remarks>
+    /// <param name="session">Session to describe, or null.</param>
+    /// <returns>
+    /// A <c>position / duration</c> pair, or <c>--:-- / --:--</c> when either
+    /// value is missing.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// FormatTimeline(session); // "1:07 / 3:52"
+    /// </code>
+    /// </example>
     private static string FormatTimeline(MediaSessionSnapshot? session)
     {
         if (session?.Position is not { } position
@@ -263,6 +361,21 @@ public sealed class NowPlayingWindow : Window
         return $"{FormatTime(position)} / {FormatTime(duration)}";
     }
 
+    /// <summary>
+    /// Formats a duration the way a music player displays it.
+    /// </summary>
+    /// <remarks>
+    /// Hours appear only when there are any, so an ordinary track is not
+    /// padded to <c>0:03:52</c>. Negative values are floored at zero because
+    /// some players briefly report a negative position while seeking.
+    /// </remarks>
+    /// <param name="value">Duration to format.</param>
+    /// <returns><c>m:ss</c>, or <c>h:mm:ss</c> for an hour or longer.</returns>
+    /// <example>
+    /// <code>
+    /// FormatTime(TimeSpan.FromSeconds(232)); // "3:52"
+    /// </code>
+    /// </example>
     private static string FormatTime(TimeSpan value)
     {
         var clamped = value < TimeSpan.Zero ? TimeSpan.Zero : value;
@@ -271,6 +384,17 @@ public sealed class NowPlayingWindow : Window
             : $"{(int)clamped.TotalMinutes}:{clamped.Seconds:00}";
     }
 
+    /// <summary>
+    /// Creates a text block in the panel's typographic style.
+    /// </summary>
+    /// <param name="size">Font size in device-independent pixels.</param>
+    /// <param name="weight">Font weight.</param>
+    /// <param name="brush">Foreground brush.</param>
+    /// <param name="text">
+    /// Static text, for labels that never change. Left null for blocks that
+    /// <see cref="UpdateView"/> fills in.
+    /// </param>
+    /// <returns>The configured text block.</returns>
     private static TextBlock CreateTextBlock(
         double size,
         FontWeight weight,
@@ -283,6 +407,15 @@ public sealed class NowPlayingWindow : Window
             Foreground = brush,
         };
 
+    /// <summary>
+    /// Creates one of the three transport buttons.
+    /// </summary>
+    /// <remarks>
+    /// Sized for a comfortable pointer target and left to stretch, so the
+    /// three share the width of the panel evenly.
+    /// </remarks>
+    /// <param name="label">Button caption.</param>
+    /// <returns>The configured button.</returns>
     private static Button CreateControlButton(string label) => new()
     {
         Content = label,
