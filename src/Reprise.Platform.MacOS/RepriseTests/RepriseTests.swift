@@ -5,6 +5,7 @@
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License.
 
+import AppKit
 import CoreGraphics
 import Foundation
 import ServiceManagement
@@ -491,6 +492,36 @@ struct RepriseTests {
         )
     }
 
+    /// The menu bar item draws in a colour that contrasts with the menu bar.
+    ///
+    /// Regression test. The title, the level meter, and the fallback glyph
+    /// were all drawn in a fixed white, which is invisible on a light menu bar
+    /// - and the item is drawn into layer contents, which nothing tints on the
+    /// app's behalf. Resolving `labelColor` per appearance is the fix, so the
+    /// two appearances have to land on opposite sides of mid grey.
+    ///
+    /// - Throws: Rethrows a requirement failure to the test runner.
+    @Test
+    func menuBarForegroundColorFollowsTheMenuBarAppearance() throws {
+        let lightAppearance = try #require(NSAppearance(named: .aqua))
+        let darkAppearance = try #require(NSAppearance(named: .darkAqua))
+
+        let onLightMenuBar = try #require(
+            MenuBarMarquee.foregroundColor(for: lightAppearance)
+                .usingColorSpace(.sRGB)
+        )
+        let onDarkMenuBar = try #require(
+            MenuBarMarquee.foregroundColor(for: darkAppearance)
+                .usingColorSpace(.sRGB)
+        )
+
+        #expect(onLightMenuBar.brightnessComponent < 0.5)
+        #expect(onDarkMenuBar.brightnessComponent > 0.5)
+    }
+
+    /// A playing player outranks a paused one of higher priority.
+    ///
+    /// Priority is a tie-break, not an override: what is audible wins.
     @Test
     func playingPlayerWinsOverPausedDisplayPriority() {
         let spotify = makeSnapshot(

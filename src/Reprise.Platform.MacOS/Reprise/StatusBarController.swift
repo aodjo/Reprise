@@ -507,6 +507,9 @@ private final class MenuBarStatusRenderer: NSObject {
         button.image = nil
         button.title = ""
         marqueeView.onClick = onClick
+        marqueeView.onAppearanceChange = { [weak self] in
+            self?.updateContent()
+        }
 
         marqueeView.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(marqueeView)
@@ -584,7 +587,8 @@ private final class MenuBarStatusRenderer: NSObject {
         let contentKey = Self.contentKey(
             title: title,
             snapshot: snapshot,
-            preferences: preferences
+            preferences: preferences,
+            appearanceName: button.effectiveAppearance.name.rawValue
         )
         guard contentKey != lastContentKey else { return }
         lastContentKey = contentKey
@@ -626,11 +630,13 @@ private final class MenuBarStatusRenderer: NSObject {
     private static func contentKey(
         title: String,
         snapshot: PlayerSnapshot?,
-        preferences: MarqueePreferences
+        preferences: MarqueePreferences,
+        appearanceName: String
     ) -> String {
         guard let snapshot, let track = snapshot.track else {
             return [
                 "none",
+                appearanceName,
                 title,
                 String(preferences.automaticallyScrollsTitles),
                 String(describing: preferences.pointsPerSecond),
@@ -645,6 +651,7 @@ private final class MenuBarStatusRenderer: NSObject {
         return [
             snapshot.player.rawValue,
             snapshot.state.rawValue,
+            appearanceName,
             // Synced lyrics change independently of the track metadata.
             // Include the rendered title so every lyric line invalidates
             // the menu bar content.
@@ -684,6 +691,14 @@ private final class MenuBarStatusRenderer: NSObject {
 private final class MenuBarMarqueeView: NSView {
     var onClick: (() -> Void)?
 
+    /// Called when the menu bar's appearance changes.
+    ///
+    /// Everything this view draws is baked into layer contents with a resolved
+    /// colour, so a light-to-dark switch has to redraw rather than restyle.
+    /// The renderer owns the values needed to rebuild, so it is asked to run
+    /// the update again rather than this view caching its own arguments.
+    var onAppearanceChange: (() -> Void)?
+
     private let artworkLayer = CALayer()
     private let artworkMaskLayer = CAShapeLayer()
     private let indicatorLayer = CALayer()
@@ -715,7 +730,6 @@ private final class MenuBarMarqueeView: NSView {
         indicatorLayer.masksToBounds = false
         layer?.addSublayer(indicatorLayer)
         for bar in indicatorBars {
-            bar.backgroundColor = NSColor.white.cgColor
             bar.cornerRadius = 1
             indicatorLayer.addSublayer(bar)
         }
@@ -743,6 +757,48 @@ private final class MenuBarMarqueeView: NSView {
         onClick?()
     }
 
+    /// Redraws when the menu bar switches between light and dark.
+    ///
+    /// The menu bar does not only follow the system appearance: in Light Mode
+    /// it turns dark over a dark desktop picture, and back again. Each of those
+    /// arrives here, and none of them changes the content the renderer would
+    /// otherwise notice, so without this the item keeps whatever colour it was
+    /// last baked with.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        onAppearanceChange?()
+    }
+
+    /// Text colour that reads against the menu bar as it is right now.
+    ///
+    /// Resolved from this view's own effective appearance rather than the
+    /// app's, because a status item takes the menu bar's appearance - which is
+    /// what the item is actually drawn on, and which differs from the app's
+    /// whenever the menu bar is darkened over a desktop picture.
+    private var menuBarForegroundColor: NSColor {
+        MenuBarMarquee.foregroundColor(for: effectiveAppearance)
+    }
+
+    /// Redraws the item and reports how wide it needs to be.
+    ///
+    /// The width has to be returned rather than derived from layout, because
+    /// the status item's length is set by the caller and Auto Layout inside a
+    /// status button does not drive it.
+    ///
+    /// Text width is capped differently for lyrics than for titles, since a
+    /// lyric line is generally longer and the user sets its budget explicitly.
+    ///
+    /// - Parameters:
+    ///   - title: Text to display.
+    ///   - artworkData: Cover art, or `nil`.
+    ///   - symbolName: Fallback SF Symbol when there is no cover.
+    ///   - artworkStyle: Which leading visual to draw.
+    ///   - isPlaying: Whether to animate the disc or meter.
+    ///   - reservesTextWidth: Whether to hold the full text width even when
+    ///     the text is shorter, so the item does not resize on every lyric.
+    ///   - transitionStyle: How to animate the title change.
+    ///   - preferences: Current appearance settings.
+    /// - Returns: The width the status item should take.
     func update(
         title: String,
         artworkData: Data?,
@@ -770,9 +826,14 @@ private final class MenuBarMarqueeView: NSView {
         )
         let availableHeight = max(bounds.height, NSStatusBar.system.thickness)
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        let foregroundColor = menuBarForegroundColor
         let titleBitmap = title.isEmpty
             ? nil
-            : Self.titleBitmap(title, scale: scale)
+            : Self.titleBitmap(
+                title,
+                scale: scale,
+                foregroundColor: foregroundColor
+            )
         let titleHeight = titleBitmap?.pointSize.height ?? MenuBarMarquee.font.pointSize
         let titleY = MenuBarMarquee.titleOriginY(
             availableHeight: availableHeight,
@@ -793,12 +854,14 @@ private final class MenuBarMarqueeView: NSView {
         )
         artworkLayer.contents = Self.artworkContents(
             data: artworkData,
-            symbolName: symbolName
+            symbolName: symbolName,
+            foregroundColor: foregroundColor
         )
         updateLeadingVisual(
             style: artworkStyle,
             availableHeight: availableHeight,
-            isPlaying: isPlaying
+            isPlaying: isPlaying,
+            foregroundColor: foregroundColor
         )
 
         let textOrigin = MenuBarMarquee.leadingVisualWidth(
@@ -892,7 +955,8 @@ private final class MenuBarMarqueeView: NSView {
     private func updateLeadingVisual(
         style: MenuBarArtworkStyle,
         availableHeight: CGFloat,
-        isPlaying: Bool
+        isPlaying: Bool,
+        foregroundColor: NSColor
     ) {
         artworkLayer.isHidden = style == .levelIndicator || style == .hidden
         indicatorLayer.isHidden = style != .levelIndicator
@@ -911,7 +975,10 @@ private final class MenuBarMarqueeView: NSView {
         case .levelIndicator:
             artworkLayer.mask = nil
             stopDiscAnimation()
-            layoutIndicator(availableHeight: availableHeight)
+            layoutIndicator(
+                availableHeight: availableHeight,
+                foregroundColor: foregroundColor
+            )
             updateIndicatorAnimation(isPlaying: isPlaying)
         case .hidden:
             artworkLayer.mask = nil
@@ -967,7 +1034,18 @@ private final class MenuBarMarqueeView: NSView {
         artworkLayer.setAffineTransform(.identity)
     }
 
-    private func layoutIndicator(availableHeight: CGFloat) {
+    /// Positions the level meter's bars.
+    ///
+    /// Heights are deliberately uneven so the meter reads as a level display
+    /// even when paused and still.
+    ///
+    /// - Parameters:
+    ///   - availableHeight: Height of the menu bar item.
+    ///   - foregroundColor: Colour resolved for the current menu bar.
+    private func layoutIndicator(
+        availableHeight: CGFloat,
+        foregroundColor: NSColor
+    ) {
         indicatorLayer.frame = CGRect(
             x: 0,
             y: (availableHeight - MenuBarMarquee.artworkSize) / 2,
@@ -977,6 +1055,7 @@ private final class MenuBarMarqueeView: NSView {
 
         for (index, bar) in indicatorBars.enumerated() {
             let height = MenuBarMarquee.indicatorBarHeights[index]
+            bar.backgroundColor = foregroundColor.cgColor
             bar.frame = CGRect(
                 x: MenuBarMarquee.indicatorHorizontalInset
                     + CGFloat(index)
@@ -1120,13 +1199,14 @@ private final class MenuBarMarqueeView: NSView {
 
     private static func titleBitmap(
         _ title: String,
-        scale: CGFloat
+        scale: CGFloat,
+        foregroundColor: NSColor
     ) -> (image: CGImage, pointSize: CGSize)? {
         let attributedTitle = NSAttributedString(
             string: title,
             attributes: [
                 .font: MenuBarMarquee.font,
-                .foregroundColor: NSColor.white,
+                .foregroundColor: foregroundColor,
                 .kern: MenuBarMarquee.characterSpacing,
             ]
         )
@@ -1171,7 +1251,8 @@ private final class MenuBarMarqueeView: NSView {
 
     private static func artworkContents(
         data: Data?,
-        symbolName: String
+        symbolName: String,
+        foregroundColor: NSColor
     ) -> CGImage? {
         if let data,
            let image = NSImage(data: data),
@@ -1182,10 +1263,39 @@ private final class MenuBarMarqueeView: NSView {
         guard let symbol = NSImage(
             systemSymbolName: symbolName,
             accessibilityDescription: nil
-        ) else {
+        ),
+              let glyph = symbol.cgImage(
+                  forProposedRect: nil,
+                  context: nil,
+                  hints: nil
+              ) else {
             return nil
         }
-        return symbol.cgImage(forProposedRect: nil, context: nil, hints: nil)
+
+        guard let context = CGContext(
+            data: nil,
+            width: glyph.width,
+            height: glyph.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else {
+            return glyph
+        }
+
+        let bounds = CGRect(
+            x: 0,
+            y: 0,
+            width: glyph.width,
+            height: glyph.height
+        )
+        context.draw(glyph, in: bounds)
+        context.setBlendMode(.sourceIn)
+        context.setFillColor(foregroundColor.cgColor)
+        context.fill(bounds)
+
+        return context.makeImage() ?? glyph
     }
 }
 
@@ -1212,6 +1322,36 @@ enum MenuBarMarquee {
     static let font = NSFont.menuBarFont(ofSize: 0)
     static let characterSpacing: CGFloat = 0
 
+    /// Resolves the colour the menu bar item must draw itself in.
+    ///
+    /// The item is drawn into `CALayer` contents, which are composited
+    /// verbatim - unlike an `NSImage` marked as a template on the status
+    /// button, nothing tints them afterwards. So the colour has to be resolved
+    /// up front and baked into the bitmaps, and everything baked with it has
+    /// to be rebuilt when the appearance changes.
+    ///
+    /// `labelColor` is used rather than a fixed black or white so the result
+    /// tracks whatever the system considers legible on the menu bar, including
+    /// the Light Mode case where a dark desktop picture darkens the bar.
+    ///
+    /// - Parameter appearance: Appearance to resolve against, normally the
+    ///   status item view's effective appearance.
+    /// - Returns: A concrete colour, safe to bake into a bitmap.
+    static func foregroundColor(for appearance: NSAppearance) -> NSColor {
+        var resolved = NSColor.labelColor
+
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = NSColor.labelColor.usingColorSpace(.sRGB)
+                ?? NSColor.labelColor
+        }
+
+        return resolved
+    }
+
+    /// Measures how wide text will draw in the menu bar font.
+    ///
+    /// - Parameter text: Text to measure.
+    /// - Returns: Width in points, rounded up.
     static func textWidth(_ text: String) -> CGFloat {
         let attributedText = NSAttributedString(
             string: text,
