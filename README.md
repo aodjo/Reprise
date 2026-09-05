@@ -80,14 +80,18 @@ Build and run the `Reprise` scheme in Xcode 16 or later.
 
 The Linux implementation is under active development on `develop`. It uses
 Avalonia for the desktop and reads local MPRIS media sessions straight from the
-D-Bus session bus, so it needs no extra packages.
+D-Bus session bus, so it needs no extra packages. The panel is the same one
+macOS shows: album art, a scrolling title, transport controls, a scrubber,
+volume, and the White, Dark, Liquid, and System themes.
 
 ```bash
 dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
 ```
 
-Closing the Linux window keeps Reprise available in the system tray. Linux CI
-also publishes self-contained `linux-x64` and `linux-arm64` archives.
+The panel opens from the system tray icon and hides when it loses focus, like
+the macOS popover. Its labels are Korean, so a font with Hangul coverage such
+as `fonts-noto-cjk` must be installed. Linux CI also publishes self-contained
+`linux-x64` and `linux-arm64` archives.
 
 ## Usage
 

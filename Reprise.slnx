@@ -3,5 +3,6 @@
   <Project Path="src/Reprise.Desktop/Reprise.Desktop.csproj" />
   <Project Path="src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj" />
   <Project Path="tests/unit/Reprise.Core.Tests/Reprise.Core.Tests.csproj" />
+  <Project Path="tests/unit/Reprise.Desktop.Tests/Reprise.Desktop.Tests.csproj" />
   <Project Path="tests/integration/linux/common/Reprise.Platform.Linux.Tests.csproj" />
 </Solution>
