@@ -35,6 +35,7 @@ Artifacts/
 *.swp
 *.swo
 *~
+CLAUDE.md
 
 # Local configuration and secrets
 .env
