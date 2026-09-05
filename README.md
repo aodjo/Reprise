@@ -79,10 +79,10 @@ Build and run the `Reprise` scheme in Xcode 16 or later.
 ### Linux alpha
 
 The Linux implementation is under active development on `develop`. It uses
-Avalonia for the desktop and `playerctl` for local MPRIS media sessions.
+Avalonia for the desktop and reads local MPRIS media sessions straight from the
+D-Bus session bus, so it needs no extra packages.
 
 ```bash
-sudo apt install playerctl
 dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
 ```
 

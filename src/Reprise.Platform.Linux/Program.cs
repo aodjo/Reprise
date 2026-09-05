@@ -5,8 +5,42 @@ using Reprise.Platform.Linux.Mpris;
 
 namespace Reprise.Platform.Linux;
 
+/// <summary>
+/// Entry point for the Linux build of Reprise.
+/// </summary>
+/// <remarks>
+/// Keeps everything platform-specific in one place: the shared Reprise.Desktop
+/// UI has no notion of MPRIS, and learns which backend to use only through
+/// the factory this class installs before Avalonia starts.
+/// </remarks>
 internal static class Program
 {
+    /// <summary>
+    /// Wires up the MPRIS backend and runs the Avalonia desktop lifetime.
+    /// </summary>
+    /// <remarks>
+    /// Handles <c>--health-check</c> before anything else. Packaging and CI
+    /// run the published binary on machines with no display and no session
+    /// bus, so the check has to answer without touching Avalonia or D-Bus; it
+    /// exists to prove the self-contained archive actually executes on the
+    /// target.
+    /// <para>
+    /// The OS guard matters because the published output is self-contained
+    /// and can be launched anywhere. Failing with an explanation beats
+    /// letting the Avalonia platform detection crash further in.
+    /// </para>
+    /// </remarks>
+    /// <param name="args">
+    /// Command line arguments, forwarded to Avalonia once the
+    /// Reprise-specific flags have been handled.
+    /// </param>
+    /// <returns>0 on success, 1 when run on a non-Linux platform.</returns>
+    /// <example>
+    /// <code>
+    /// $ ./reprise --health-check
+    /// Reprise Linux 2.0.0-alpha.1 (linux-arm64)
+    /// </code>
+    /// </example>
     [STAThread]
     public static int Main(string[] args)
     {
@@ -24,11 +58,22 @@ internal static class Program
         }
 
         RepriseApplication.MediaSessionServiceFactory = static () =>
-            new PlayerctlMediaSessionService(new ProcessRunner());
+            new MprisMediaSessionService();
 
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
+    /// <summary>
+    /// Builds the Avalonia application configuration.
+    /// </summary>
+    /// <remarks>
+    /// Public and parameterless by convention: Avalonia's design-time tooling
+    /// and XAML previewer locate this method by name.
+    /// </remarks>
+    /// <returns>
+    /// A configured builder with the windowing backend detected from the
+    /// environment, X11 or Wayland.
+    /// </returns>
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder
             .Configure<RepriseApplication>()

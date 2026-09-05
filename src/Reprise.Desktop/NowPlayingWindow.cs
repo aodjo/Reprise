@@ -237,7 +237,7 @@ public sealed class NowPlayingWindow : Window
         _artist.Text = session?.Artist ?? "Linux 미디어 플레이어를 실행하세요.";
         _album.Text = session?.Album ?? string.Empty;
         _player.Text = session is null
-            ? "playerctl · MPRIS"
+            ? "D-Bus · MPRIS"
             : $"{session.PlayerName} · MPRIS";
         _progress.Value = session?.Progress ?? 0;
         _time.Text = FormatTimeline(session);
