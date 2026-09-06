@@ -6,13 +6,19 @@ application, including its .NET runtime and the Pretendard typeface.
 
 ## Apt repository
 
-Pushes to `main` publish the packages as an apt repository on GitHub Pages,
-so a machine that adds it once keeps up with every later build:
+Pushes publish the packages as an apt repository on GitHub Pages, so a
+machine that adds it once keeps up with every later build. There are two
+channels, and a machine follows only the one it subscribed to: `stable`
+comes from `main`, `develop` from `develop`.
 
 ```bash
 echo "deb [trusted=yes] https://aodjo.github.io/Reprise stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
 sudo apt update && sudo apt install reprise
 ```
+
+Swap `stable` for `develop` to follow development builds instead. The site
+itself lives on the `apt-repo` branch, which each run updates in place,
+because a channel has to survive the other channel being republished.
 
 `build-apt-repo.sh` assembles that tree and can be run locally against a
 directory of `.deb` files to try it out.

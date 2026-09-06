@@ -328,9 +328,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
-      contents: read
+      contents: write
       pages: write
       id-token: write
+    concurrency:
+      group: apt-repository
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -354,17 +357,55 @@ jobs:
         id: pages
         uses: actions/configure-pages@v5
 
-      - name: Assemble the repository
+      - name: Fetch the published site
         shell: bash
         run: |
+          # The site holds both channels, and each branch rewrites only its
+          # own, so the run has to start from what is already published
+          # rather than from an empty directory.
+          if ! git clone --branch apt-repo --depth 1 \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" Site; then
+            mkdir Site
+            git -C Site init -q -b apt-repo
+            git -C Site remote add origin \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          fi
+
+      - name: Update this channel
+        shell: bash
+        run: |
+          if [[ '${{ github.ref }}' == 'refs/heads/main' ]]; then
+            suite=stable
+          else
+            suite=develop
+          fi
+          echo "Publishing to the $suite channel."
+
           packaging/linux/build-apt-repo.sh \
             Downloads \
             Site \
-            "${{ steps.pages.outputs.base_url }}"
+            "${{ steps.pages.outputs.base_url }}" \
+            "$suite"
 
-          # The AppImages ride along, so one page offers both ways in.
-          find Downloads -name '*.AppImage' -exec cp {} Site/ \;
-          ls -R Site | head -20
+          # The AppImages ride along, one directory per channel.
+          mkdir -p "Site/downloads/$suite"
+          rm -f "Site/downloads/$suite"/*.AppImage
+          find Downloads -name '*.AppImage' -exec cp {} "Site/downloads/$suite/" \;
+          find Site -maxdepth 3 -type d | sort
+
+      - name: Commit the site
+        shell: bash
+        run: |
+          cd Site
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Nothing changed.'
+          else
+            git commit -q -m "chore: publish ${{ github.ref_name }} build ${{ github.run_number }}"
+            git push -q origin HEAD:apt-repo
+          fi
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v4
