@@ -26,8 +26,9 @@ that entry with one the shell draws from Reprise's own D-Bus service,
 `dev.junx.Reprise`. Because the extension owns the actor, the title scrolls
 pixel by pixel like the macOS menu bar rather than stepping a character at a
 time, and the service hands it the whole line, the cover as a PNG, and the
-user's scrolling settings. Install it with
-`packaging/linux/install-gnome-extension.sh`.
+user's scrolling settings. The Debian package installs and enables it, and Reprise asks the shell to
+enable it on every start, so it needs no command from the user; the archive
+build carries `install-gnome-extension.sh` for the same purpose.
 
 The interface is set in Pretendard, bundled with the application, so the panel
 looks the same on every distribution and covers Hangul without depending on

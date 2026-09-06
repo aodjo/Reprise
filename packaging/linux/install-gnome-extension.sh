@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Installs the Reprise GNOME Shell extension for the current user.
+# Installs and switches on the Reprise GNOME Shell extension.
 #
-# The extension draws Reprise's entry in the top bar itself, so the track
-# title scrolls smoothly rather than stepping a character at a time as a
-# plain tray label must. Without it Reprise still appears in the tray.
+# Only needed for the archive build; the Debian package does this itself,
+# and so does Reprise when it starts. The extension draws Reprise's entry in
+# the top bar, which lets the track title scroll smoothly rather than
+# stepping a character at a time as a plain tray label must.
 set -euo pipefail
 
 uuid="reprise@junx.dev"
@@ -19,14 +20,10 @@ mkdir -p "$target_dir"
 cp "$source_dir"/metadata.json "$source_dir"/extension.js "$target_dir/"
 echo "Installed to $target_dir"
 
-if command -v gnome-extensions >/dev/null 2>&1; then
-    gnome-extensions enable "$uuid" 2>/dev/null \
-        && echo "Enabled." \
-        || echo "Enable it with: gnome-extensions enable $uuid"
-else
-    echo "Enable it from the Extensions app, or: gnome-extensions enable $uuid"
+if command -v gnome-extensions >/dev/null 2>&1 && gnome-extensions enable "$uuid" 2>/dev/null; then
+    echo "Enabled."
+    exit 0
 fi
 
-echo
-echo "On Xorg press Alt+F2, type r, and press Enter to reload the shell."
-echo "On Wayland log out and back in."
+echo "The shell has not seen the extension yet."
+echo "Log out and back in, or press Alt+F2 and type r on Xorg, then start Reprise."

@@ -67,7 +67,38 @@ internal static class Program
         RepriseApplication.MenuBarPublisherFactory = static () =>
             new RepriseMenuBarService();
 
+        _ = EnableShellExtensionAsync();
+
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    }
+
+    /// <summary>
+    /// Turns the GNOME Shell extension on, in the background.
+    /// </summary>
+    /// <remarks>
+    /// Runs unawaited: the panel must not wait on the shell, and every
+    /// outcome is one line on stderr rather than anything the user has to
+    /// answer. On any other desktop the shell is simply absent and this
+    /// says nothing at all.
+    /// </remarks>
+    /// <returns>A task that completes once the shell has answered.</returns>
+    private static async Task EnableShellExtensionAsync()
+    {
+        var result = await GnomeShellExtension.EnsureEnabledAsync();
+        switch (result)
+        {
+            case GnomeShellExtensionResult.Enabled:
+                Console.Error.WriteLine("Reprise: enabled the GNOME top bar extension.");
+                break;
+            case GnomeShellExtensionResult.NeedsReload:
+                Console.Error.WriteLine(
+                    "Reprise: installed the GNOME top bar extension. Log out and back in, or press Alt+F2 and type r on Xorg, to load it.");
+                break;
+            case GnomeShellExtensionResult.Failed:
+                Console.Error.WriteLine(
+                    $"Reprise: could not enable the GNOME top bar extension. Try: gnome-extensions enable {GnomeShellExtension.Uuid}");
+                break;
+        }
     }
 
     /// <summary>

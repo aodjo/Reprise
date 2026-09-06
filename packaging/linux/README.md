@@ -12,8 +12,12 @@ it.
 
 ```bash
 sudo apt install ./reprise_2.0.0~alpha.1_amd64.deb
-gnome-extensions enable reprise@junx.dev
 ```
+
+The GNOME extension is switched on as part of the install, and Reprise checks
+again whenever it starts, so there is nothing else to run. A shell that was
+already running loads it after a log out and back in, or after Alt+F2 and `r`
+on Xorg.
 
 Removing it takes the extension with it:
 

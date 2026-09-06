@@ -1,6 +1,24 @@
 #!/bin/sh
-# Refreshes the desktop caches and points the user at the shell extension.
+# Refreshes the desktop caches and switches the shell extension on.
+#
+# Enabling a GNOME extension is per-user state, so this reaches into the
+# graphical sessions that are running and asks as that user. Nobody may be
+# logged in during an install, so Reprise also checks at startup; between
+# the two the user never has to run a command themselves.
 set -e
+
+# Turns the extension on for one logged-in user.
+#
+# $1 - the user's login name.
+# $2 - the user's numeric id, used to find their session bus.
+enable_for_user() {
+    _user="$1"
+    _uid="$2"
+    [ -S "/run/user/$_uid/bus" ] || return 0
+    runuser -u "$_user" -- env \
+        "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$_uid/bus" \
+        gnome-extensions enable reprise@junx.dev >/dev/null 2>&1 || true
+}
 
 if [ "$1" = "configure" ]; then
     if command -v update-desktop-database >/dev/null 2>&1; then
@@ -10,16 +28,26 @@ if [ "$1" = "configure" ]; then
         gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
     fi
 
+    if command -v loginctl >/dev/null 2>&1 && command -v runuser >/dev/null 2>&1; then
+        loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}' | while read -r session; do
+            [ -n "$session" ] || continue
+            type=$(loginctl show-session "$session" -p Type --value 2>/dev/null || echo "")
+            case "$type" in
+                x11 | wayland) ;;
+                *) continue ;;
+            esac
+            user=$(loginctl show-session "$session" -p Name --value 2>/dev/null || echo "")
+            uid=$(loginctl show-session "$session" -p User --value 2>/dev/null || echo "")
+            [ -n "$user" ] && [ -n "$uid" ] && enable_for_user "$user" "$uid"
+        done
+    fi
+
     cat <<'MESSAGE'
 
 Reprise is installed. Start it from your applications menu, or run "reprise".
 
-On GNOME, turn on the top bar entry so the track title scrolls smoothly:
-
-    gnome-extensions enable reprise@junx.dev
-
-Then reload the shell: on Xorg press Alt+F2, type r, Enter; on Wayland log
-out and back in.
+The GNOME top bar entry is switched on for you; if the shell was already
+running, log out and back in, or press Alt+F2 and type r on Xorg.
 
 MESSAGE
 fi
