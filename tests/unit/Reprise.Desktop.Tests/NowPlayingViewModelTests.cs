@@ -209,6 +209,60 @@ public sealed class NowPlayingViewModelTests
     }
 
     /// <summary>
+    /// Lyrics are fetched once per track and served from cache afterwards.
+    /// </summary>
+    [Fact]
+    public async Task LyricsAreLookedUpOncePerTrack()
+    {
+        var clock = new FixedClock(Observed);
+        var backend = new FakeBackend { Sessions = [Session(position: 30)] };
+        var lyricsService = new FakeLyricsService
+        {
+            Lyrics = new SyncedLyrics(LyricsSource.Lrclib,
+            [
+                new LyricLine(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(20), "first"),
+                new LyricLine(TimeSpan.FromSeconds(25), TimeSpan.FromSeconds(40), "second"),
+            ]),
+        };
+        using var viewModel = new NowPlayingViewModel(backend, new FakeArtworkLoader(), clock, lyricsService);
+
+        await viewModel.RefreshAsync();
+        await viewModel.RefreshAsync();
+
+        Assert.Equal(LyricsLoadState.Available, viewModel.LyricsState);
+        Assert.Equal(1, lyricsService.Lookups);
+        Assert.Equal("second", viewModel.CurrentLyricLine()?.Text);
+
+        backend.Sessions = [Session(position: 30) with { Title = "Other Song" }];
+        await viewModel.RefreshAsync();
+        Assert.Equal(2, lyricsService.Lookups);
+
+        backend.Sessions = [Session(position: 30)];
+        await viewModel.RefreshAsync();
+        Assert.Equal(2, lyricsService.Lookups);
+        Assert.Equal("second", viewModel.CurrentLyricLine()?.Text);
+    }
+
+    /// <summary>
+    /// A track without lyrics reports unavailable, and no track reports idle.
+    /// </summary>
+    [Fact]
+    public async Task MissingLyricsAreReportedAndClearedWithTheTrack()
+    {
+        var backend = new FakeBackend { Sessions = [Session()] };
+        var lyricsService = new FakeLyricsService { Lyrics = null };
+        using var viewModel = new NowPlayingViewModel(backend, new FakeArtworkLoader(), new FixedClock(Observed), lyricsService);
+
+        await viewModel.RefreshAsync();
+        Assert.Equal(LyricsLoadState.Unavailable, viewModel.LyricsState);
+        Assert.Null(viewModel.CurrentLyricLine());
+
+        backend.Sessions = [];
+        await viewModel.RefreshAsync();
+        Assert.Equal(LyricsLoadState.Idle, viewModel.LyricsState);
+    }
+
+    /// <summary>
     /// Player ids map onto the marks the panel can draw.
     /// </summary>
     /// <param name="playerId">MPRIS player id.</param>
@@ -264,6 +318,29 @@ public sealed class NowPlayingViewModelTests
         /// </summary>
         /// <returns>The fixed time.</returns>
         public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    /// <summary>
+    /// Lyrics service returning one fixed answer and counting lookups.
+    /// </summary>
+    private sealed class FakeLyricsService : ILyricsService
+    {
+        /// <summary>
+        /// Answer for every lookup.
+        /// </summary>
+        public SyncedLyrics? Lyrics { get; set; }
+
+        /// <summary>
+        /// Number of lookups performed.
+        /// </summary>
+        public int Lookups { get; private set; }
+
+        /// <inheritdoc />
+        public Task<SyncedLyrics?> FetchSyncedLyricsAsync(LyricsTrackQuery query, CancellationToken cancellationToken = default)
+        {
+            Lookups++;
+            return Task.FromResult(Lyrics);
+        }
     }
 
     /// <summary>

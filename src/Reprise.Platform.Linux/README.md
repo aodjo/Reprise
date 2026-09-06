@@ -7,10 +7,22 @@ elapsed and remaining time, a volume slider, and a footer with settings and
 quit. The panel opens from the tray icon, hides when it loses focus or on
 Escape, and can be dragged anywhere.
 
+The tray entry is Reprise's own StatusNotifierItem rather than Avalonia's, so
+it can carry text beside the icon the way the macOS menu bar does. Panels that
+honour the Ubuntu label extension - Ubuntu's GNOME, Budgie, MATE, and Xfce
+with the indicator plugin - show the track title (or the current lyric line)
+next to the album cover; KDE Plasma and other hosts show the cover and menu
+only. Long text scrolls by stepping one character every quarter second.
+
 Settings live in `$XDG_CONFIG_HOME/reprise/preferences.json` (normally
 `~/.config/reprise/preferences.json`) and cover the panel theme (White, Dark,
-Liquid, System), the two time labels, and title scrolling. They are edited from
-the gear button in the panel footer.
+Liquid, System), the two time labels, title scrolling, and the tray label:
+its format (title, title - artist, artist - title, none), whether it shows
+lyrics, and whether the icon is the album cover. They are edited from the
+gear button in the panel footer.
+
+Synced lyrics come from VIBE and LRCLIB, the same services the macOS app
+uses, and are looked up once per track.
 
 ## Requirements
 

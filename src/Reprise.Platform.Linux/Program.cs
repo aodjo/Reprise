@@ -2,6 +2,7 @@ using Avalonia;
 using System.Runtime.InteropServices;
 using Reprise.Desktop;
 using Reprise.Platform.Linux.Mpris;
+using Reprise.Platform.Linux.Tray;
 
 namespace Reprise.Platform.Linux;
 
@@ -16,7 +17,8 @@ namespace Reprise.Platform.Linux;
 internal static class Program
 {
     /// <summary>
-    /// Wires up the MPRIS backend and runs the Avalonia desktop lifetime.
+    /// Wires up the MPRIS backend and tray entry, then runs the Avalonia
+    /// desktop lifetime.
     /// </summary>
     /// <remarks>
     /// Handles <c>--health-check</c> before anything else. Packaging and CI
@@ -59,6 +61,8 @@ internal static class Program
 
         RepriseApplication.MediaSessionServiceFactory = static () =>
             new MprisMediaSessionService();
+        RepriseApplication.StatusItemFactory = static () =>
+            new StatusNotifierItem();
 
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }

@@ -26,6 +26,32 @@ public enum PanelPlayerLogo
 }
 
 /// <summary>
+/// Progress of the lyrics lookup for the current track.
+/// </summary>
+public enum LyricsLoadState
+{
+    /// <summary>
+    /// No track, so nothing to look up.
+    /// </summary>
+    Idle,
+
+    /// <summary>
+    /// A lookup is in flight.
+    /// </summary>
+    Loading,
+
+    /// <summary>
+    /// Synced lyrics were found and are in <see cref="NowPlayingViewModel.Lyrics"/>.
+    /// </summary>
+    Available,
+
+    /// <summary>
+    /// No service had synced lyrics for the track.
+    /// </summary>
+    Unavailable,
+}
+
+/// <summary>
 /// Presentation state for the player panel.
 /// </summary>
 /// <remarks>
@@ -53,7 +79,13 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
 
     private readonly IMediaSessionService _mediaSessionService;
     private readonly IArtworkLoader _artworkLoader;
+    private readonly ILyricsService? _lyricsService;
     private readonly TimeProvider _timeProvider;
+    private readonly Dictionary<LyricsTrackQuery, SyncedLyrics?> _lyricsCache = [];
+    private LyricsTrackQuery? _lyricsQuery;
+    private CancellationTokenSource? _lyricsLoad;
+    private SyncedLyrics? _lyrics;
+    private LyricsLoadState _lyricsState;
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<string, int> _lastAudibleVolumes = new(StringComparer.Ordinal);
@@ -86,19 +118,26 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     /// <param name="timeProvider">
     /// Clock used to project playback position. Defaults to the system clock.
     /// </param>
+    /// <param name="lyricsService">
+    /// Looks up synced lyrics. Null disables lyrics entirely.
+    /// </param>
     /// <example>
     /// <code>
-    /// var viewModel = new NowPlayingViewModel(new MprisMediaSessionService());
+    /// var viewModel = new NowPlayingViewModel(
+    ///     new MprisMediaSessionService(),
+    ///     lyricsService: new LyricsService());
     /// </code>
     /// </example>
     public NowPlayingViewModel(
         IMediaSessionService mediaSessionService,
         IArtworkLoader? artworkLoader = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ILyricsService? lyricsService = null)
     {
         _mediaSessionService = mediaSessionService;
         _artworkLoader = artworkLoader ?? new ArtworkLoader();
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _lyricsService = lyricsService;
     }
 
     /// <summary>
@@ -142,6 +181,49 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged();
         }
     }
+
+    /// <summary>
+    /// Synced lyrics for the current track, or null when none are loaded.
+    /// </summary>
+    public SyncedLyrics? Lyrics => _lyrics;
+
+    /// <summary>
+    /// Where the lyrics lookup for the current track stands.
+    /// </summary>
+    public LyricsLoadState LyricsState => _lyricsState;
+
+    /// <summary>
+    /// The lyric line to show at a moment.
+    /// </summary>
+    /// <remarks>
+    /// Uses the focused line rather than the strictly current one, so the
+    /// last sung line stays up through an instrumental gap instead of the
+    /// label flickering empty.
+    /// </remarks>
+    /// <param name="now">Moment to evaluate at.</param>
+    /// <returns>The line, or null before the first line or without lyrics.</returns>
+    /// <example>
+    /// <code>
+    /// var line = viewModel.CurrentLyricLine(DateTimeOffset.UtcNow);
+    /// </code>
+    /// </example>
+    public LyricLine? CurrentLyricLine(DateTimeOffset now)
+    {
+        if (_lyrics is not { } lyrics)
+        {
+            return null;
+        }
+
+        return lyrics.FocusedLineIndex(DisplayedPosition(now)) is { } index
+            ? lyrics.Lines[index]
+            : null;
+    }
+
+    /// <summary>
+    /// The lyric line to show right now.
+    /// </summary>
+    /// <returns>The line, or null.</returns>
+    public LyricLine? CurrentLyricLine() => CurrentLyricLine(_timeProvider.GetUtcNow());
 
     /// <summary>
     /// Message from the most recent failure, or null while things are fine.
@@ -552,6 +634,9 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         _artworkLoad?.Cancel();
         _artworkLoad?.Dispose();
         _artworkLoad = null;
+        _lyricsLoad?.Cancel();
+        _lyricsLoad?.Dispose();
+        _lyricsLoad = null;
         _lifetime.Cancel();
         _lifetime.Dispose();
     }
@@ -616,6 +701,104 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         ReconcilePendingSeek(session);
         ReconcileVolume(session);
         ReconcileArtwork(session?.ArtworkUri);
+        ReconcileLyrics(session);
+    }
+
+    /// <summary>
+    /// Starts a lyrics lookup when the track changes, serving repeats from cache.
+    /// </summary>
+    /// <remarks>
+    /// Keyed by the loose <see cref="LyricsTrackQuery"/> so a player that
+    /// re-reports the same song with cosmetic differences does not trigger
+    /// another network round trip. Misses are cached too, since asking
+    /// again a second later will not make lyrics appear.
+    /// </remarks>
+    /// <param name="session">Latest sample, or null.</param>
+    private void ReconcileLyrics(MediaSessionSnapshot? session)
+    {
+        if (_lyricsService is null)
+        {
+            return;
+        }
+
+        var query = session is null ? null : LyricsTrackQuery.From(session);
+        if (Equals(query, _lyricsQuery) && (query is null || _lyricsState != LyricsLoadState.Idle))
+        {
+            return;
+        }
+
+        _lyricsLoad?.Cancel();
+        _lyricsLoad?.Dispose();
+        _lyricsLoad = null;
+        _lyricsQuery = query;
+
+        if (query is null)
+        {
+            SetLyrics(null, LyricsLoadState.Idle);
+            return;
+        }
+
+        if (_lyricsCache.TryGetValue(query, out var cached))
+        {
+            SetLyrics(cached, cached is null ? LyricsLoadState.Unavailable : LyricsLoadState.Available);
+            return;
+        }
+
+        SetLyrics(null, LyricsLoadState.Loading);
+        var load = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        _lyricsLoad = load;
+        _ = LoadLyricsAsync(query, load.Token);
+    }
+
+    /// <summary>
+    /// Fetches lyrics and publishes them if the track is still current.
+    /// </summary>
+    /// <param name="query">Track to look up.</param>
+    /// <param name="cancellationToken">Cancelled when the track changes.</param>
+    /// <returns>A task that completes when the result has been applied or dropped.</returns>
+    private async Task LoadLyricsAsync(LyricsTrackQuery query, CancellationToken cancellationToken)
+    {
+        SyncedLyrics? lyrics;
+        try
+        {
+            lyrics = await _lyricsService!.FetchSyncedLyricsAsync(query, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception)
+        {
+            lyrics = null;
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            return;
+        }
+
+        _lyricsCache[query] = lyrics;
+        if (Equals(query, _lyricsQuery))
+        {
+            SetLyrics(lyrics, lyrics is null ? LyricsLoadState.Unavailable : LyricsLoadState.Available);
+        }
+    }
+
+    /// <summary>
+    /// Publishes a lyrics result and its state together.
+    /// </summary>
+    /// <param name="lyrics">Lyrics to show, or null.</param>
+    /// <param name="state">Lookup state to report.</param>
+    private void SetLyrics(SyncedLyrics? lyrics, LyricsLoadState state)
+    {
+        var changed = !ReferenceEquals(_lyrics, lyrics) || _lyricsState != state;
+        _lyrics = lyrics;
+        _lyricsState = state;
+        if (changed)
+        {
+            OnPropertyChanged(nameof(Lyrics));
+            OnPropertyChanged(nameof(LyricsState));
+        }
     }
 
     /// <summary>

@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Platform;
 using Avalonia.Styling;
 using Avalonia.Themes.Fluent;
 using Reprise.Core;
@@ -12,14 +11,14 @@ namespace Reprise.Desktop;
 /// Avalonia application root shared by every desktop build of Reprise.
 /// </summary>
 /// <remarks>
-/// Owns the theme, the panel window, the preferences, and the tray icon,
-/// but deliberately not the media backend: the platform entry point supplies
-/// that, which is what lets this assembly stay free of any platform-specific
-/// reference.
+/// Owns the theme, the panel window, the preferences, and the tray entry,
+/// but deliberately not the media backend or the tray transport: the
+/// platform entry point supplies those, which is what lets this assembly
+/// stay free of any platform-specific reference.
 /// </remarks>
 public sealed class RepriseApplication : Application
 {
-    private TrayIcon? _trayIcon;
+    private StatusItemController? _statusItem;
 
     /// <summary>
     /// Supplies the platform's media session backend.
@@ -43,6 +42,26 @@ public sealed class RepriseApplication : Application
     }
 
     /// <summary>
+    /// Supplies the platform's tray entry.
+    /// </summary>
+    /// <remarks>
+    /// Optional: when unset, Avalonia's own tray icon is used, which shows
+    /// an icon and menu but no label. Linux sets this to its D-Bus
+    /// implementation so the track title can appear in the top bar.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// RepriseApplication.StatusItemFactory =
+    ///     static () => new StatusNotifierItem();
+    /// </code>
+    /// </example>
+    public static Func<IStatusItem>? StatusItemFactory
+    {
+        get;
+        set;
+    }
+
+    /// <summary>
     /// Installs the control theme before any window is created.
     /// </summary>
     /// <remarks>
@@ -57,7 +76,7 @@ public sealed class RepriseApplication : Application
     }
 
     /// <summary>
-    /// Builds the panel and tray icon once Avalonia is ready.
+    /// Builds the panel and tray entry once Avalonia is ready.
     /// </summary>
     /// <remarks>
     /// Shutdown is switched to explicit so dismissing the panel leaves
@@ -66,7 +85,7 @@ public sealed class RepriseApplication : Application
     /// goes through the panel's exit button or the tray menu.
     /// <para>
     /// The panel is shown once at launch so a desktop without a working tray
-    /// still gets to see it; from then on the tray icon toggles it.
+    /// still gets to see it; from then on the tray entry toggles it.
     /// </para>
     /// </remarks>
     /// <exception cref="InvalidOperationException">
@@ -83,12 +102,19 @@ public sealed class RepriseApplication : Application
 
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var preferences = new PreferencesStore(PreferencesStore.DefaultPath);
-            var window = new NowPlayingWindow(
-                new NowPlayingViewModel(service),
-                preferences);
+            var viewModel = new NowPlayingViewModel(service, lyricsService: new LyricsService());
+            var window = new NowPlayingWindow(viewModel, preferences);
             window.ExitRequested += (_, _) => Quit(desktop, window);
             desktop.MainWindow = window;
-            ConfigureTrayIcon(desktop, window);
+
+            var statusItem = StatusItemFactory?.Invoke() ?? new AvaloniaTrayStatusItem(this);
+            _statusItem = new StatusItemController(statusItem, viewModel, preferences);
+            _statusItem.Activated += (_, _) => window.TogglePanel();
+            _statusItem.OpenRequested += (_, _) => window.ShowPanel();
+            _statusItem.QuitRequested += (_, _) => Quit(desktop, window);
+            desktop.Exit += (_, _) => _statusItem?.Dispose();
+            _ = StartStatusItemAsync(_statusItem);
+
             window.ShowPanel();
         }
 
@@ -96,48 +122,30 @@ public sealed class RepriseApplication : Application
     }
 
     /// <summary>
-    /// Installs the tray icon that keeps Reprise reachable once hidden.
+    /// Registers the tray entry, reporting rather than failing when the
+    /// desktop has no status area.
     /// </summary>
     /// <remarks>
-    /// Clicking the icon toggles the panel, as clicking the macOS status
-    /// item does. The menu duplicates that and adds quit, since a tray icon
-    /// is the only surface left once the panel is dismissed.
-    /// <para>
-    /// The icon is disposed on exit because a tray icon left registered can
-    /// outlive the process as a dead entry on some desktop environments.
-    /// </para>
+    /// A missing tray is not fatal - the panel is already on screen - but it
+    /// is worth a line on stderr, since the user will otherwise wonder why
+    /// closing the panel appears to quit the app.
     /// </remarks>
-    /// <param name="desktop">
-    /// Lifetime used to shut down and to hook the exit event.
-    /// </param>
-    /// <param name="window">Panel the menu shows and hides.</param>
-    private void ConfigureTrayIcon(
-        IClassicDesktopStyleApplicationLifetime desktop,
-        NowPlayingWindow window)
+    /// <param name="controller">Controller to start.</param>
+    /// <returns>A task that completes once registration has been attempted.</returns>
+    private static async Task StartStatusItemAsync(StatusItemController controller)
     {
-        var showItem = new NativeMenuItem { Header = "Reprise 열기" };
-        showItem.Click += (_, _) => window.ShowPanel();
-
-        var quitItem = new NativeMenuItem { Header = "Reprise 종료" };
-        quitItem.Click += (_, _) => Quit(desktop, window);
-
-        var menu = new NativeMenu();
-        menu.Add(showItem);
-        menu.Add(new NativeMenuItemSeparator());
-        menu.Add(quitItem);
-
-        using var iconStream = AssetLoader.Open(
-            new Uri("avares://Reprise.Desktop/Assets/reprise.png"));
-        _trayIcon = new TrayIcon
+        try
         {
-            Icon = new WindowIcon(iconStream),
-            IsVisible = true,
-            ToolTipText = "Reprise",
-            Menu = menu,
-        };
-        _trayIcon.Clicked += (_, _) => window.TogglePanel();
-        TrayIcon.SetIcons(this, new TrayIcons { _trayIcon });
-        desktop.Exit += (_, _) => _trayIcon?.Dispose();
+            if (!await controller.StartAsync())
+            {
+                Console.Error.WriteLine(
+                    "Reprise: no status notifier host found; the tray entry will appear when one starts.");
+            }
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Reprise: tray entry unavailable: {exception.Message}");
+        }
     }
 
     /// <summary>

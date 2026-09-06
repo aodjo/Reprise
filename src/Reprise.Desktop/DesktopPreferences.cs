@@ -19,12 +19,25 @@ namespace Reprise.Desktop;
 /// Whether a long title scrolls on its own, or only while hovered.
 /// </param>
 /// <param name="MarqueePointsPerSecond">Title scrolling speed.</param>
+/// <param name="MenuBarTitleFormat">Text shown beside the tray icon.</param>
+/// <param name="MenuBarShowsLyrics">
+/// Whether the tray label shows the current lyric line instead of the title
+/// when synced lyrics exist.
+/// </param>
+/// <param name="MenuBarArtworkStyle">What the tray icon shows for a track.</param>
+/// <param name="MenuBarLabelLength">
+/// Longest label the tray shows before it starts scrolling, in characters.
+/// </param>
 public sealed record DesktopPreferences(
     PanelTheme PanelTheme = PanelTheme.Liquid,
     PanelLeadingTimeStyle LeadingTimeStyle = PanelLeadingTimeStyle.Elapsed,
     PanelTrailingTimeStyle TrailingTimeStyle = PanelTrailingTimeStyle.Remaining,
     bool AutomaticallyScrollsTitles = true,
-    double MarqueePointsPerSecond = 30);
+    double MarqueePointsPerSecond = 30,
+    MenuBarTitleFormat MenuBarTitleFormat = MenuBarTitleFormat.TitleOnly,
+    bool MenuBarShowsLyrics = false,
+    MenuBarArtworkStyle MenuBarArtworkStyle = MenuBarArtworkStyle.AlbumArtwork,
+    int MenuBarLabelLength = 30);
 
 /// <summary>
 /// Loads, holds, and saves <see cref="DesktopPreferences"/>.

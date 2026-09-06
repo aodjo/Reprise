@@ -1076,6 +1076,36 @@ public sealed class NowPlayingWindow : Window
             p => p with { AutomaticallyScrollsTitles = !p.AutomaticallyScrollsTitles });
         _settingsFlyout.Items.Add(scroll);
 
+        _settingsFlyout.Items.Add(new Separator());
+        _settingsFlyout.Items.Add(new MenuItem { Header = "상단 바 제목", IsEnabled = false });
+        foreach (var format in Enum.GetValues<MenuBarTitleFormat>())
+        {
+            _settingsFlyout.Items.Add(RadioItem(
+                format.DisplayName(),
+                current.MenuBarTitleFormat == format,
+                () => _preferences.Update(p => p with { MenuBarTitleFormat = format })));
+        }
+
+        var lyrics = new MenuItem
+        {
+            Header = "상단 바에 가사 표시",
+            ToggleType = MenuItemToggleType.CheckBox,
+            IsChecked = current.MenuBarShowsLyrics,
+        };
+        lyrics.Click += (_, _) => _preferences.Update(
+            p => p with { MenuBarShowsLyrics = !p.MenuBarShowsLyrics });
+        _settingsFlyout.Items.Add(lyrics);
+
+        _settingsFlyout.Items.Add(new Separator());
+        _settingsFlyout.Items.Add(new MenuItem { Header = "상단 바 아이콘", IsEnabled = false });
+        foreach (var style in Enum.GetValues<MenuBarArtworkStyle>())
+        {
+            _settingsFlyout.Items.Add(RadioItem(
+                style.DisplayName(),
+                current.MenuBarArtworkStyle == style,
+                () => _preferences.Update(p => p with { MenuBarArtworkStyle = style })));
+        }
+
         _settingsFlyout.ShowAt(_settingsButton);
     }
 
