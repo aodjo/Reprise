@@ -79,8 +79,8 @@ public sealed class ThemePanelPreview : Border
         BoxShadow = new BoxShadows(new BoxShadow { Blur = 12, OffsetY = 2, Color = Color.FromArgb(0x29, 0, 0, 0) });
         HorizontalAlignment = HorizontalAlignment.Center;
 
-        _title = new TextBlock { Text = "음악 제목 미리보기", FontSize = 13, FontWeight = FontWeight.SemiBold };
-        _artist = new TextBlock { Text = "아티스트", FontSize = 11 };
+        _title = new TextBlock { Text = "음악 제목 미리보기", FontSize = PanelTypography.Body, FontWeight = FontWeight.SemiBold };
+        _artist = new TextBlock { Text = "아티스트", FontSize = PanelTypography.Subtitle };
         _logo = new PanelGlyph { Icon = PanelIcons.MusicNote, IconSize = 17, Width = 19, Height = 19, VerticalAlignment = VerticalAlignment.Top };
         _controls =
         [
@@ -90,8 +90,8 @@ public sealed class ThemePanelPreview : Border
         ];
         _slider = new CompactSlider { Minimum = 0, Maximum = PreviewDuration, Value = 69 };
         _slider.UserValueChanged += (_, _) => UpdateTimes();
-        _leading = new TextBlock { FontSize = 10 };
-        _trailing = new TextBlock { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right };
+        _leading = new TextBlock { FontSize = PanelTypography.Caption };
+        _trailing = new TextBlock { FontSize = PanelTypography.Caption, HorizontalAlignment = HorizontalAlignment.Right };
 
         var header = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         var titles = new StackPanel { Spacing = 2, Children = { _title, _artist } };
@@ -263,8 +263,8 @@ public sealed class PanelTimePreview : Border
         _slider.UserValueChanged += (_, _) => UpdateTimes();
         _slider.Bind(CompactSlider.TrackBrushProperty, _slider.GetResourceObservable("SystemControlBackgroundBaseMediumLowBrush"));
         _slider.Bind(CompactSlider.FillBrushProperty, _slider.GetResourceObservable("SystemAccentColorBrush"));
-        _leading = new TextBlock { FontSize = 10 };
-        _trailing = new TextBlock { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right };
+        _leading = new TextBlock { FontSize = PanelTypography.Caption };
+        _trailing = new TextBlock { FontSize = PanelTypography.Caption, HorizontalAlignment = HorizontalAlignment.Right };
         _leading.Bind(TextBlock.ForegroundProperty, _leading.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
         _trailing.Bind(TextBlock.ForegroundProperty, _trailing.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
         var times = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Children = { _leading, _trailing } };

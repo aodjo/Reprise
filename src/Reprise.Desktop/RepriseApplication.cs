@@ -83,8 +83,9 @@ public sealed class RepriseApplication : Application
     /// <remarks>
     /// Shutdown is switched to explicit so dismissing the panel leaves
     /// Reprise running in the tray, which is the behaviour a media controller
-    /// wants: the panel is something to summon, not the app itself. Quitting
-    /// goes through the panel's exit button or the tray menu.
+    /// wants: the panel is something to summon, not the app itself. Clicking
+    /// the tray entry toggles the panel, and quitting goes through the
+    /// panel's exit button.
     /// <para>
     /// The panel is shown once at launch so a desktop without a working tray
     /// still gets to see it; from then on the tray entry toggles it.
@@ -122,8 +123,6 @@ public sealed class RepriseApplication : Application
             var statusItem = StatusItemFactory?.Invoke() ?? new AvaloniaTrayStatusItem(this);
             _statusItem = new StatusItemController(statusItem, viewModel, preferences);
             _statusItem.Activated += (_, _) => window.TogglePanel();
-            _statusItem.OpenRequested += (_, _) => window.ShowPanel();
-            _statusItem.QuitRequested += (_, _) => Quit(desktop, window);
             window.PanelShown += (_, _) =>
             {
                 if (preferences.Current.ResetsMenuTitleWhenPanelOpens)

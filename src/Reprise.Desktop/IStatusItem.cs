@@ -44,17 +44,12 @@ public interface IStatusItem : IDisposable
     /// <summary>
     /// Raised when the user clicks the item to bring up the panel.
     /// </summary>
+    /// <remarks>
+    /// The only interaction the item offers. It deliberately publishes no
+    /// menu: a click should reach the panel directly, as it does on macOS,
+    /// and everything a menu would carry lives in the panel's footer.
+    /// </remarks>
     event EventHandler? Activated;
-
-    /// <summary>
-    /// Raised when the user picks the open entry from the item's menu.
-    /// </summary>
-    event EventHandler? OpenRequested;
-
-    /// <summary>
-    /// Raised when the user picks quit from the item's menu.
-    /// </summary>
-    event EventHandler? QuitRequested;
 
     /// <summary>
     /// Registers the item with the desktop.

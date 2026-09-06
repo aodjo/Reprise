@@ -14,9 +14,15 @@ namespace Reprise.Platform.Linux.Tray;
 /// <c>XAyatanaLabel</c> property, which Ubuntu's GNOME, Budgie, MATE, and
 /// Xfce panels display - and that label is how the track title and lyrics
 /// reach the top bar, as they do in the macOS menu bar. So this class
-/// exports the item itself: the <c>org.kde.StatusNotifierItem</c> object,
-/// its <c>com.canonical.dbusmenu</c> context menu, and the registration
-/// with the desktop's watcher.
+/// exports the item itself: the <c>org.kde.StatusNotifierItem</c> object
+/// and its registration with the desktop's watcher.
+/// <para>
+/// No context menu is published, on purpose. A host that finds a menu
+/// opens it on a click, which would put a menu between the user and the
+/// panel; with none, hosts call <c>Activate</c> and the panel appears
+/// straight away, as the macOS status item does. Quitting lives in the
+/// panel footer.
+/// </para>
 /// <para>
 /// The item owns a dedicated bus connection rather than sharing the
 /// process-wide one the MPRIS client uses: Tmds.DBus reserves that shared
@@ -29,14 +35,17 @@ public sealed class StatusNotifierItem : IStatusItem
 {
     private const string ItemInterface = "org.kde.StatusNotifierItem";
     private const string ItemPath = "/StatusNotifierItem";
-    private const string MenuPath = "/MenuBar";
+
+    /// <summary>
+    /// Object path published when there is no menu to offer.
+    /// </summary>
+    private const string NoMenuPath = "/";
     private const string WatcherService = "org.kde.StatusNotifierWatcher";
     private const string WatcherPath = "/StatusNotifierWatcher";
 
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(5);
 
     private readonly ItemHandler _item;
-    private readonly DBusMenuHandler _menu;
     private DBusConnection? _connection;
     private string? _serviceName;
     private bool _disposed;
@@ -47,19 +56,10 @@ public sealed class StatusNotifierItem : IStatusItem
     public StatusNotifierItem()
     {
         _item = new ItemHandler(this);
-        _menu = new DBusMenuHandler(
-            openRequested: () => OpenRequested?.Invoke(this, EventArgs.Empty),
-            quitRequested: () => QuitRequested?.Invoke(this, EventArgs.Empty));
     }
 
     /// <inheritdoc />
     public event EventHandler? Activated;
-
-    /// <inheritdoc />
-    public event EventHandler? OpenRequested;
-
-    /// <inheritdoc />
-    public event EventHandler? QuitRequested;
 
     /// <summary>
     /// Exports the item on the session bus and registers it with the watcher.
@@ -103,7 +103,6 @@ public sealed class StatusNotifierItem : IStatusItem
         }
 
         connection.AddMethodHandler(_item);
-        connection.AddMethodHandler(_menu);
 
         var rule = new MatchRule
         {
@@ -305,20 +304,51 @@ public sealed class StatusNotifierItem : IStatusItem
         /// </summary>
         public StatusItemState State { get; set; } = new(string.Empty, string.Empty, "Reprise", []);
 
-        /// <inheritdoc />
-        public string Path => ItemPath;
+        /// <summary>
+        /// Serves the whole object tree, not just the item's own path.
+        /// </summary>
+        /// <remarks>
+        /// Tmds.DBus leaves a call to an unregistered path unanswered, so
+        /// the caller waits out its own timeout. Hosts probe for objects
+        /// Reprise deliberately does not offer - a
+        /// <c>com.canonical.dbusmenu</c> object above all - and a host that
+        /// blocked for twenty-five seconds on that probe would take its
+        /// panel down with it. Owning the root lets every such call be
+        /// answered at once with the error the specification defines.
+        /// </remarks>
+        public string Path => "/";
 
         /// <inheritdoc />
-        public bool HandlesChildPaths => false;
+        public bool HandlesChildPaths => true;
 
         /// <summary>
         /// Answers property reads, transport methods, and introspection.
         /// </summary>
+        /// <remarks>
+        /// Anything addressed to a path other than the item's is refused
+        /// rather than ignored; see <see cref="Path"/>.
+        /// </remarks>
         /// <param name="context">The incoming call.</param>
         /// <returns>A completed task; every reply is written synchronously.</returns>
         public ValueTask HandleMethodAsync(MethodContext context)
         {
             var request = context.Request;
+            if (request.PathAsString != ItemPath)
+            {
+                if (context.IsDBusIntrospectRequest)
+                {
+                    context.ReplyIntrospectXml([], request.PathAsString == "/" ? ["StatusNotifierItem"] : Array.Empty<string>());
+                }
+                else
+                {
+                    context.ReplyError(
+                        "org.freedesktop.DBus.Error.UnknownObject",
+                        $"No object exists at path {request.PathAsString}.");
+                }
+
+                return ValueTask.CompletedTask;
+            }
+
             if (context.IsDBusIntrospectRequest)
             {
                 context.ReplyIntrospectXml([IntrospectionXml], Array.Empty<string>());
@@ -342,6 +372,11 @@ public sealed class StatusNotifierItem : IStatusItem
         /// <summary>
         /// Dispatches one <c>org.kde.StatusNotifierItem</c> method.
         /// </summary>
+        /// <remarks>
+        /// Every click - primary, secondary, and the context-menu request a
+        /// host sends for a right click - opens the panel, since there is no
+        /// menu to show instead.
+        /// </remarks>
         /// <param name="context">The incoming call.</param>
         private void HandleItemMethod(MethodContext context)
         {
@@ -349,10 +384,10 @@ public sealed class StatusNotifierItem : IStatusItem
             {
                 case "Activate":
                 case "SecondaryActivate":
+                case "ContextMenu":
                     _owner.Activated?.Invoke(_owner, EventArgs.Empty);
                     DBusReply.SendEmpty(context);
                     break;
-                case "ContextMenu":
                 case "Scroll":
                 case "ProvideXdgActivationToken":
                     DBusReply.SendEmpty(context);
@@ -469,7 +504,7 @@ public sealed class StatusNotifierItem : IStatusItem
                     writer.WriteVariantBool(false);
                     break;
                 case "Menu":
-                    writer.WriteVariantObjectPath(MenuPath);
+                    writer.WriteVariantObjectPath(NoMenuPath);
                     break;
                 case "XAyatanaLabel":
                     writer.WriteVariantString(state.Label);

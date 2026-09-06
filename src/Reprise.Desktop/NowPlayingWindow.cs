@@ -20,9 +20,9 @@ namespace Reprise.Desktop;
 /// </summary>
 /// <remarks>
 /// A port of the macOS <c>PlayerPopoverView</c> to Avalonia, laid out to the
-/// same measurements: a 360-wide borderless panel with 16-point corners, a
-/// 112-point card, a 136-point lyrics strip when synced lyrics exist, and a
-/// 30-point footer. It behaves like a popover too -
+/// same proportions: a 360-wide borderless panel with 16-point corners, a
+/// card whose cover matches its text column, a 136-point lyrics strip when
+/// synced lyrics exist, and a 30-point footer. It behaves like a popover too -
 /// it hides when it loses focus or on Escape, and the tray icon brings it
 /// back - rather than like a document window.
 /// <para>
@@ -46,9 +46,14 @@ public sealed class NowPlayingWindow : Window
     public const double PanelCornerRadius = 16;
 
     /// <summary>
-    /// Edge length of the album cover in the card.
+    /// Smallest the album cover is allowed to be.
     /// </summary>
-    private const double ArtworkSize = 112;
+    /// <remarks>
+    /// The cover is square and as tall as the text column beside it, so its
+    /// size follows the type scale rather than a fixed number. This floor
+    /// only matters before the column has been measured.
+    /// </remarks>
+    private const double MinimumArtworkSize = 72;
 
     /// <summary>
     /// Gap kept between the panel and the edge of the screen when first shown.
@@ -172,24 +177,25 @@ public sealed class NowPlayingWindow : Window
         _artworkImage = new Image { Stretch = Stretch.UniformToFill };
         _artworkGlyph = new PanelGlyph
         {
-            IconSize = Math.Max(ArtworkSize * 0.32, 10),
+            IconSize = Math.Max(MinimumArtworkSize * 0.32, 10),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
         };
         _artworkPlaceholder = new Border { Child = _artworkGlyph };
         _artworkFrame = new Border
         {
-            Width = ArtworkSize,
-            Height = ArtworkSize,
-            CornerRadius = new CornerRadius(11),
+            Width = MinimumArtworkSize,
+            Height = MinimumArtworkSize,
+            CornerRadius = new CornerRadius(10),
             ClipToBounds = true,
+            VerticalAlignment = VerticalAlignment.Top,
             Child = new Panel { Children = { _artworkPlaceholder, _artworkImage } },
         };
 
-        _title = new PanelTitleMarquee { Height = 17 };
+        _title = new PanelTitleMarquee { Height = 16, FontSize = PanelTypography.Title };
         _artist = new TextBlock
         {
-            FontSize = 11,
+            FontSize = PanelTypography.Subtitle,
             TextTrimming = TextTrimming.CharacterEllipsis,
         };
         _playerLogo = new PanelGlyph
@@ -212,8 +218,8 @@ public sealed class NowPlayingWindow : Window
         _seekSlider.UserValueChanged += (_, value) => _viewModel.UpdateSeek(TimeSpan.FromSeconds(value));
         _seekSlider.DragCompleted += async (_, _) => await _viewModel.EndSeekAsync();
         ToolTip.SetTip(_seekSlider, "재생 위치 이동");
-        _leadingTime = new TextBlock { FontSize = 10 };
-        _trailingTime = new TextBlock { FontSize = 10, HorizontalAlignment = HorizontalAlignment.Right };
+        _leadingTime = new TextBlock { FontSize = PanelTypography.Caption };
+        _trailingTime = new TextBlock { FontSize = PanelTypography.Caption, HorizontalAlignment = HorizontalAlignment.Right };
 
         _card = BuildCard();
 
@@ -224,14 +230,14 @@ public sealed class NowPlayingWindow : Window
         };
         _emptyTitle = new TextBlock
         {
-            FontSize = 15,
+            FontSize = PanelTypography.Heading,
             FontWeight = FontWeight.SemiBold,
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
         };
         _emptyDescription = new TextBlock
         {
-            FontSize = 11,
+            FontSize = PanelTypography.Subtitle,
             TextAlignment = TextAlignment.Center,
             TextWrapping = TextWrapping.Wrap,
         };
@@ -261,7 +267,7 @@ public sealed class NowPlayingWindow : Window
         };
         _errorText = new TextBlock
         {
-            FontSize = 10,
+            FontSize = PanelTypography.Caption,
             TextWrapping = TextWrapping.Wrap,
             TextTrimming = TextTrimming.CharacterEllipsis,
             MaxLines = 3,
@@ -284,7 +290,7 @@ public sealed class NowPlayingWindow : Window
 
         _versionText = new TextBlock
         {
-            FontSize = 10,
+            FontSize = PanelTypography.Caption,
             Text = VersionText(),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -322,7 +328,7 @@ public sealed class NowPlayingWindow : Window
         _volumeSlider.DragCompleted += (_, _) => _viewModel.IsVolumeEditing = false;
         _volumeValue = new TextBlock
         {
-            FontSize = 10,
+            FontSize = PanelTypography.Caption,
             Width = 23,
             TextAlignment = TextAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
@@ -480,6 +486,12 @@ public sealed class NowPlayingWindow : Window
     /// Artwork on the left, then a column of title and artist with the
     /// player mark at its top-right, the transport centred, and the scrubber
     /// with its two time labels at the bottom - the macOS card exactly.
+    /// <para>
+    /// The column sizes itself to its content and the cover follows, rather
+    /// than both being pinned to one number: the two then stay exactly as
+    /// tall as each other whatever the type scale, and the card has no slack
+    /// to spread between its rows.
+    /// </para>
     /// </remarks>
     /// <returns>The card's content tree.</returns>
     private Grid BuildCard()
@@ -519,13 +531,20 @@ public sealed class NowPlayingWindow : Window
 
         var column = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,*,Auto"),
-            Margin = new Thickness(14, 0, 0, 0),
-            Height = ArtworkSize,
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto"),
+            RowSpacing = 6,
+            Margin = new Thickness(12, 0, 0, 0),
             Children = { header, controls, progress },
         };
         Grid.SetRow(controls, 1);
         Grid.SetRow(progress, 2);
+        column.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == BoundsProperty)
+            {
+                ResizeArtwork(column.Bounds.Height);
+            }
+        };
 
         var card = new Grid
         {
@@ -535,6 +554,24 @@ public sealed class NowPlayingWindow : Window
         };
         Grid.SetColumn(column, 1);
         return card;
+    }
+
+    /// <summary>
+    /// Squares the album cover off against the height of the text column.
+    /// </summary>
+    /// <param name="height">Measured height of the column beside it.</param>
+    private void ResizeArtwork(double height)
+    {
+        var size = Math.Round(Math.Max(height, MinimumArtworkSize));
+        if (Math.Abs(_artworkFrame.Width - size) < 0.5)
+        {
+            return;
+        }
+
+        _artworkFrame.Width = size;
+        _artworkFrame.Height = size;
+        _artworkFrame.CornerRadius = new CornerRadius(Math.Round(size * 0.1));
+        _artworkGlyph.IconSize = Math.Max(size * 0.32, 10);
     }
 
     /// <summary>
@@ -983,7 +1020,7 @@ public sealed class NowPlayingWindow : Window
             try
             {
                 using var stream = new MemoryStream(bytes);
-                _artworkBitmap = Bitmap.DecodeToWidth(stream, (int)(ArtworkSize * 2));
+                _artworkBitmap = Bitmap.DecodeToWidth(stream, (int)Math.Max(_artworkFrame.Width * 2, MinimumArtworkSize * 2));
             }
             catch (Exception)
             {

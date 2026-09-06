@@ -11,8 +11,14 @@ The tray entry is Reprise's own StatusNotifierItem rather than Avalonia's, so
 it can carry text beside the icon the way the macOS menu bar does. Panels that
 honour the Ubuntu label extension - Ubuntu's GNOME, Budgie, MATE, and Xfce
 with the indicator plugin - show the track title (or the current lyric line)
-next to the album cover; KDE Plasma and other hosts show the cover and menu
-only. Long text scrolls by stepping one character every quarter second.
+next to the album cover; KDE Plasma and other hosts show the cover alone. Long
+text scrolls by stepping one character at the marquee speed. The entry
+publishes no menu, so a click opens the panel straight away as it does on
+macOS; quitting is in the panel footer.
+
+The interface is set in Pretendard, bundled with the application, so the panel
+looks the same on every distribution and covers Hangul without depending on
+which fonts are installed.
 
 The gear button in the panel footer opens a settings window with the same
 six tabs as the macOS app - General, YouTube Music, Theme, Menu bar, Panel,

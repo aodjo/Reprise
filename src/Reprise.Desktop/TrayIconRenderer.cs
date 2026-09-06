@@ -20,7 +20,23 @@ public static class TrayIconRenderer
     /// <summary>
     /// Edge lengths rendered for every icon, covering common panel heights.
     /// </summary>
-    public static readonly int[] Sizes = [22, 32];
+    /// <remarks>
+    /// Hosts pick the pixmap nearest their icon size and scale it, so
+    /// offering the sizes GNOME, KDE, and Xfce actually use keeps the cover
+    /// crisp rather than resampled.
+    /// </remarks>
+    public static readonly int[] Sizes = [16, 22, 24, 32];
+
+    /// <summary>
+    /// Share of the pixmap the album cover fills; the rest stays clear.
+    /// </summary>
+    /// <remarks>
+    /// A cover drawn edge to edge stands taller than the label beside it,
+    /// because a panel sizes icons to the line height while text only
+    /// reaches its cap height. Insetting brings the two level, the way the
+    /// macOS menu bar draws an 18-point cover in a 22-point item.
+    /// </remarks>
+    public const double ArtworkScale = 0.82;
 
     private static readonly Uri ApplicationIconUri = new("avares://Reprise.Desktop/Assets/reprise.png");
     private static IReadOnlyList<StatusItemIcon>? _applicationIcons;
@@ -57,8 +73,9 @@ public static class TrayIconRenderer
         {
             return Sizes.Select(size => Render(size, (context, bounds) =>
             {
-                using var clip = context.PushClip(new RoundedRect(bounds, size * 0.22));
-                context.DrawImage(cover, CenteredSquare(cover.PixelSize), bounds);
+                var target = Inset(bounds);
+                using var clip = context.PushClip(new RoundedRect(target, target.Width * 0.22));
+                context.DrawImage(cover, CenteredSquare(cover.PixelSize), target);
             })).ToList();
         }
     }
@@ -80,7 +97,7 @@ public static class TrayIconRenderer
         using var stream = AssetLoader.Open(ApplicationIconUri);
         using var source = new Bitmap(stream);
         _applicationIcons = Sizes.Select(size => Render(size, (context, bounds) =>
-            context.DrawImage(source, new Rect(source.Size), bounds))).ToList();
+            context.DrawImage(source, new Rect(source.Size), Inset(bounds)))).ToList();
         return _applicationIcons;
     }
 
@@ -152,6 +169,18 @@ public static class TrayIconRenderer
         }
 
         return ToStatusItemIcon(target);
+    }
+
+    /// <summary>
+    /// The area an icon is drawn into, inset by <see cref="ArtworkScale"/>.
+    /// </summary>
+    /// <param name="bounds">Full pixmap bounds.</param>
+    /// <returns>A centred square on whole pixels.</returns>
+    private static Rect Inset(Rect bounds)
+    {
+        var edge = Math.Round(bounds.Width * ArtworkScale);
+        var offset = Math.Floor((bounds.Width - edge) / 2);
+        return new Rect(offset, offset, edge, edge);
     }
 
     /// <summary>

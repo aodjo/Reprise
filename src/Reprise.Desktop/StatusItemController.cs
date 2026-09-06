@@ -54,8 +54,6 @@ public sealed class StatusItemController : IDisposable
             (_, _) => Refresh());
 
         _item.Activated += (_, _) => Dispatcher.UIThread.Post(() => Activated?.Invoke(this, EventArgs.Empty));
-        _item.OpenRequested += (_, _) => Dispatcher.UIThread.Post(() => OpenRequested?.Invoke(this, EventArgs.Empty));
-        _item.QuitRequested += (_, _) => Dispatcher.UIThread.Post(() => QuitRequested?.Invoke(this, EventArgs.Empty));
         _viewModel.PropertyChanged += HandleViewModelChanged;
         _preferences.Changed += HandlePreferencesChanged;
     }
@@ -64,16 +62,6 @@ public sealed class StatusItemController : IDisposable
     /// Raised on the UI thread when the tray entry is clicked.
     /// </summary>
     public event EventHandler? Activated;
-
-    /// <summary>
-    /// Raised on the UI thread when the tray menu's open entry is chosen.
-    /// </summary>
-    public event EventHandler? OpenRequested;
-
-    /// <summary>
-    /// Raised on the UI thread when the tray menu's quit entry is chosen.
-    /// </summary>
-    public event EventHandler? QuitRequested;
 
     /// <summary>
     /// Registers the tray entry and starts following playback.

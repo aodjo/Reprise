@@ -8,10 +8,11 @@ namespace Reprise.Desktop;
 /// Tray entry built on Avalonia's own <see cref="TrayIcon"/>.
 /// </summary>
 /// <remarks>
-/// The fallback for platforms without a dedicated implementation. It can
-/// show an icon, a tooltip, and a menu, but no label: Avalonia's tray has
-/// no notion of text beside the icon, which is why Linux brings its own
-/// D-Bus implementation instead.
+/// The fallback for platforms without a dedicated implementation. It shows
+/// an icon and a tooltip, but no label: Avalonia's tray has no notion of
+/// text beside the icon, which is why Linux brings its own D-Bus
+/// implementation instead. Like that one it offers no menu, so a click
+/// opens the panel directly.
 /// </remarks>
 public sealed class AvaloniaTrayStatusItem : IStatusItem
 {
@@ -20,21 +21,12 @@ public sealed class AvaloniaTrayStatusItem : IStatusItem
     private bool _disposed;
 
     /// <summary>
-    /// Creates the tray icon with the standard menu.
+    /// Creates the tray icon.
     /// </summary>
     /// <param name="application">Application the icon belongs to.</param>
     public AvaloniaTrayStatusItem(Application application)
     {
         _application = application;
-
-        var openItem = new NativeMenuItem { Header = "Reprise 열기" };
-        openItem.Click += (_, _) => OpenRequested?.Invoke(this, EventArgs.Empty);
-        var quitItem = new NativeMenuItem { Header = "Reprise 종료" };
-        quitItem.Click += (_, _) => QuitRequested?.Invoke(this, EventArgs.Empty);
-        var menu = new NativeMenu();
-        menu.Add(openItem);
-        menu.Add(new NativeMenuItemSeparator());
-        menu.Add(quitItem);
 
         using var iconStream = AssetLoader.Open(new Uri("avares://Reprise.Desktop/Assets/reprise.png"));
         _trayIcon = new TrayIcon
@@ -42,19 +34,12 @@ public sealed class AvaloniaTrayStatusItem : IStatusItem
             Icon = new WindowIcon(iconStream),
             IsVisible = false,
             ToolTipText = "Reprise",
-            Menu = menu,
         };
         _trayIcon.Clicked += (_, _) => Activated?.Invoke(this, EventArgs.Empty);
     }
 
     /// <inheritdoc />
     public event EventHandler? Activated;
-
-    /// <inheritdoc />
-    public event EventHandler? OpenRequested;
-
-    /// <inheritdoc />
-    public event EventHandler? QuitRequested;
 
     /// <summary>
     /// Shows the tray icon.

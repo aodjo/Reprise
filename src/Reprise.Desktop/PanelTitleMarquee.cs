@@ -45,7 +45,7 @@ public sealed class PanelTitleMarquee : Control
     private static readonly TimeSpan HoverInitialPause = TimeSpan.FromSeconds(0.25);
 
     private static readonly Typeface TitleTypeface = new(
-        FontFamily.Default,
+        PanelTypography.Family,
         FontStyle.Normal,
         FontWeight.SemiBold);
 
@@ -74,10 +74,10 @@ public sealed class PanelTitleMarquee : Control
         AvaloniaProperty.Register<PanelTitleMarquee, double>(nameof(PointsPerSecond), 30);
 
     /// <summary>
-    /// Font size of the title, matching the macOS system font size.
+    /// Font size of the title.
     /// </summary>
     public static readonly StyledProperty<double> FontSizeProperty =
-        AvaloniaProperty.Register<PanelTitleMarquee, double>(nameof(FontSize), 13);
+        AvaloniaProperty.Register<PanelTitleMarquee, double>(nameof(FontSize), PanelTypography.Title);
 
     private readonly DispatcherTimer _frameTimer;
     private DateTimeOffset _scrollStart;

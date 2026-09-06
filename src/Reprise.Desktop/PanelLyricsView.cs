@@ -54,7 +54,7 @@ public sealed class PanelLyricsView : Control
     private static readonly TimeSpan CascadeDelay = TimeSpan.FromMilliseconds(45);
     private static readonly TimeSpan MoveDuration = TimeSpan.FromMilliseconds(560);
     private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(220);
-    private static readonly Typeface LineTypeface = new(FontFamily.Default, FontStyle.Normal, FontWeight.SemiBold);
+    private static readonly Typeface LineTypeface = new(PanelTypography.Family, FontStyle.Normal, FontWeight.SemiBold);
 
     /// <summary>
     /// Brush the lines are drawn with.
@@ -356,7 +356,7 @@ public sealed class PanelLyricsView : Control
             CultureInfo.CurrentUICulture,
             FlowDirection.LeftToRight,
             LineTypeface,
-            15,
+            PanelTypography.Lyric,
             Foreground ?? Brushes.Black)
         {
             MaxTextWidth = Math.Max(1, width - HorizontalPadding * 2),

@@ -141,14 +141,14 @@ public sealed class SettingsWindow : Window
             Children =
             {
                 glyph,
-                new TextBlock { Text = title, FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center },
+                new TextBlock { Text = title, FontSize = PanelTypography.Subtitle, HorizontalAlignment = HorizontalAlignment.Center },
             },
         };
         return new TabItem
         {
             Header = header,
             Content = content,
-            FontSize = 11,
+            FontSize = PanelTypography.Subtitle,
             Padding = new Thickness(10, 6),
         };
     }
@@ -205,7 +205,7 @@ public sealed class SettingsWindow : Window
             Width = 160,
             Value = Current.MenuBarLabelLength,
         };
-        var widthValue = new TextBlock { FontSize = 12, Width = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        var widthValue = new TextBlock { FontSize = PanelTypography.Small, Width = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
         widthValue.Bind(TextBlock.ForegroundProperty, widthValue.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
         widthSlider.ValueChanged += (_, _) =>
         {
@@ -249,7 +249,7 @@ public sealed class SettingsWindow : Window
         _autostartToggle = autostartToggle;
         _autostartError = new TextBlock
         {
-            FontSize = 11,
+            FontSize = PanelTypography.Subtitle,
             Foreground = Brushes.IndianRed,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(14, 0, 14, 8),
@@ -325,7 +325,7 @@ public sealed class SettingsWindow : Window
     private Control PriorityRow(IReadOnlyList<PanelPlayerLogo> order, int index)
     {
         var kind = order[index];
-        var number = new TextBlock { Text = (index + 1).ToString(), Width = 16, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+        var number = new TextBlock { Text = (index + 1).ToString(), Width = 16, FontSize = PanelTypography.Body, VerticalAlignment = VerticalAlignment.Center };
         number.Bind(TextBlock.ForegroundProperty, number.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
         var icon = new PanelGlyph
         {
@@ -340,7 +340,7 @@ public sealed class SettingsWindow : Window
             Height = 18,
         };
         icon.Bind(PanelGlyph.ForegroundProperty, icon.GetResourceObservable("SystemControlForegroundBaseHighBrush"));
-        var handle = new TextBlock { Text = "☰", FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+        var handle = new TextBlock { Text = "☰", FontSize = PanelTypography.Body, VerticalAlignment = VerticalAlignment.Center };
         handle.Bind(TextBlock.ForegroundProperty, handle.GetResourceObservable("SystemControlForegroundBaseMediumLowBrush"));
 
         var row = new Grid
@@ -355,7 +355,7 @@ public sealed class SettingsWindow : Window
             {
                 number,
                 icon,
-                new TextBlock { Text = PlayerPriority.DisplayName(kind), FontSize = 13, VerticalAlignment = VerticalAlignment.Center },
+                new TextBlock { Text = PlayerPriority.DisplayName(kind), FontSize = PanelTypography.Body, VerticalAlignment = VerticalAlignment.Center },
                 handle,
             },
         };
@@ -459,7 +459,7 @@ public sealed class SettingsWindow : Window
                 Spacing = 2,
                 Children =
                 {
-                    new TextBlock { Text = "연결된 세션 없음", FontSize = 13 },
+                    new TextBlock { Text = "연결된 세션 없음", FontSize = PanelTypography.Body },
                     SettingsForm.Footnote("브라우저에서 YouTube Music을 열고 재생을 시작해 주세요."),
                 },
             };
@@ -494,12 +494,12 @@ public sealed class SettingsWindow : Window
         glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable(isActive ? "SystemAccentColorBrush" : "SystemControlForegroundBaseMediumBrush"));
 
         var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        name.Children.Add(new TextBlock { Text = session.PlayerName, FontSize = 13, FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Center });
+        name.Children.Add(new TextBlock { Text = session.PlayerName, FontSize = PanelTypography.Body, FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Center });
         if (isActive)
         {
             var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 2) };
             badge.Bind(Border.BackgroundProperty, badge.GetResourceObservable("SystemControlBackgroundBaseLowBrush"));
-            var badgeText = new TextBlock { Text = "사용 중", FontSize = 10, FontWeight = FontWeight.SemiBold };
+            var badgeText = new TextBlock { Text = "사용 중", FontSize = PanelTypography.Caption, FontWeight = FontWeight.SemiBold };
             badgeText.Bind(TextBlock.ForegroundProperty, badgeText.GetResourceObservable("SystemAccentColorBrush"));
             badge.Child = badgeText;
             name.Children.Add(badge);
@@ -513,7 +513,7 @@ public sealed class SettingsWindow : Window
             PlaybackStatus.Stopped => $"정지 · {track}",
             _ => string.IsNullOrEmpty(track) ? "재생 정보 없음" : track,
         };
-        var detailText = new TextBlock { Text = detail, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis };
+        var detailText = new TextBlock { Text = detail, FontSize = PanelTypography.Subtitle, TextTrimming = TextTrimming.CharacterEllipsis };
         detailText.Bind(TextBlock.ForegroundProperty, detailText.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
 
         var state = new PanelGlyph
@@ -727,7 +727,7 @@ public sealed class SettingsWindow : Window
         foreach (var child in credit.Children.OfType<TextBlock>())
         {
             child.Margin = new Thickness(0);
-            child.FontSize = 11;
+            child.FontSize = PanelTypography.Subtitle;
         }
 
         var page = new Grid { RowDefinitions = new RowDefinitions("*,Auto") };

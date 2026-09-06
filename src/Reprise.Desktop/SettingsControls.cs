@@ -106,7 +106,7 @@ public static class SettingsForm
                 new TextBlock
                 {
                     Text = label,
-                    FontSize = 13,
+                    FontSize = PanelTypography.Body,
                     VerticalAlignment = VerticalAlignment.Center,
                     TextWrapping = TextWrapping.Wrap,
                 },
@@ -158,7 +158,7 @@ public static class SettingsForm
     /// <returns>The row.</returns>
     public static Control Value(string label, string value)
     {
-        var text = new TextBlock { Text = value, FontSize = 13 };
+        var text = new TextBlock { Text = value, FontSize = PanelTypography.Body };
         text.Bind(TextBlock.ForegroundProperty, text.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
         return Row(label, text);
     }
@@ -182,7 +182,7 @@ public static class SettingsForm
             Margin = new Thickness(14, 10),
             Children =
             {
-                new TextBlock { Text = label, FontSize = 13 },
+                new TextBlock { Text = label, FontSize = PanelTypography.Body },
                 picker,
             },
         };
@@ -199,7 +199,7 @@ public static class SettingsForm
         var caption = new TextBlock
         {
             Text = text,
-            FontSize = 12,
+            FontSize = PanelTypography.Small,
             FontWeight = FontWeight.SemiBold,
             Margin = new Thickness(12, 0, 0, 0),
         };
@@ -217,7 +217,7 @@ public static class SettingsForm
         var note = new TextBlock
         {
             Text = text,
-            FontSize = 11,
+            FontSize = PanelTypography.Subtitle,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(12, 0, 12, 0),
         };
@@ -247,7 +247,7 @@ public static class SettingsForm
         var link = new TextBlock
         {
             Text = text,
-            FontSize = 13,
+            FontSize = PanelTypography.Body,
             Cursor = new Cursor(StandardCursorType.Hand),
             TextDecorations = TextDecorations.Underline,
         };
@@ -295,7 +295,7 @@ public sealed class SegmentedPicker : Border
             var text = new TextBlock
             {
                 Text = label,
-                FontSize = 12,
+                FontSize = PanelTypography.Small,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
             };

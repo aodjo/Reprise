@@ -1,5 +1,6 @@
-using Avalonia;
 using System.Runtime.InteropServices;
+using Avalonia;
+using Avalonia.Media;
 using Reprise.Desktop;
 using Reprise.Platform.Linux.Mpris;
 using Reprise.Platform.Linux.Tray;
@@ -76,11 +77,15 @@ internal static class Program
     /// </remarks>
     /// <returns>
     /// A configured builder with the windowing backend detected from the
-    /// environment, X11 or Wayland.
+    /// environment, X11 or Wayland, and Pretendard as the default typeface.
     /// </returns>
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder
             .Configure<RepriseApplication>()
+            .With(new FontManagerOptions
+            {
+                DefaultFamilyName = PanelTypography.FamilyName,
+            })
             .UsePlatformDetect()
             .LogToTrace();
 }
