@@ -58,7 +58,7 @@ public sealed record DesktopPreferences(
     MenuBarTitleFormat MenuBarTitleFormat = MenuBarTitleFormat.TitleOnly,
     bool MenuBarShowsLyrics = false,
     MenuBarArtworkStyle MenuBarArtworkStyle = MenuBarArtworkStyle.AlbumArtwork,
-    int MenuBarLabelLength = 30,
+    int MenuBarLabelLength = 20,
     bool MenuBarReservesLabelWidth = true,
     bool ResetsMenuTitleWhenPanelOpens = true,
     bool AutomaticallyPausesOtherPlayer = false,

@@ -163,6 +163,33 @@ public static class MenuBarText
     }
 
     /// <summary>
+    /// Pads a label out to a fixed width so the tray entry stops resizing.
+    /// </summary>
+    /// <remarks>
+    /// A tray label is a string, not a measurement, so the only way to hold
+    /// a width is to make every label the same length. Trailing spaces do
+    /// that, and unlike a separate width hint they cannot overstate the
+    /// width: the label is exactly as wide as it reads.
+    /// </remarks>
+    /// <param name="text">Label text.</param>
+    /// <param name="length">Width to hold, in text elements.</param>
+    /// <returns>
+    /// The text padded with spaces to <paramref name="length"/>, or
+    /// unchanged when it is already that long.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// MenuBarText.Reserve("ab", 5); // "ab   "
+    /// </code>
+    /// </example>
+    public static string Reserve(string text, int length)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+        var elements = TextElements(text).Length;
+        return elements >= length ? text : text + new string(' ', length - elements);
+    }
+
+    /// <summary>
     /// Whether a text is long enough to scroll.
     /// </summary>
     /// <param name="text">Label text.</param>

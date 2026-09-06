@@ -151,12 +151,12 @@ public sealed class StatusNotifierItem : IStatusItem
             return;
         }
 
-        if (previous.Label != state.Label || previous.LabelGuide != state.LabelGuide)
+        if (previous.Label != state.Label)
         {
             DBusReply.Emit(connection, ItemPath, ItemInterface, "XAyatanaNewLabel", "ss", (ref MessageWriter writer) =>
             {
                 writer.WriteString(state.Label);
-                writer.WriteString(state.LabelGuide);
+                writer.WriteString(state.Label);
             });
         }
 
@@ -302,7 +302,7 @@ public sealed class StatusNotifierItem : IStatusItem
         /// <summary>
         /// Content currently served to hosts.
         /// </summary>
-        public StatusItemState State { get; set; } = new(string.Empty, string.Empty, "Reprise", []);
+        public StatusItemState State { get; set; } = new(string.Empty, "Reprise", []);
 
         /// <summary>
         /// Serves the whole object tree, not just the item's own path.
@@ -507,10 +507,8 @@ public sealed class StatusNotifierItem : IStatusItem
                     writer.WriteVariantObjectPath(NoMenuPath);
                     break;
                 case "XAyatanaLabel":
-                    writer.WriteVariantString(state.Label);
-                    break;
                 case "XAyatanaLabelGuide":
-                    writer.WriteVariantString(state.LabelGuide);
+                    writer.WriteVariantString(state.Label);
                     break;
             }
         }

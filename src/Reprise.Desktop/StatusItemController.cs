@@ -17,6 +17,11 @@ namespace Reprise.Desktop;
 /// </remarks>
 public sealed class StatusItemController : IDisposable
 {
+    /// <summary>
+    /// How close together two tray clicks have to be to count as one.
+    /// </summary>
+    private static readonly TimeSpan ActivationDebounce = TimeSpan.FromMilliseconds(250);
+
     private readonly IStatusItem _item;
     private readonly NowPlayingViewModel _viewModel;
     private readonly PreferencesStore _preferences;
@@ -26,6 +31,7 @@ public sealed class StatusItemController : IDisposable
     private byte[]? _iconSource;
     private IReadOnlyList<StatusItemIcon> _icons = [];
     private StatusItemState? _lastState;
+    private DateTimeOffset _lastActivated;
     private bool _disposed;
 
     /// <summary>
@@ -53,7 +59,7 @@ public sealed class StatusItemController : IDisposable
             DispatcherPriority.Background,
             (_, _) => Refresh());
 
-        _item.Activated += (_, _) => Dispatcher.UIThread.Post(() => Activated?.Invoke(this, EventArgs.Empty));
+        _item.Activated += (_, _) => Dispatcher.UIThread.Post(RaiseActivated);
         _viewModel.PropertyChanged += HandleViewModelChanged;
         _preferences.Changed += HandlePreferencesChanged;
     }
@@ -74,6 +80,26 @@ public sealed class StatusItemController : IDisposable
         Refresh();
         _timer.Start();
         return registered;
+    }
+
+    /// <summary>
+    /// Passes a tray click on, ignoring one that repeats too quickly.
+    /// </summary>
+    /// <remarks>
+    /// Some hosts answer a single click with more than one call - an
+    /// activation and a context-menu request, say - and the panel toggles,
+    /// so the two would cancel out and nothing would appear.
+    /// </remarks>
+    private void RaiseActivated()
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now - _lastActivated < ActivationDebounce)
+        {
+            return;
+        }
+
+        _lastActivated = now;
+        Activated?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -134,14 +160,16 @@ public sealed class StatusItemController : IDisposable
         var label = preferences.AutomaticallyScrollsTitles
             ? MenuBarText.Window(text, preferences.MenuBarLabelLength, now - _textShownAt, MenuBarText.StepIntervalFor(preferences.MarqueePointsPerSecond))
             : MenuBarText.Window(text, preferences.MenuBarLabelLength, TimeSpan.Zero);
-        var guide = preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth && label.Length > 0
-            ? new string('M', Math.Max(preferences.MenuBarLabelLength, 1))
-            : label;
+        if (preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth && label.Length > 0)
+        {
+            label = MenuBarText.Reserve(label, preferences.MenuBarLabelLength);
+        }
+
         var tooltip = session is null
             ? "Reprise"
             : string.IsNullOrEmpty(session.Artist) ? session.Title : $"{session.Title} — {session.Artist}";
 
-        var state = new StatusItemState(label, guide, tooltip, ResolveIcons(session, preferences));
+        var state = new StatusItemState(label, tooltip, ResolveIcons(session, preferences));
         if (state == _lastState)
         {
             return;

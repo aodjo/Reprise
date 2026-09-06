@@ -62,6 +62,18 @@ public sealed class NowPlayingWindow : Window
 
     private static readonly Color WarningColor = Color.FromRgb(0xFF, 0x95, 0x00);
 
+    /// <summary>
+    /// How long after being shown the panel may take its focus back.
+    /// </summary>
+    /// <remarks>
+    /// Clicking a tray icon hands focus to the desktop shell, and some
+    /// shells keep it: the panel appears, loses focus in the same instant,
+    /// and hides itself again, so the icon looks like it needs a second
+    /// click. Within this window the panel asks for focus once instead of
+    /// hiding; after it, a focus loss dismisses the panel as usual.
+    /// </remarks>
+    private static readonly TimeSpan FocusGracePeriod = TimeSpan.FromMilliseconds(600);
+
     private readonly NowPlayingViewModel _viewModel;
     private readonly PreferencesStore _preferences;
     private readonly DispatcherTimer _refreshTimer;
@@ -106,6 +118,8 @@ public sealed class NowPlayingWindow : Window
     private byte[]? _artworkBytes;
     private bool _wasActivated;
     private bool _positioned;
+    private DateTimeOffset _shownAt;
+    private bool _reclaimedFocus;
 
     /// <summary>
     /// Whether a close request should actually close the window.
@@ -426,6 +440,8 @@ public sealed class NowPlayingWindow : Window
             PositionByTray();
         }
 
+        _shownAt = DateTimeOffset.UtcNow;
+        _reclaimedFocus = false;
         Show();
         Activate();
         _ = _viewModel.RefreshAsync();
@@ -676,7 +692,9 @@ public sealed class NowPlayingWindow : Window
     /// Only after the window has actually been active once: a desktop that
     /// never grants activation would otherwise hide the panel the instant it
     /// appeared. Open pop-ups keep the panel, since dismissing them is what
-    /// took the focus.
+    /// took the focus. A focus loss in the first moments after the panel
+    /// appears is treated as the shell finishing its own click rather than
+    /// as the user moving on; see <see cref="FocusGracePeriod"/>.
     /// </remarks>
     /// <param name="sender">The window.</param>
     /// <param name="e">Unused.</param>
@@ -684,6 +702,13 @@ public sealed class NowPlayingWindow : Window
     {
         if (!_wasActivated || _volumePopup.IsOpen)
         {
+            return;
+        }
+
+        if (!_reclaimedFocus && DateTimeOffset.UtcNow - _shownAt < FocusGracePeriod)
+        {
+            _reclaimedFocus = true;
+            Activate();
             return;
         }
 

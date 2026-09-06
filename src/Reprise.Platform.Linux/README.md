@@ -12,9 +12,12 @@ it can carry text beside the icon the way the macOS menu bar does. Panels that
 honour the Ubuntu label extension - Ubuntu's GNOME, Budgie, MATE, and Xfce
 with the indicator plugin - show the track title (or the current lyric line)
 next to the album cover; KDE Plasma and other hosts show the cover alone. Long
-text scrolls by stepping one character at the marquee speed. The entry
-publishes no menu, so a click opens the panel straight away as it does on
-macOS; quitting is in the panel footer.
+text scrolls by stepping one character at the marquee speed, and the label
+never claims more width than it actually shows: a tray label is a string,
+not a measurement, so reserving space pads it with spaces rather than
+sending a wider hint. The entry publishes no menu, so a click opens the
+panel straight away as it does on macOS; quitting is in the panel footer.
+Its font is the panel's own, which no application can set.
 
 The interface is set in Pretendard, bundled with the application, so the panel
 looks the same on every distribution and covers Hangul without depending on

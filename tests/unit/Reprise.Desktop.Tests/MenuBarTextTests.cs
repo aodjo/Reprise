@@ -85,6 +85,17 @@ public sealed class MenuBarTextTests
     }
 
     /// <summary>
+    /// Reserving a width pads the label out and never trims it.
+    /// </summary>
+    [Fact]
+    public void ReserveHoldsAWidthWithoutOverstatingIt()
+    {
+        Assert.Equal("ab   ", MenuBarText.Reserve("ab", 5));
+        Assert.Equal("abcdef", MenuBarText.Reserve("abcdef", 4));
+        Assert.Equal("🎵 ", MenuBarText.Reserve("🎵", 2));
+    }
+
+    /// <summary>
     /// Surrogate pairs and combining sequences move as one character.
     /// </summary>
     [Fact]
