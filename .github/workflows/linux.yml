@@ -324,7 +324,7 @@ jobs:
   publish-repository:
     name: Publish the apt repository
     needs: platform-tests
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
