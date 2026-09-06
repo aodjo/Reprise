@@ -9,7 +9,11 @@
 # Usage: build-deb.sh <published-app-dir> <arch> <version> <output-dir>
 #   published-app-dir  Output of "dotnet publish --self-contained"
 #   arch               Debian architecture: amd64 or arm64
-#   version            Package version, for example 2.0.0~alpha.1
+#   version            Package version, for example 2.0.0~alpha.1. A build
+#                      stamp is appended so that two packages built from the
+#                      same source still compare as newer and older: without
+#                      it apt sees the same version and skips the install,
+#                      leaving the previous build running.
 #   output-dir         Where the .deb is written
 set -euo pipefail
 
@@ -19,6 +23,8 @@ version="${3:?package version}"
 output_dir="${4:?output directory}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
+
+version="$version+$(date -u +%Y%m%d%H%M%S)"
 
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT

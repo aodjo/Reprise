@@ -89,7 +89,7 @@ Install the Debian package from the
 from source:
 
 ```bash
-sudo apt install ./reprise_2.0.0~alpha.1_amd64.deb
+sudo apt install ./reprise_2.0.0~alpha.1+*_amd64.deb
 dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
 ```
 

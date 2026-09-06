@@ -11,7 +11,15 @@ the path, a desktop entry, and the GNOME extension where the shell looks for
 it.
 
 ```bash
-sudo apt install ./reprise_2.0.0~alpha.1_amd64.deb
+sudo apt install ./reprise_2.0.0~alpha.1+*_amd64.deb
+```
+
+Each build carries a stamp after the version, so installing a newer file over
+an older one upgrades it rather than being skipped as already installed.
+Removing it again is by package name, not by file:
+
+```bash
+sudo apt remove reprise
 ```
 
 The GNOME extension is switched on as part of the install, and Reprise checks

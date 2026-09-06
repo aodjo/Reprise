@@ -273,6 +273,8 @@ jobs:
             "$version" \
             Artifacts
 
+          ls Artifacts/*.deb
+
       - name: Upload Linux application
         if: steps.discover.outputs.ready == 'true'
         uses: actions/upload-artifact@v7
