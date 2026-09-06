@@ -747,7 +747,10 @@ public sealed class NowPlayingWindow : Window
     /// <remarks>
     /// Also sets the window's theme variant, so the settings menu and tooltips
     /// - which come from the Fluent theme - match the panel rather than the
-    /// desktop.
+    /// desktop. Rounded corners need a see-through window; where the desktop
+    /// grants none, the corners are squared off and the fallback fill is
+    /// matched to the panel, since Avalonia would otherwise paint the area
+    /// outside the rounding white.
     /// </remarks>
     private void ApplyPalette()
     {
@@ -785,6 +788,8 @@ public sealed class NowPlayingWindow : Window
         _root.Background = new SolidColorBrush(_palette.Background);
         _root.BorderThickness = new Thickness(_preferences.Current.PanelTheme == PanelTheme.Liquid ? 1 : 0);
         _root.BorderBrush = new SolidColorBrush(PanelPalette.WithAlpha(_palette.Primary, 0.08));
+        _root.CornerRadius = new CornerRadius(translucency == PanelTranslucency.None ? 0 : PanelCornerRadius);
+        TransparencyBackgroundFallback = new SolidColorBrush(PanelPalette.WithAlpha(_palette.Background, 1));
 
         _artworkPlaceholder.Background = new LinearGradientBrush
         {
