@@ -53,35 +53,19 @@ public sealed class MenuBarTextTests
     }
 
     /// <summary>
-    /// A short text is returned whole; a long one rests, then steps through a ring.
+    /// A long line is published whole, never cut to fit.
     /// </summary>
+    /// <remarks>
+    /// The tray label is the one place a title cannot scroll, so shortening
+    /// it would mean the user simply never sees the end of the line.
+    /// </remarks>
     [Fact]
-    public void WindowRestsThenScrolls()
+    public void LongTextIsNeverShortened()
     {
-        Assert.Equal("abc", MenuBarText.Window("abc", 4, TimeSpan.FromSeconds(10)));
-        Assert.Equal("abcd", MenuBarText.Window("abcdef", 4, TimeSpan.Zero));
-        Assert.Equal("abcd", MenuBarText.Window("abcdef", 4, MenuBarText.InitialPause));
+        var title = new string('가', 80);
+        var session = Session with { Title = title };
 
-        var oneStep = MenuBarText.InitialPause + MenuBarText.StepInterval;
-        Assert.Equal("bcde", MenuBarText.Window("abcdef", 4, oneStep));
-
-        var ring = "abcdef" + MenuBarText.ScrollGap;
-        var fullCycle = MenuBarText.InitialPause + MenuBarText.StepInterval * ring.Length;
-        Assert.Equal("abcd", MenuBarText.Window("abcdef", 4, fullCycle));
-        Assert.True(MenuBarText.Scrolls("abcdef", 4));
-        Assert.False(MenuBarText.Scrolls("abc", 4));
-    }
-
-    /// <summary>
-    /// The marquee speed scales the step interval around the normal setting.
-    /// </summary>
-    [Fact]
-    public void StepIntervalScalesWithSpeed()
-    {
-        Assert.Equal(MenuBarText.StepInterval, MenuBarText.StepIntervalFor(30));
-        Assert.True(MenuBarText.StepIntervalFor(45) < MenuBarText.StepInterval);
-        Assert.True(MenuBarText.StepIntervalFor(20) > MenuBarText.StepInterval);
-        Assert.Equal("bcde", MenuBarText.Window("abcdef", 4, MenuBarText.InitialPause + MenuBarText.StepIntervalFor(45), MenuBarText.StepIntervalFor(45)));
+        Assert.Equal(title, MenuBarText.Compose(session, null, new DesktopPreferences(MenuBarLabelLength: 10)));
     }
 
     /// <summary>
@@ -93,17 +77,5 @@ public sealed class MenuBarTextTests
         Assert.Equal("ab   ", MenuBarText.Reserve("ab", 5));
         Assert.Equal("abcdef", MenuBarText.Reserve("abcdef", 4));
         Assert.Equal("🎵 ", MenuBarText.Reserve("🎵", 2));
-    }
-
-    /// <summary>
-    /// Surrogate pairs and combining sequences move as one character.
-    /// </summary>
-    [Fact]
-    public void WindowKeepsTextElementsIntact()
-    {
-        const string text = "🎵ábcd";
-
-        Assert.Equal("🎵áb", MenuBarText.Window(text, 3, TimeSpan.Zero));
-        Assert.Equal("ábc", MenuBarText.Window(text, 3, MenuBarText.InitialPause + MenuBarText.StepInterval));
     }
 }

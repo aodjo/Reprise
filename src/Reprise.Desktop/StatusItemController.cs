@@ -10,10 +10,9 @@ namespace Reprise.Desktop;
 /// </summary>
 /// <remarks>
 /// Owns the only timer that touches the tray. It recomputes the label and
-/// icon four times a second - the step rate of the label marquee - and
-/// pushes an update only when something visible changed, so an idle tray
-/// costs no bus traffic. Events from the tray arrive on the platform's
-/// thread and are re-raised on the UI thread.
+/// icon four times a second and pushes an update only when something
+/// visible changed, so an idle tray costs no bus traffic. Events from the
+/// tray arrive on the platform's thread and are re-raised on the UI thread.
 /// </remarks>
 public sealed class StatusItemController : IDisposable
 {
@@ -22,12 +21,20 @@ public sealed class StatusItemController : IDisposable
     /// </summary>
     private static readonly TimeSpan ActivationDebounce = TimeSpan.FromMilliseconds(250);
 
+    /// <summary>
+    /// How often the tray content is recomputed.
+    /// </summary>
+    /// <remarks>
+    /// Fast enough that a lyric line reaches the panel about when it is
+    /// sung. Nothing is pushed unless the content actually changed, so the
+    /// rate costs no bus traffic between lines.
+    /// </remarks>
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(250);
+
     private readonly IStatusItem _item;
     private readonly NowPlayingViewModel _viewModel;
     private readonly PreferencesStore _preferences;
     private readonly DispatcherTimer _timer;
-    private string _fullText = string.Empty;
-    private DateTimeOffset _textShownAt;
     private byte[]? _iconSource;
     private IReadOnlyList<StatusItemIcon> _icons = [];
     private StatusItemState? _lastState;
@@ -55,7 +62,7 @@ public sealed class StatusItemController : IDisposable
         _viewModel = viewModel;
         _preferences = preferences;
         _timer = new DispatcherTimer(
-            MenuBarText.StepInterval,
+            RefreshInterval,
             DispatcherPriority.Background,
             (_, _) => Refresh());
 
@@ -103,19 +110,6 @@ public sealed class StatusItemController : IDisposable
     }
 
     /// <summary>
-    /// Restarts a scrolling label from its beginning.
-    /// </summary>
-    /// <remarks>
-    /// Called when the panel opens, if the user asked for it, so the title
-    /// in the tray and the title in the panel line up.
-    /// </remarks>
-    public void RestartScroll()
-    {
-        _textShownAt = DateTimeOffset.UtcNow;
-        Refresh();
-    }
-
-    /// <summary>
     /// Stops updates and releases the tray entry.
     /// </summary>
     public void Dispose()
@@ -150,16 +144,7 @@ public sealed class StatusItemController : IDisposable
         var session = _viewModel.ActiveSession;
         var now = DateTimeOffset.UtcNow;
         var lyric = preferences.MenuBarShowsLyrics ? _viewModel.CurrentLyricLine(now)?.Text : null;
-        var text = MenuBarText.Compose(session, lyric, preferences);
-        if (text != _fullText)
-        {
-            _fullText = text;
-            _textShownAt = now;
-        }
-
-        var label = preferences.AutomaticallyScrollsTitles
-            ? MenuBarText.Window(text, preferences.MenuBarLabelLength, now - _textShownAt, MenuBarText.StepIntervalFor(preferences.MarqueePointsPerSecond))
-            : MenuBarText.Window(text, preferences.MenuBarLabelLength, TimeSpan.Zero);
+        var label = MenuBarText.Compose(session, lyric, preferences);
         if (preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth && label.Length > 0)
         {
             label = MenuBarText.Reserve(label, preferences.MenuBarLabelLength);

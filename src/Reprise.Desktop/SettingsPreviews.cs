@@ -181,6 +181,10 @@ public sealed class ThemePanelPreview : Border
 /// <summary>
 /// A mock of the tray entry on a blue top bar, used by the menu bar tab.
 /// </summary>
+/// <remarks>
+/// The text does not move here, because the real tray label does not
+/// either: it carries the whole line and the panel sizes itself to it.
+/// </remarks>
 public sealed class MenuBarPreview : Border
 {
     private readonly PreviewArtwork _artwork;
@@ -228,13 +232,12 @@ public sealed class MenuBarPreview : Border
             ? "다시 만나요"
             : MenuBarText.FormatTitle(preferences.MenuBarTitleFormat, "여기에 재생 중인 음악 제목이 표시됩니다", "미리보기 아티스트");
         _marquee.Title = text;
-        _marquee.AutomaticallyScrolls = preferences.AutomaticallyScrollsTitles;
+        _marquee.AutomaticallyScrolls = false;
         _marquee.PointsPerSecond = preferences.MarqueePointsPerSecond;
-        var maximum = preferences.MenuBarLabelLength * 7.5;
-        var natural = Math.Min(text.Length * 7.5, 220);
+        var natural = Math.Min(text.Length * 7.5, 260);
         _marquee.Width = preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth
-            ? maximum
-            : Math.Min(natural, maximum);
+            ? Math.Max(natural, preferences.MenuBarLabelLength * 7.5)
+            : natural;
     }
 }
 

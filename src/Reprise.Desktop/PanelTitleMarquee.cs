@@ -156,6 +156,24 @@ public sealed class PanelTitleMarquee : Control
     }
 
     /// <summary>
+    /// Sends a scrolling title back to its beginning.
+    /// </summary>
+    /// <remarks>
+    /// Called when the panel is summoned, so the user reads a long title
+    /// from the start rather than joining it mid-scroll.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// titleMarquee.RestartScroll();
+    /// </code>
+    /// </example>
+    public void RestartScroll()
+    {
+        StopScrolling();
+        InvalidateVisual();
+    }
+
+    /// <summary>
     /// Draws the title, scrolling it when it overflows and scrolling is wanted.
     /// </summary>
     /// <remarks>

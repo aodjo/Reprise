@@ -123,13 +123,6 @@ public sealed class RepriseApplication : Application
             var statusItem = StatusItemFactory?.Invoke() ?? new AvaloniaTrayStatusItem(this);
             _statusItem = new StatusItemController(statusItem, viewModel, preferences);
             _statusItem.Activated += (_, _) => window.TogglePanel();
-            window.PanelShown += (_, _) =>
-            {
-                if (preferences.Current.ResetsMenuTitleWhenPanelOpens)
-                {
-                    _statusItem?.RestartScroll();
-                }
-            };
             desktop.Exit += (_, _) => _statusItem?.Dispose();
             _ = StartStatusItemAsync(_statusItem);
 
