@@ -1,8 +1,21 @@
 # Linux packaging
 
-GitHub Actions publishes a Debian package and a self-contained archive for
-`linux-x64` and `linux-arm64`. Both carry the whole application, including
-its .NET runtime and the Pretendard typeface.
+GitHub Actions publishes a Debian package, an AppImage, and a self-contained
+archive for `linux-x64` and `linux-arm64`. All of them carry the whole
+application, including its .NET runtime and the Pretendard typeface.
+
+## Apt repository
+
+Pushes to `main` publish the packages as an apt repository on GitHub Pages,
+so a machine that adds it once keeps up with every later build:
+
+```bash
+echo "deb [trusted=yes] https://aodjo.github.io/Reprise stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
+sudo apt update && sudo apt install reprise
+```
+
+`build-apt-repo.sh` assembles that tree and can be run locally against a
+directory of `.deb` files to try it out.
 
 ## Debian package
 

@@ -320,3 +320,57 @@ jobs:
           path: TestResults/${{ matrix.target }}
           if-no-files-found: ignore
           retention-days: 7
+
+  publish-repository:
+    name: Publish the apt repository
+    needs: platform-tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download built packages
+        uses: actions/download-artifact@v6
+        with:
+          pattern: reprise-linux-*
+          path: Downloads
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev apt-utils
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Assemble the repository
+        shell: bash
+        run: |
+          packaging/linux/build-apt-repo.sh \
+            Downloads \
+            Site \
+            "${{ steps.pages.outputs.base_url }}"
+
+          # The AppImages ride along, so one page offers both ways in.
+          find Downloads -name '*.AppImage' -exec cp {} Site/ \;
+          ls -R Site | head -20
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: Site
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
