@@ -51,6 +51,23 @@ public sealed class PanelLyricsView : Control
     /// </summary>
     private const double DimmedOpacity = 0.38;
 
+    /// <summary>
+    /// Angular frequency of the slide, over its normalised duration.
+    /// </summary>
+    /// <remarks>
+    /// SwiftUI's <c>spring(duration:bounce:)</c> defines the duration as one
+    /// period of the underlying spring, so a full turn of the circle spans
+    /// exactly <see cref="MoveDuration"/>. Getting this wrong is what makes
+    /// a spring feel like a snap: at twice this frequency the row has
+    /// travelled 96% of the way in a quarter of the time it was given.
+    /// </remarks>
+    private const double SpringOmega = Math.Tau;
+
+    /// <summary>
+    /// Damping ratio of the slide, the macOS bounce of 0.24 subtracted from one.
+    /// </summary>
+    private const double SpringDamping = 0.76;
+
     private static readonly TimeSpan CascadeDelay = TimeSpan.FromMilliseconds(45);
     private static readonly TimeSpan MoveDuration = TimeSpan.FromMilliseconds(560);
     private static readonly TimeSpan FadeDuration = TimeSpan.FromMilliseconds(220);
@@ -74,7 +91,11 @@ public sealed class PanelLyricsView : Control
     private int _focus;
     private double _previousFocus;
     private DateTimeOffset _moveStartedAt;
-    private bool _animating;
+    private bool _moving;
+    private int? _current;
+    private int? _previousCurrent;
+    private DateTimeOffset _fadeStartedAt;
+    private bool _fading;
     private double _cachedWidth;
 
     /// <summary>
@@ -94,6 +115,7 @@ public sealed class PanelLyricsView : Control
             TimeSpan.FromMilliseconds(16),
             DispatcherPriority.Render,
             (_, _) => Tick());
+        _frameTimer.Stop();
         ClipToBounds = true;
         Height = ViewportHeight;
     }
@@ -137,6 +159,8 @@ public sealed class PanelLyricsView : Control
             _textCache.Clear();
             _focus = 0;
             _previousFocus = 0;
+            _current = null;
+            _previousCurrent = null;
             StopAnimation();
             InvalidateVisual();
         }
@@ -148,6 +172,14 @@ public sealed class PanelLyricsView : Control
     /// <remarks>
     /// Called by the panel's progress timer. A change of line starts the
     /// slide; an unchanged line costs nothing.
+    /// <para>
+    /// Two indices are tracked, and the distinction matters. The focused
+    /// line is what the rows are positioned around and always exists once
+    /// playback has begun; the current line is the one actually being sung,
+    /// and is absent through an instrumental gap. So the sheet holds its
+    /// place while the highlight fades away, rather than jumping whenever
+    /// a line runs out.
+    /// </para>
     /// </remarks>
     /// <param name="position">Current playback position.</param>
     /// <example>
@@ -162,16 +194,31 @@ public sealed class PanelLyricsView : Control
             return;
         }
 
+        var now = DateTimeOffset.UtcNow;
         var focus = _lyrics.FocusedLineIndex(position) ?? 0;
-        if (focus == _focus)
+        var current = _lyrics.LineIndex(position);
+
+        if (focus != _focus)
+        {
+            _previousFocus = _moving ? AnimatedFocus(now, 0) : _focus;
+            _focus = focus;
+            _moveStartedAt = now;
+            _moving = true;
+        }
+
+        if (current != _current)
+        {
+            _previousCurrent = _current;
+            _current = current;
+            _fadeStartedAt = now;
+            _fading = true;
+        }
+
+        if (!_moving && !_fading)
         {
             return;
         }
 
-        _previousFocus = _animating ? AnimatedFocus(DateTimeOffset.UtcNow, 0) : _focus;
-        _focus = focus;
-        _moveStartedAt = DateTimeOffset.UtcNow;
-        _animating = true;
         _frameTimer.Start();
         InvalidateVisual();
     }
@@ -201,8 +248,12 @@ public sealed class PanelLyricsView : Control
 
         var now = DateTimeOffset.UtcNow;
         using var mask = context.PushOpacityMask(CreateFadeMask(), bounds);
-        var firstVisible = Math.Max(0, _focus - 3);
-        var lastVisible = Math.Min(lyrics.Lines.Count - 1, _focus + 6);
+        // Span both ends of a slide, or the rows the sheet is travelling
+        // from would pop into place instead of moving out of view.
+        var lowest = (int)Math.Floor(Math.Min(_previousFocus, _focus));
+        var highest = (int)Math.Ceiling(Math.Max(_previousFocus, _focus));
+        var firstVisible = Math.Max(0, lowest - 3);
+        var lastVisible = Math.Min(lyrics.Lines.Count - 1, highest + 6);
         for (var index = firstVisible; index <= lastVisible; index++)
         {
             var relative = index - _focus;
@@ -243,23 +294,36 @@ public sealed class PanelLyricsView : Control
     /// </summary>
     private void Tick()
     {
-        var elapsed = DateTimeOffset.UtcNow - _moveStartedAt;
-        var total = MoveDuration + CascadeDelay * MaximumCascadeStep + FadeDuration;
-        if (elapsed >= total)
+        var now = DateTimeOffset.UtcNow;
+        if (_moving && now - _moveStartedAt >= MoveDuration + CascadeDelay * MaximumCascadeStep)
         {
-            StopAnimation();
+            _moving = false;
+            _previousFocus = _focus;
+        }
+
+        if (_fading && now - _fadeStartedAt >= FadeDuration)
+        {
+            _fading = false;
+            _previousCurrent = _current;
+        }
+
+        if (!_moving && !_fading)
+        {
+            _frameTimer.Stop();
         }
 
         InvalidateVisual();
     }
 
     /// <summary>
-    /// Ends the slide and snaps rows to their final positions.
+    /// Ends both animations and snaps every row to its final state.
     /// </summary>
     private void StopAnimation()
     {
-        _animating = false;
+        _moving = false;
+        _fading = false;
         _previousFocus = _focus;
+        _previousCurrent = _current;
         _frameTimer.Stop();
     }
 
@@ -271,7 +335,7 @@ public sealed class PanelLyricsView : Control
     /// <returns>A fractional row index between the previous and current focus.</returns>
     private double AnimatedFocus(DateTimeOffset now, int cascadeStep)
     {
-        if (!_animating)
+        if (!_moving)
         {
             return _focus;
         }
@@ -289,15 +353,15 @@ public sealed class PanelLyricsView : Control
     /// <returns>An opacity from <see cref="DimmedOpacity"/> to 1.</returns>
     private double AnimatedOpacity(DateTimeOffset now, int index)
     {
-        var target = index == _focus ? 1 : DimmedOpacity;
-        if (!_animating)
+        var target = index == _current ? 1 : DimmedOpacity;
+        if (!_fading)
         {
             return target;
         }
 
-        var previous = index == (int)Math.Round(_previousFocus) ? 1 : DimmedOpacity;
-        var progress = Math.Clamp((now - _moveStartedAt).TotalMilliseconds / FadeDuration.TotalMilliseconds, 0, 1);
-        return previous + (target - previous) * progress;
+        var previous = index == _previousCurrent ? 1 : DimmedOpacity;
+        var progress = Math.Clamp((now - _fadeStartedAt).TotalMilliseconds / FadeDuration.TotalMilliseconds, 0, 1);
+        return previous + (target - previous) * EaseInOut(progress);
     }
 
     /// <summary>
@@ -305,20 +369,30 @@ public sealed class PanelLyricsView : Control
     /// </summary>
     /// <param name="progress">Normalised time from 0 to 1.</param>
     /// <returns>Position from 0 to about 1, with a small overshoot.</returns>
-    private static double Spring(double progress)
+    internal static double Spring(double progress)
     {
         if (progress >= 1)
         {
             return 1;
         }
 
-        const double omega = 11.5;
-        const double damping = 0.68;
-        var t = progress;
-        var damped = omega * Math.Sqrt(1 - damping * damping);
-        return 1 - Math.Exp(-damping * omega * t)
-            * (Math.Cos(damped * t) + damping * omega / damped * Math.Sin(damped * t));
+        var damped = SpringOmega * Math.Sqrt(1 - SpringDamping * SpringDamping);
+        return 1 - Math.Exp(-SpringDamping * SpringOmega * progress)
+            * (Math.Cos(damped * progress) + SpringDamping * SpringOmega / damped * Math.Sin(damped * progress));
     }
+
+    /// <summary>
+    /// The ease the highlight crossfades on.
+    /// </summary>
+    /// <remarks>
+    /// Stands in for SwiftUI's <c>easeInOut</c>. A straight ramp makes the
+    /// handover between two lines read as a dip in brightness, because both
+    /// sit at middling opacity for the whole of the middle of the fade.
+    /// </remarks>
+    /// <param name="progress">Normalised time from 0 to 1.</param>
+    /// <returns>Eased position from 0 to 1.</returns>
+    internal static double EaseInOut(double progress) =>
+        progress * progress * (3 - 2 * progress);
 
     /// <summary>
     /// The mask that fades rows at the top and bottom edges.
