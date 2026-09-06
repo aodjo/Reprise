@@ -1,13 +1,13 @@
 Package: reprise
-Version: 2.0.0~alpha.1+20260906124607
+Version: 2.0.0~alpha.1+20260906133955
 Architecture: arm64
 Maintainer: aodjo <jjoons2010@gmail.com>
 Depends: libc6, libgcc-s1, libstdc++6, zlib1g, libx11-6, libice6, libsm6, libfontconfig1, libgl1, ca-certificates
-Filename: pool/develop/main/r/reprise/reprise_2.0.0~alpha.1+20260906124607_arm64.deb
-Size: 36436290
-MD5sum: 9aa97a58403d3714f96fba7d61d29862
-SHA1: 0625507054f29e39560c6b8e0745dbef41b57f2a
-SHA256: 9ee7ffcffc14d8ea91f8072a1485e9960ef04e57eb50b29dc6c0d5ee9d4a0335
+Filename: pool/develop/main/r/reprise/reprise_2.0.0~alpha.1+20260906133955_arm64.deb
+Size: 36435906
+MD5sum: c1dcbdd5237c304c37f19a3e439296d8
+SHA1: 4e6a48f789d55fb588e004670ff62634959e16a1
+SHA256: fe98cea273e699e7a82e13351a8d09f3664f91823fa4eb53031c576586b3fce1
 Section: sound
 Priority: optional
 Homepage: https://github.com/aodjo/Reprise
