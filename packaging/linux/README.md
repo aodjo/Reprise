@@ -1,12 +1,32 @@
 # Linux packaging
 
-GitHub Actions publishes self-contained archives for `linux-x64` and
-`linux-arm64`. Each archive contains the Avalonia application and the desktop
-entry in this directory.
+GitHub Actions publishes a Debian package and a self-contained archive for
+`linux-x64` and `linux-arm64`. Both carry the whole application, including
+its .NET runtime and the Pretendard typeface.
 
-The application talks to MPRIS players over the D-Bus session bus that the
-desktop session already provides, and bundles the Pretendard typeface, so it
-has no other runtime dependency.
+## Debian package
+
+The easiest way in. It puts the application in `/opt/reprise`, a launcher on
+the path, a desktop entry, and the GNOME extension where the shell looks for
+it.
+
+```bash
+sudo apt install ./reprise_2.0.0~alpha.1_amd64.deb
+gnome-extensions enable reprise@junx.dev
+```
+
+Removing it takes the extension with it:
+
+```bash
+sudo apt remove reprise
+```
+
+## Archive
+
+Each archive contains the application and the desktop entry in this
+directory. The application talks to MPRIS players over the D-Bus session bus
+that the desktop session already provides, so it has no other runtime
+dependency.
 
 ## GNOME top bar
 

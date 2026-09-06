@@ -10,6 +10,7 @@ on:
       - src/Reprise.Desktop/**
       - src/Reprise.Platform.Linux/**
       - BrowserExtension/Chromium/icons/icon32.png
+      - BrowserExtension/Chromium/icons/icon128.png
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
@@ -28,6 +29,7 @@ on:
       - src/Reprise.Desktop/**
       - src/Reprise.Platform.Linux/**
       - BrowserExtension/Chromium/icons/icon32.png
+      - BrowserExtension/Chromium/icons/icon128.png
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
@@ -242,17 +244,43 @@ jobs:
           artifact_directory="Artifacts/${{ matrix.target }}"
           cp packaging/linux/dev.junx.Reprise.desktop "$artifact_directory/"
           cp packaging/linux/README.md "$artifact_directory/"
+          cp packaging/linux/install-gnome-extension.sh "$artifact_directory/"
+          cp -r packaging/linux/gnome-extension "$artifact_directory/"
           tar \
             -C Artifacts \
             -czf "Artifacts/reprise-${{ matrix.runtime }}.tar.gz" \
             '${{ matrix.target }}'
+
+      - name: Build Debian package
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          case '${{ matrix.architecture }}' in
+            x64) debian_architecture=amd64 ;;
+            arm64) debian_architecture=arm64 ;;
+            *) echo 'unsupported architecture' >&2; exit 1 ;;
+          esac
+
+          version="$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
+          suffix="$(grep -oPm1 '(?<=<VersionSuffix>)[^<]+' Directory.Build.props || true)"
+          if [[ -n "$suffix" ]]; then
+            version="$version~$suffix"
+          fi
+
+          packaging/linux/build-deb.sh \
+            "Artifacts/${{ matrix.target }}/app" \
+            "$debian_architecture" \
+            "$version" \
+            Artifacts
 
       - name: Upload Linux application
         if: steps.discover.outputs.ready == 'true'
         uses: actions/upload-artifact@v7
         with:
           name: reprise-${{ matrix.runtime }}
-          path: Artifacts/reprise-${{ matrix.runtime }}.tar.gz
+          path: |
+            Artifacts/reprise-${{ matrix.runtime }}.tar.gz
+            Artifacts/*.deb
           if-no-files-found: error
           retention-days: 7
 

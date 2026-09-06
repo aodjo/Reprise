@@ -1,0 +1,27 @@
+#!/bin/sh
+# Refreshes the desktop caches and points the user at the shell extension.
+set -e
+
+if [ "$1" = "configure" ]; then
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database -q /usr/share/applications || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+    fi
+
+    cat <<'MESSAGE'
+
+Reprise is installed. Start it from your applications menu, or run "reprise".
+
+On GNOME, turn on the top bar entry so the track title scrolls smoothly:
+
+    gnome-extensions enable reprise@junx.dev
+
+Then reload the shell: on Xorg press Alt+F2, type r, Enter; on Wayland log
+out and back in.
+
+MESSAGE
+fi
+
+exit 0

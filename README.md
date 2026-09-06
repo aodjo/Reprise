@@ -84,7 +84,12 @@ D-Bus session bus, so it needs no extra packages. The panel is the same one
 macOS shows: album art, a scrolling title, transport controls, a scrubber,
 volume, and the White, Dark, Liquid, and System themes.
 
+Install the Debian package from the
+[Releases](https://github.com/aodjo/reprise/releases) page, or build and run
+from source:
+
 ```bash
+sudo apt install ./reprise_2.0.0~alpha.1_amd64.deb
 dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
 ```
 

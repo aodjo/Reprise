@@ -109,6 +109,7 @@ class RepriseButton extends PanelMenu.Button {
      * @param {number} state.maxWidthChars - Width to hold the text to, in
      *   characters of the text itself, which is what makes the setting mean
      *   the same for a Hangul line as for a Latin one.
+     * @returns {void} Nothing; the button redraws in place.
      */
     update(state) {
         this._scrolls = state.scrolls;
@@ -152,6 +153,7 @@ class RepriseButton extends PanelMenu.Button {
      * Sets the panel icon from PNG bytes, falling back to a note.
      *
      * @param {Uint8Array} png - Encoded cover, or an empty array.
+     * @returns {void} Nothing; an unreadable image falls back to a note icon.
      */
     _setIcon(png) {
         if (!png || png.length === 0) {
@@ -175,6 +177,8 @@ class RepriseButton extends PanelMenu.Button {
      * constant speed with a pause at each end, which an easing curve cannot
      * express, and because the frame callback keeps the two copies of the
      * text exactly one gap apart at any width.
+     *
+     * @returns {void} Nothing; any previous scroll is stopped first.
      */
     _startScrolling() {
         this._stopScrolling();
@@ -190,6 +194,8 @@ class RepriseButton extends PanelMenu.Button {
 
     /**
      * Places the text for this frame.
+     *
+     * @returns {void} Nothing; the track actor is moved in place.
      */
     _step() {
         const distance = this._textWidth + SCROLL_GAP;
@@ -207,6 +213,8 @@ class RepriseButton extends PanelMenu.Button {
 
     /**
      * Stops the scroll and releases its timeline.
+     *
+     * @returns {void} Nothing; safe to call when nothing is scrolling.
      */
     _stopScrolling() {
         if (this._timeline) {
@@ -220,6 +228,8 @@ class RepriseButton extends PanelMenu.Button {
 export default class RepriseExtension extends Extension {
     /**
      * Adds the panel button and starts following Reprise.
+     *
+     * @returns {void} Nothing; the button appears as soon as the shell draws.
      */
     enable() {
         this._button = new RepriseButton(() => this._activate());
@@ -236,6 +246,8 @@ export default class RepriseExtension extends Extension {
 
     /**
      * Removes the panel button and stops following Reprise.
+     *
+     * @returns {void} Nothing; every watch and proxy is released.
      */
     disable() {
         if (this._watchId) {
@@ -250,6 +262,8 @@ export default class RepriseExtension extends Extension {
 
     /**
      * Opens a proxy to Reprise and reads its current content.
+     *
+     * @returns {void} Nothing; the proxy arrives through a callback.
      */
     _connect() {
         Gio.DBusProxy.new_for_bus(
@@ -275,6 +289,8 @@ export default class RepriseExtension extends Extension {
 
     /**
      * Drops the proxy and empties the button.
+     *
+     * @returns {void} Nothing; the button is left showing no track.
      */
     _disconnect() {
         if (this._proxy && this._changedId) {
@@ -294,6 +310,8 @@ export default class RepriseExtension extends Extension {
 
     /**
      * Reads the current content and hands it to the button.
+     *
+     * @returns {void} Nothing; cached properties are read, so it never blocks.
      */
     _refresh() {
         if (!this._proxy || !this._button) {
@@ -316,6 +334,8 @@ export default class RepriseExtension extends Extension {
 
     /**
      * Asks Reprise to show its panel.
+     *
+     * @returns {void} Nothing; the call is sent without waiting for a reply.
      */
     _activate() {
         this._proxy?.call('Activate', null, Gio.DBusCallFlags.NONE, -1, null, null);
