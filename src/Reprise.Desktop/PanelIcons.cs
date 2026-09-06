@@ -25,7 +25,7 @@ public static class PanelIcons
     /// Outlined window with a filled title strip, standing in for <c>menubar.rectangle</c>.
     /// </summary>
     public static readonly Geometry MenuBarRectangle = Geometry.Parse(
-        "F0 M5 4.5 L19 4.5 A2.5 2.5 0 0 1 21.5 7 L21.5 17 A2.5 2.5 0 0 1 19 19.5 L5 19.5 A2.5 2.5 0 0 1 2.5 17 L2.5 7 A2.5 2.5 0 0 1 5 4.5 Z M5.5 6.3 L18.5 6.3 A1.2 1.2 0 0 1 19.7 7.5 L19.7 16.5 A1.2 1.2 0 0 1 18.5 17.7 L5.5 17.7 A1.2 1.2 0 0 1 4.3 16.5 L4.3 7.5 A1.2 1.2 0 0 1 5.5 6.3 Z M4.3 6.3 L19.7 6.3 L19.7 9.5 L4.3 9.5 Z");
+        "F0 M5 4.5 L19 4.5 A2.5 2.5 0 0 1 21.5 7 L21.5 17 A2.5 2.5 0 0 1 19 19.5 L5 19.5 A2.5 2.5 0 0 1 2.5 17 L2.5 7 A2.5 2.5 0 0 1 5 4.5 Z M5.5 6.2 L18.5 6.2 A1.3 1.3 0 0 1 19.8 7.5 L19.8 16.5 A1.3 1.3 0 0 1 18.5 17.8 L5.5 17.8 A1.3 1.3 0 0 1 4.2 16.5 L4.2 7.5 A1.3 1.3 0 0 1 5.5 6.2 Z M4.2 6.5 L19.8 6.5 L19.8 9.1 L4.2 9.1 Z");
 
     /// <summary>
     /// Outlined rounded square with an i cut out, standing in for <c>info.square</c>.
@@ -127,7 +127,7 @@ public static class PanelIcons
     /// Play triangle cut out of a rectangle, standing in for <c>play.rectangle.fill</c>; the YouTube Music artwork placeholder.
     /// </summary>
     public static readonly Geometry PlayRectangle = Geometry.Parse(
-        "F0 M2 5 L22 5 L22 19 L2 19 Z M9.5 8.5 L16.5 12 L9.5 15.5 Z");
+        "F0 M5 5 L19 5 A2.5 2.5 0 0 1 21.5 7.5 L21.5 16.5 A2.5 2.5 0 0 1 19 19 L5 19 A2.5 2.5 0 0 1 2.5 16.5 L2.5 7.5 A2.5 2.5 0 0 1 5 5 Z M5.6 6.7 L18.4 6.7 A1.4 1.4 0 0 1 19.8 8.1 L19.8 15.9 A1.4 1.4 0 0 1 18.4 17.3 L5.6 17.3 A1.4 1.4 0 0 1 4.2 15.9 L4.2 8.1 A1.4 1.4 0 0 1 5.6 6.7 Z M10 8.8 L16.2 12 L10 15.2 Z");
 
     /// <summary>
     /// Spotify mark, converted from the vector asset the macOS app ships.

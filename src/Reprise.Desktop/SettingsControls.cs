@@ -27,8 +27,8 @@ public static class SettingsForm
     {
         var stack = new StackPanel
         {
-            Spacing = 22,
-            Margin = new Thickness(20, 16, 20, 20),
+            Spacing = 18,
+            Margin = new Thickness(20, 14, 18, 18),
         };
         foreach (var section in sections)
         {
@@ -39,6 +39,8 @@ public static class SettingsForm
         {
             Content = stack,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Padding = new Thickness(0, 0, 2, 0),
         };
     }
 
@@ -74,8 +76,8 @@ public static class SettingsForm
             BorderThickness = new Thickness(1),
             Child = card,
         };
-        border.Bind(Border.BackgroundProperty, border.GetResourceObservable("SystemControlBackgroundAltHighBrush"));
-        border.Bind(Border.BorderBrushProperty, border.GetResourceObservable("SystemControlBackgroundBaseLowBrush"));
+        border.Bind(Border.BackgroundProperty, border.GetResourceObservable("SettingsCardBrush"));
+        border.Bind(Border.BorderBrushProperty, border.GetResourceObservable("SettingsLineBrush"));
         stack.Children.Add(border);
 
         if (footer is not null)
@@ -103,18 +105,33 @@ public static class SettingsForm
             MinHeight = 24,
             Children =
             {
-                new TextBlock
-                {
-                    Text = label,
-                    FontSize = PanelTypography.Body,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    TextWrapping = TextWrapping.Wrap,
-                },
+                Text(label, PanelTypography.Body),
                 control,
             },
         };
         Grid.SetColumn(control, 1);
         return grid;
+    }
+
+    /// <summary>
+    /// A label in the window's primary colour.
+    /// </summary>
+    /// <param name="text">Text to show.</param>
+    /// <param name="size">Font size.</param>
+    /// <param name="weight">Font weight.</param>
+    /// <returns>The label.</returns>
+    public static TextBlock Text(string text, double size, FontWeight weight = FontWeight.Normal)
+    {
+        var block = new TextBlock
+        {
+            Text = text,
+            FontSize = size,
+            FontWeight = weight,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        block.Bind(TextBlock.ForegroundProperty, block.GetResourceObservable("SettingsPrimaryBrush"));
+        return block;
     }
 
     /// <summary>
@@ -159,7 +176,7 @@ public static class SettingsForm
     public static Control Value(string label, string value)
     {
         var text = new TextBlock { Text = value, FontSize = PanelTypography.Body };
-        text.Bind(TextBlock.ForegroundProperty, text.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+        text.Bind(TextBlock.ForegroundProperty, text.GetResourceObservable("SettingsSecondaryBrush"));
         return Row(label, text);
     }
 
@@ -203,7 +220,7 @@ public static class SettingsForm
             FontWeight = FontWeight.SemiBold,
             Margin = new Thickness(12, 0, 0, 0),
         };
-        caption.Bind(TextBlock.ForegroundProperty, caption.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+        caption.Bind(TextBlock.ForegroundProperty, caption.GetResourceObservable("SettingsSecondaryBrush"));
         return caption;
     }
 
@@ -221,7 +238,7 @@ public static class SettingsForm
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(12, 0, 12, 0),
         };
-        note.Bind(TextBlock.ForegroundProperty, note.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+        note.Bind(TextBlock.ForegroundProperty, note.GetResourceObservable("SettingsSecondaryBrush"));
         return note;
     }
 
@@ -232,7 +249,7 @@ public static class SettingsForm
     public static Control Hairline()
     {
         var line = new Border { Height = 1, Margin = new Thickness(14, 0, 0, 0) };
-        line.Bind(Border.BackgroundProperty, line.GetResourceObservable("SystemControlBackgroundBaseLowBrush"));
+        line.Bind(Border.BackgroundProperty, line.GetResourceObservable("SettingsLineBrush"));
         return line;
     }
 
@@ -251,7 +268,7 @@ public static class SettingsForm
             Cursor = new Cursor(StandardCursorType.Hand),
             TextDecorations = TextDecorations.Underline,
         };
-        link.Bind(TextBlock.ForegroundProperty, link.GetResourceObservable("SystemAccentColorBrush"));
+        link.Bind(TextBlock.ForegroundProperty, link.GetResourceObservable("SettingsAccentBrush"));
         link.PointerPressed += async (_, e) =>
         {
             e.Handled = true;
@@ -287,18 +304,13 @@ public sealed class SegmentedPicker : Border
     {
         CornerRadius = new CornerRadius(7);
         Padding = new Thickness(2);
-        this.Bind(BackgroundProperty, this.GetResourceObservable("SystemControlBackgroundBaseLowBrush"));
+        this.Bind(BackgroundProperty, this.GetResourceObservable("SettingsWellBrush"));
 
         var grid = new UniformGrid { Rows = 1 };
         foreach (var (label, value) in options)
         {
-            var text = new TextBlock
-            {
-                Text = label,
-                FontSize = PanelTypography.Small,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
+            var text = SettingsForm.Text(label, PanelTypography.Small);
+            text.HorizontalAlignment = HorizontalAlignment.Center;
             var cell = new Border
             {
                 CornerRadius = new CornerRadius(5),
@@ -349,7 +361,7 @@ public sealed class SegmentedPicker : Border
             var chosen = Equals(cellValue, value);
             if (chosen)
             {
-                cell.Bind(BackgroundProperty, cell.GetResourceObservable("SystemControlBackgroundAltHighBrush"));
+                cell.Bind(BackgroundProperty, cell.GetResourceObservable("SettingsCardBrush"));
                 cell.BoxShadow = new BoxShadows(new BoxShadow
                 {
                     Blur = 3,
@@ -368,5 +380,122 @@ public sealed class SegmentedPicker : Border
         {
             SelectionChanged?.Invoke(this, value);
         }
+    }
+}
+
+/// <summary>
+/// The row of tabs across the top of the settings window.
+/// </summary>
+/// <remarks>
+/// Built by hand rather than from <c>TabControl</c>: the Fluent tab strip
+/// left-aligns its items, tints their labels with the accent colour, and
+/// underlines only the selected label, none of which resembles the macOS
+/// settings toolbar. This draws evenly sized cells, centred, with the glyph
+/// over its label and the selected cell on a rounded card.
+/// </remarks>
+public sealed class SettingsTabBar : Border
+{
+    private readonly List<(Border Cell, PanelGlyph Glyph, TextBlock Label)> _tabs = [];
+    private int _selected = -1;
+
+    /// <summary>
+    /// Builds the bar from a tab per entry.
+    /// </summary>
+    /// <param name="tabs">Label and glyph for each tab, in order.</param>
+    public SettingsTabBar(IReadOnlyList<(string Title, Geometry Icon)> tabs)
+    {
+        ArgumentNullException.ThrowIfNull(tabs);
+        BorderThickness = new Thickness(0, 0, 0, 1);
+        this.Bind(BorderBrushProperty, this.GetResourceObservable("SettingsLineBrush"));
+        Padding = new Thickness(8, 8, 8, 6);
+
+        var row = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 2,
+            HorizontalAlignment = HorizontalAlignment.Center,
+        };
+        for (var index = 0; index < tabs.Count; index++)
+        {
+            var (title, icon) = tabs[index];
+            var glyph = new PanelGlyph
+            {
+                Icon = icon,
+                IconSize = 17,
+                Width = 20,
+                Height = 20,
+                HorizontalAlignment = HorizontalAlignment.Center,
+            };
+            var label = new TextBlock
+            {
+                Text = title,
+                FontSize = PanelTypography.Small,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center,
+            };
+            var cell = new Border
+            {
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 5, 10, 4),
+                Cursor = new Cursor(StandardCursorType.Arrow),
+                Child = new StackPanel { Spacing = 2, Children = { glyph, label } },
+            };
+            var chosen = index;
+            cell.PointerPressed += (_, e) =>
+            {
+                e.Handled = true;
+                Select(chosen);
+            };
+            _tabs.Add((cell, glyph, label));
+            row.Children.Add(cell);
+        }
+
+        Child = row;
+        Select(0);
+    }
+
+    /// <summary>
+    /// Raised when the user picks a different tab.
+    /// </summary>
+    public event EventHandler<int>? SelectionChanged;
+
+    /// <summary>
+    /// Index of the tab on show.
+    /// </summary>
+    public int SelectedIndex => _selected;
+
+    /// <summary>
+    /// Shows one tab and restyles the cells.
+    /// </summary>
+    /// <param name="index">Tab to select.</param>
+    public void Select(int index)
+    {
+        if (index < 0 || index >= _tabs.Count || index == _selected)
+        {
+            return;
+        }
+
+        _selected = index;
+        for (var position = 0; position < _tabs.Count; position++)
+        {
+            var (cell, glyph, label) = _tabs[position];
+            var chosen = position == index;
+            if (chosen)
+            {
+                cell.Bind(BackgroundProperty, cell.GetResourceObservable("SettingsWellBrush"));
+                glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsAccentBrush"));
+                label.Bind(TextBlock.ForegroundProperty, label.GetResourceObservable("SettingsAccentBrush"));
+                label.FontWeight = FontWeight.SemiBold;
+            }
+            else
+            {
+                cell.Background = Brushes.Transparent;
+                glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsSecondaryBrush"));
+                label.Bind(TextBlock.ForegroundProperty, label.GetResourceObservable("SettingsSecondaryBrush"));
+                label.FontWeight = FontWeight.Normal;
+            }
+        }
+
+        SelectionChanged?.Invoke(this, index);
     }
 }

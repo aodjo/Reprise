@@ -6,6 +6,7 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
+using Avalonia.Styling;
 using Avalonia.Threading;
 using Reprise.Core;
 
@@ -17,7 +18,9 @@ namespace Reprise.Desktop;
 /// <remarks>
 /// Six tabs at the same 500 by 480 size: General, YouTube Music, Theme,
 /// Menu bar, Panel, and System info, each a grouped form with the same
-/// sections, captions, and footnotes as the Mac. Where a Mac feature has no
+/// sections, captions, and footnotes as the Mac. The tab strip is drawn by
+/// <see cref="SettingsTabBar"/> rather than a <c>TabControl</c>, which
+/// left-aligns and accent-tints its items in a way the Mac toolbar does not. Where a Mac feature has no
 /// Linux equivalent, the section explains what Linux does instead rather
 /// than disappearing, so the two windows stay recognisably the same.
 /// <para>
@@ -66,21 +69,41 @@ public sealed class SettingsWindow : Window
         CanResize = false;
         ShowInTaskbar = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        ApplyPalette();
 
-        var tabs = new TabControl
+        var pages = new Control[]
         {
-            Padding = new Thickness(0),
-            Items =
-            {
-                Tab("일반", PanelIcons.Gear, BuildGeneralTab()),
-                Tab("YouTube Music", PanelIcons.PlayCircle, BuildYouTubeMusicTab()),
-                Tab("테마", PanelIcons.Palette, BuildThemeTab()),
-                Tab("메뉴바", PanelIcons.MenuBarRectangle, BuildMenuBarTab()),
-                Tab("패널", PanelIcons.PlayRectangle, BuildPanelTab()),
-                Tab("시스템 정보", PanelIcons.InfoSquare, BuildSystemInfoTab()),
-            },
+            BuildGeneralTab(),
+            BuildYouTubeMusicTab(),
+            BuildThemeTab(),
+            BuildMenuBarTab(),
+            BuildPanelTab(),
+            BuildSystemInfoTab(),
         };
-        Content = tabs;
+        var body = new ContentControl
+        {
+            Content = pages[0],
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+        };
+        var tabBar = new SettingsTabBar(
+        [
+            ("일반", PanelIcons.Gear),
+            ("YouTube Music", PanelIcons.PlayCircle),
+            ("테마", PanelIcons.Palette),
+            ("메뉴바", PanelIcons.MenuBarRectangle),
+            ("패널", PanelIcons.PlayRectangle),
+            ("시스템 정보", PanelIcons.InfoSquare),
+        ]);
+        tabBar.SelectionChanged += (_, index) => body.Content = pages[index];
+
+        var layout = new Grid
+        {
+            RowDefinitions = new RowDefinitions("Auto,*"),
+            Children = { tabBar, body },
+        };
+        Grid.SetRow(body, 1);
+        Content = layout;
 
         _sessionTimer = new DispatcherTimer(
             TimeSpan.FromMilliseconds(500),
@@ -90,6 +113,12 @@ public sealed class SettingsWindow : Window
         _preferences.Changed += (_, _) => RefreshAll();
         Opened += (_, _) =>
         {
+            if (Application.Current?.PlatformSettings is { } settings)
+            {
+                settings.ColorValuesChanged += (_, _) => Dispatcher.UIThread.Post(ApplyPalette);
+            }
+
+            ApplyPalette();
             RefreshAll();
             _sessionTimer.Start();
         };
@@ -125,32 +154,28 @@ public sealed class SettingsWindow : Window
     }
 
     /// <summary>
-    /// A tab whose header is a glyph over a label, like a macOS toolbar tab.
+    /// Publishes the window's colours, following the desktop appearance.
     /// </summary>
-    /// <param name="title">Tab label.</param>
-    /// <param name="icon">Glyph above the label.</param>
-    /// <param name="content">Tab page.</param>
-    /// <returns>The tab item.</returns>
-    private static TabItem Tab(string title, Geometry icon, Control content)
+    /// <remarks>
+    /// Every control binds to these resources, so replacing them repaints
+    /// the whole window without rebuilding a single tab.
+    /// </remarks>
+    private void ApplyPalette()
     {
-        var glyph = new PanelGlyph { Icon = icon, IconSize = 18, Width = 22, Height = 22, HorizontalAlignment = HorizontalAlignment.Center };
-        glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SystemControlForegroundBaseHighBrush"));
-        var header = new StackPanel
+        var colours = Application.Current?.PlatformSettings?.GetColorValues();
+        var accent = colours?.AccentColor1 is { A: > 0 } value ? value : Colors.DodgerBlue;
+        var palette = SettingsPalette.Resolve(colours?.ThemeVariant == PlatformThemeVariant.Dark, accent);
+        RequestedThemeVariant = colours?.ThemeVariant == PlatformThemeVariant.Dark
+            ? ThemeVariant.Dark
+            : ThemeVariant.Light;
+
+        var brushes = palette.Brushes;
+        for (var index = 0; index < SettingsPalette.ResourceKeys.Length; index++)
         {
-            Spacing = 3,
-            Children =
-            {
-                glyph,
-                new TextBlock { Text = title, FontSize = PanelTypography.Subtitle, HorizontalAlignment = HorizontalAlignment.Center },
-            },
-        };
-        return new TabItem
-        {
-            Header = header,
-            Content = content,
-            FontSize = PanelTypography.Subtitle,
-            Padding = new Thickness(10, 6),
-        };
+            Resources[SettingsPalette.ResourceKeys[index]] = brushes[index];
+        }
+
+        Background = brushes[0];
     }
 
     /// <summary>
@@ -206,7 +231,7 @@ public sealed class SettingsWindow : Window
             Value = Current.MenuBarLabelLength,
         };
         var widthValue = new TextBlock { FontSize = PanelTypography.Small, Width = 44, TextAlignment = TextAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
-        widthValue.Bind(TextBlock.ForegroundProperty, widthValue.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+        widthValue.Bind(TextBlock.ForegroundProperty, widthValue.GetResourceObservable("SettingsSecondaryBrush"));
         widthSlider.ValueChanged += (_, _) =>
         {
             var length = (int)Math.Round(widthSlider.Value);
@@ -326,7 +351,7 @@ public sealed class SettingsWindow : Window
     {
         var kind = order[index];
         var number = new TextBlock { Text = (index + 1).ToString(), Width = 16, FontSize = PanelTypography.Body, VerticalAlignment = VerticalAlignment.Center };
-        number.Bind(TextBlock.ForegroundProperty, number.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+        number.Bind(TextBlock.ForegroundProperty, number.GetResourceObservable("SettingsSecondaryBrush"));
         var icon = new PanelGlyph
         {
             Icon = kind switch
@@ -339,9 +364,9 @@ public sealed class SettingsWindow : Window
             Width = 18,
             Height = 18,
         };
-        icon.Bind(PanelGlyph.ForegroundProperty, icon.GetResourceObservable("SystemControlForegroundBaseHighBrush"));
+        icon.Bind(PanelGlyph.ForegroundProperty, icon.GetResourceObservable("SettingsPrimaryBrush"));
         var handle = new TextBlock { Text = "☰", FontSize = PanelTypography.Body, VerticalAlignment = VerticalAlignment.Center };
-        handle.Bind(TextBlock.ForegroundProperty, handle.GetResourceObservable("SystemControlForegroundBaseMediumLowBrush"));
+        handle.Bind(TextBlock.ForegroundProperty, handle.GetResourceObservable("SettingsSecondaryBrush"));
 
         var row = new Grid
         {
@@ -453,7 +478,7 @@ public sealed class SettingsWindow : Window
                 Margin = new Thickness(14, 10),
             };
             var glyph = new PanelGlyph { Icon = PanelIcons.Power, IconSize = 16, Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Top };
-            glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+            glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsSecondaryBrush"));
             var text = new StackPanel
             {
                 Spacing = 2,
@@ -491,16 +516,16 @@ public sealed class SettingsWindow : Window
     private static Control SessionRow(MediaSessionSnapshot session, bool isActive)
     {
         var glyph = new PanelGlyph { Icon = PanelIcons.PlayRectangle, IconSize = 16, Width = 20, Height = 20, VerticalAlignment = VerticalAlignment.Center };
-        glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable(isActive ? "SystemAccentColorBrush" : "SystemControlForegroundBaseMediumBrush"));
+        glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable(isActive ? "SettingsAccentBrush" : "SettingsSecondaryBrush"));
 
         var name = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         name.Children.Add(new TextBlock { Text = session.PlayerName, FontSize = PanelTypography.Body, FontWeight = FontWeight.Medium, VerticalAlignment = VerticalAlignment.Center });
         if (isActive)
         {
             var badge = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(6, 2) };
-            badge.Bind(Border.BackgroundProperty, badge.GetResourceObservable("SystemControlBackgroundBaseLowBrush"));
+            badge.Bind(Border.BackgroundProperty, badge.GetResourceObservable("SettingsWellBrush"));
             var badgeText = new TextBlock { Text = "사용 중", FontSize = PanelTypography.Caption, FontWeight = FontWeight.SemiBold };
-            badgeText.Bind(TextBlock.ForegroundProperty, badgeText.GetResourceObservable("SystemAccentColorBrush"));
+            badgeText.Bind(TextBlock.ForegroundProperty, badgeText.GetResourceObservable("SettingsAccentBrush"));
             badge.Child = badgeText;
             name.Children.Add(badge);
         }
@@ -514,7 +539,7 @@ public sealed class SettingsWindow : Window
             _ => string.IsNullOrEmpty(track) ? "재생 정보 없음" : track,
         };
         var detailText = new TextBlock { Text = detail, FontSize = PanelTypography.Subtitle, TextTrimming = TextTrimming.CharacterEllipsis };
-        detailText.Bind(TextBlock.ForegroundProperty, detailText.GetResourceObservable("SystemControlForegroundBaseMediumBrush"));
+        detailText.Bind(TextBlock.ForegroundProperty, detailText.GetResourceObservable("SettingsSecondaryBrush"));
 
         var state = new PanelGlyph
         {
@@ -691,6 +716,12 @@ public sealed class SettingsWindow : Window
     /// <summary>
     /// The System info tab: version, updates, OS, displays, and the credit.
     /// </summary>
+    /// <remarks>
+    /// The credit ends in a text heart rather than the emoji the macOS
+    /// window uses: the bundled typeface carries no colour emoji, and the
+    /// fallback picked whichever glyph the system offered, which was not a
+    /// heart.
+    /// </remarks>
     /// <returns>The page.</returns>
     private Control BuildSystemInfoTab()
     {
@@ -712,16 +743,18 @@ public sealed class SettingsWindow : Window
             }
         });
 
+        var heart = SettingsForm.Footnote(" with ♥");
+        heart.Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0x4B, 0x55));
         var credit = new StackPanel
         {
             Orientation = Orientation.Horizontal,
             HorizontalAlignment = HorizontalAlignment.Center,
-            Margin = new Thickness(0, 0, 0, 6),
+            Margin = new Thickness(0, 0, 0, 8),
             Children =
             {
                 SettingsForm.Footnote("Made by "),
                 SettingsForm.Link("aodjo", new Uri("https://junx.dev")),
-                SettingsForm.Footnote(" with ❤️"),
+                heart,
             },
         };
         foreach (var child in credit.Children.OfType<TextBlock>())
