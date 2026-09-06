@@ -8,7 +8,20 @@
 import AppKit
 import Foundation
 
+/// Detects the demo mode used for screenshots and store assets.
 enum RepriseDemoMode {
+    /// Whether Reprise should show fabricated content instead of real players.
+    ///
+    /// Accepts either a launch argument or an environment variable so the mode
+    /// can be turned on from an Xcode scheme, a UI test, and a shell command
+    /// alike.
+    ///
+    /// - Parameters:
+    ///   - arguments: Process arguments. Defaults to the real ones; injectable
+    ///     for tests.
+    ///   - environment: Process environment. Defaults to the real one;
+    ///     injectable for tests.
+    /// - Returns: `true` when demo mode is requested.
     nonisolated static func isEnabled(
         arguments: [String] = ProcessInfo.processInfo.arguments,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -18,16 +31,42 @@ enum RepriseDemoMode {
     }
 }
 
+/// The fabricated track Reprise shows in demo mode.
+///
+/// Exists so marketing screenshots do not depend on whatever happens to be
+/// playing, and can be reproduced exactly. Everything is invented: the track,
+/// the artist, and the cover art, which is drawn at runtime rather than
+/// shipped as an asset so no third-party artwork is ever distributed.
 @MainActor
 enum RepriseDemoContent {
+    /// Player the demo track is attributed to.
     static let player = MediaPlayerKind.youtubeMusic
+
+    /// Demo track title.
     static let title = "Midnight Signal"
+
+    /// Demo album name.
     static let album = "Demo Sessions"
+
+    /// Demo artist name.
     static let artist = "Reprise Studio"
+
+    /// Demo track length in seconds.
     static let duration: TimeInterval = 214
+
+    /// Playback position the demo frame sits at, in seconds.
+    ///
+    /// Chosen to put the progress bar visibly past its start without
+    /// approaching the end, so a screenshot reads as mid-playback.
     static let position: TimeInterval = 78
+
+    /// Demo volume level.
     static let volume = 68
 
+    /// Demo lyrics, spaced to line up with ``position``.
+    ///
+    /// Line timings are spread across ``duration`` so whichever moment a
+    /// screenshot captures has a lyric showing.
     static let lyrics = SyncedLyrics(
         source: .lrclib,
         lines: [
@@ -63,6 +102,18 @@ enum RepriseDemoContent {
         ]
     )
 
+    /// Builds a snapshot of the demo track.
+    ///
+    /// The playback rate is pinned to 0 so position estimation never advances
+    /// the frame: the panel still renders as active playback - play icon,
+    /// spinning disc - while the progress bar and times stay exactly where a
+    /// screenshot needs them, however long the app is left open.
+    ///
+    /// - Parameters:
+    ///   - state: Transport state to present. Defaults to `.playing`.
+    ///   - requestedPosition: Position in seconds. Defaults to ``position``.
+    ///   - requestedVolume: Volume level. Defaults to ``volume``.
+    /// - Returns: A snapshot that looks like a real playing player.
     static func snapshot(
         state: PlaybackState = .playing,
         position requestedPosition: TimeInterval? = nil,
@@ -83,15 +134,24 @@ enum RepriseDemoContent {
                 artworkData: artworkData
             ),
             volume: volume,
-            // Keep the promotional frame stable while the play icon and
-            // rotating-disc treatment still render as active playback.
             playbackRate: 0,
             errorMessage: nil
         )
     }
 
+    /// Cover art for the demo track, rendered once on first use.
     private static let artworkData = makeArtworkData()
 
+    /// Draws the demo cover art as a PNG.
+    ///
+    /// Generated rather than bundled so the app ships no artwork it does not
+    /// own, and so the image scales to any size a screenshot needs. The
+    /// composition is a diagonal gradient, two soft circles for depth, and a
+    /// symmetric bar equaliser standing in for a waveform.
+    ///
+    /// - Returns: PNG data, or `nil` if the drawing context or gradient could
+    ///   not be created, in which case ``ArtworkView`` falls back to its
+    ///   placeholder.
     private static func makeArtworkData() -> Data? {
         let size = 512
         let colorSpace = CGColorSpaceCreateDeviceRGB()

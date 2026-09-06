@@ -66,8 +66,8 @@ targets for browser-specific manifests and generated artifacts.
 
 ## Branch and version policy
 
-- `main` remains the single integration branch.
-- `migration/cross-platform` contains the initial migration scaffold.
+- `main` is the release branch and `develop` is the integration branch.
+- The initial migration scaffold has been merged into `develop`.
 - New work uses short-lived `feature/*` and `fix/*` branches.
 - Creating the scaffold does not change the application version.
 - The first public release of the unified cross-platform application will be

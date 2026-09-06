@@ -76,6 +76,38 @@ open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 
 Build and run the `Reprise` scheme in Xcode 16 or later.
 
+### Linux alpha
+
+The Linux implementation is under active development on `develop`. It uses
+Avalonia for the desktop and reads local MPRIS media sessions straight from the
+D-Bus session bus, so it needs no extra packages. The panel is the same one
+macOS shows: album art, a scrolling title, transport controls, a scrubber,
+volume, and the White, Dark, Liquid, and System themes.
+
+Add the apt repository once, and later builds arrive with your usual
+updates:
+
+```bash
+echo "deb [trusted=yes] https://aodjo.github.io/Reprise stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
+sudo apt update && sudo apt install reprise
+```
+
+There is also an AppImage on that page for running Reprise without
+installing anything, and the source builds directly:
+
+```bash
+dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
+```
+
+One click on the tray icon opens the panel, which hides again when it loses
+focus, like the macOS popover. On panels that support the Ubuntu tray label
+extension, the track title or the current lyric line appears beside the icon,
+as it does in the macOS menu bar. On GNOME a small shell extension, installed
+and switched on by the package, draws that entry itself and scrolls the title
+smoothly. The interface is set in Pretendard, bundled
+with the application. Linux CI also publishes self-contained `linux-x64` and
+`linux-arm64` archives.
+
 ## Usage
 
 Click the Reprise icon in your menu bar to open the player panel.

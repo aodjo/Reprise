@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Reprise
+Comment=Control MPRIS-compatible music players from one window
+Exec=reprise
+Icon=multimedia-player
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=Music;Spotify;MPRIS;Player;
+StartupNotify=true

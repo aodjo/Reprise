@@ -1,0 +1,68 @@
+namespace Reprise.Desktop;
+
+/// <summary>
+/// A raster icon for the tray, in the layout tray protocols expect.
+/// </summary>
+/// <param name="Width">Width in pixels.</param>
+/// <param name="Height">Height in pixels.</param>
+/// <param name="Argb">
+/// Straight-alpha pixels, four bytes each in A, R, G, B order, rows top to
+/// bottom.
+/// </param>
+public sealed record StatusItemIcon(int Width, int Height, byte[] Argb);
+
+/// <summary>
+/// Everything the tray shows for Reprise at one moment.
+/// </summary>
+/// <param name="Label">
+/// Text beside the icon, or empty for icon only. Its width is its own: a
+/// label that should hold a fixed width is padded to that width by the
+/// caller, since a tray label carries no separate measurement.
+/// </param>
+/// <param name="ToolTip">Text shown on hover.</param>
+/// <param name="Icons">
+/// The icon at one or more sizes, for the host to choose from. Empty means
+/// keep the application icon.
+/// </param>
+public sealed record StatusItemState(
+    string Label,
+    string ToolTip,
+    IReadOnlyList<StatusItemIcon> Icons);
+
+/// <summary>
+/// The platform's tray or status-bar entry for Reprise.
+/// </summary>
+/// <remarks>
+/// Implemented per platform because each desktop exposes its status area
+/// differently - Linux through D-Bus, and others through their own APIs.
+/// Events are raised on whatever thread the platform delivers them on;
+/// callers marshal to the UI thread themselves.
+/// </remarks>
+public interface IStatusItem : IDisposable
+{
+    /// <summary>
+    /// Raised when the user clicks the item to bring up the panel.
+    /// </summary>
+    /// <remarks>
+    /// The only interaction the item offers. It deliberately publishes no
+    /// menu: a click should reach the panel directly, as it does on macOS,
+    /// and everything a menu would carry lives in the panel's footer.
+    /// </remarks>
+    event EventHandler? Activated;
+
+    /// <summary>
+    /// Registers the item with the desktop.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the registration.</param>
+    /// <returns>
+    /// True when a status area accepted the item; false when the desktop
+    /// offers none, in which case the panel is the only way to reach Reprise.
+    /// </returns>
+    Task<bool> StartAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Pushes new content to the item.
+    /// </summary>
+    /// <param name="state">Label, tooltip, and icon to show.</param>
+    void Update(StatusItemState state);
+}

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Reprise
+Comment=Control MPRIS-compatible music players from one panel
+Exec=/usr/bin/reprise
+Icon=dev.junx.Reprise
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=Music;Spotify;MPRIS;Player;
+StartupNotify=true
+StartupWMClass=reprise

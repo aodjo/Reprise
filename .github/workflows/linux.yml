@@ -9,6 +9,8 @@ on:
       - src/Reprise.Core/**
       - src/Reprise.Desktop/**
       - src/Reprise.Platform.Linux/**
+      - BrowserExtension/Chromium/icons/icon32.png
+      - BrowserExtension/Chromium/icons/icon128.png
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
@@ -26,6 +28,8 @@ on:
       - src/Reprise.Core/**
       - src/Reprise.Desktop/**
       - src/Reprise.Platform.Linux/**
+      - BrowserExtension/Chromium/icons/icon32.png
+      - BrowserExtension/Chromium/icons/icon128.png
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
@@ -174,6 +178,33 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      - name: Restore Linux application
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          dotnet restore \
+            src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj \
+            --runtime '${{ matrix.runtime }}'
+
+      - name: Publish Linux application
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          publish_directory="$GITHUB_WORKSPACE/Artifacts/${{ matrix.target }}/app"
+          dotnet publish \
+            src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj \
+            --configuration Release \
+            --runtime '${{ matrix.runtime }}' \
+            --self-contained true \
+            --no-restore \
+            --output "$publish_directory"
+
+      - name: Smoke test Linux executable
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          'Artifacts/${{ matrix.target }}/app/reprise' --health-check
+
       - name: Run applicable tests
         if: steps.discover.outputs.ready == 'true'
         shell: bash
@@ -206,6 +237,81 @@ jobs:
               --logger "trx;LogFileName=${project_name}.trx"
           done
 
+      - name: Package Linux application
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          artifact_directory="Artifacts/${{ matrix.target }}"
+          cp packaging/linux/dev.junx.Reprise.desktop "$artifact_directory/"
+          cp packaging/linux/README.md "$artifact_directory/"
+          cp packaging/linux/install-gnome-extension.sh "$artifact_directory/"
+          cp -r packaging/linux/gnome-extension "$artifact_directory/"
+          tar \
+            -C Artifacts \
+            -czf "Artifacts/reprise-${{ matrix.runtime }}.tar.gz" \
+            '${{ matrix.target }}'
+
+      - name: Build Debian package
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          case '${{ matrix.architecture }}' in
+            x64) debian_architecture=amd64 ;;
+            arm64) debian_architecture=arm64 ;;
+            *) echo 'unsupported architecture' >&2; exit 1 ;;
+          esac
+
+          version="$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
+          suffix="$(grep -oPm1 '(?<=<VersionSuffix>)[^<]+' Directory.Build.props || true)"
+          if [[ -n "$suffix" ]]; then
+            version="$version~$suffix"
+          fi
+
+          packaging/linux/build-deb.sh \
+            "Artifacts/${{ matrix.target }}/app" \
+            "$debian_architecture" \
+            "$version" \
+            Artifacts
+
+          ls Artifacts/*.deb
+
+      - name: Build AppImage
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools
+
+          case '${{ matrix.architecture }}' in
+            x64) appimage_architecture=x86_64 ;;
+            arm64) appimage_architecture=aarch64 ;;
+            *) echo 'unsupported architecture' >&2; exit 1 ;;
+          esac
+
+          version="$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
+          suffix="$(grep -oPm1 '(?<=<VersionSuffix>)[^<]+' Directory.Build.props || true)"
+          if [[ -n "$suffix" ]]; then
+            version="$version-$suffix"
+          fi
+
+          packaging/linux/build-appimage.sh \
+            "Artifacts/${{ matrix.target }}/app" \
+            "$appimage_architecture" \
+            "$version" \
+            Artifacts
+
+      - name: Upload Linux application
+        if: steps.discover.outputs.ready == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: reprise-${{ matrix.runtime }}
+          path: |
+            Artifacts/reprise-${{ matrix.runtime }}.tar.gz
+            Artifacts/*.deb
+            Artifacts/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Upload Linux test results
         if: ${{ always() && steps.discover.outputs.ready == 'true' }}
         uses: actions/upload-artifact@v7
@@ -214,3 +320,98 @@ jobs:
           path: TestResults/${{ matrix.target }}
           if-no-files-found: ignore
           retention-days: 7
+
+  publish-repository:
+    name: Publish the apt repository
+    needs: platform-tests
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
+    concurrency:
+      group: apt-repository
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Download built packages
+        uses: actions/download-artifact@v6
+        with:
+          pattern: reprise-linux-*
+          path: Downloads
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev apt-utils
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Fetch the published site
+        shell: bash
+        run: |
+          # The site holds both channels, and each branch rewrites only its
+          # own, so the run has to start from what is already published
+          # rather than from an empty directory.
+          if ! git clone --branch apt-repo --depth 1 \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" Site; then
+            mkdir Site
+            git -C Site init -q -b apt-repo
+            git -C Site remote add origin \
+              "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          fi
+
+      - name: Update this channel
+        shell: bash
+        run: |
+          if [[ '${{ github.ref }}' == 'refs/heads/main' ]]; then
+            suite=stable
+          else
+            suite=develop
+          fi
+          echo "Publishing to the $suite channel."
+
+          packaging/linux/build-apt-repo.sh \
+            Downloads \
+            Site \
+            "${{ steps.pages.outputs.base_url }}" \
+            "$suite"
+
+          # The AppImages ride along, one directory per channel.
+          mkdir -p "Site/downloads/$suite"
+          rm -f "Site/downloads/$suite"/*.AppImage
+          find Downloads -name '*.AppImage' -exec cp {} "Site/downloads/$suite/" \;
+          find Site -maxdepth 3 -type d | sort
+
+      - name: Commit the site
+        shell: bash
+        run: |
+          cd Site
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Nothing changed.'
+          else
+            git commit -q -m "chore: publish ${{ github.ref_name }} build ${{ github.run_number }}"
+            git push -q origin HEAD:apt-repo
+          fi
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: Site
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

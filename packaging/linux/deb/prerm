@@ -1,0 +1,9 @@
+#!/bin/sh
+# Turns the shell extension off before its files go away.
+set -e
+
+if [ "$1" = "remove" ] && command -v gnome-extensions >/dev/null 2>&1; then
+    gnome-extensions disable reprise@junx.dev 2>/dev/null || true
+fi
+
+exit 0

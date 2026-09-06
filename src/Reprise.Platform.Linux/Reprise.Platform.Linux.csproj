@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>reprise</AssemblyName>
+    <RootNamespace>Reprise.Platform.Linux</RootNamespace>
+    <Description>Linux desktop host and MPRIS integration for Reprise.</Description>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="Tmds.DBus.Protocol" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Reprise.Core/Reprise.Core.csproj" />
+    <ProjectReference Include="../Reprise.Desktop/Reprise.Desktop.csproj" />
+  </ItemGroup>
+</Project>

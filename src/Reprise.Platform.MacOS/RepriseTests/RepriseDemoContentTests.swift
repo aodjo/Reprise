@@ -8,8 +8,17 @@
 import Testing
 @testable import Reprise
 
+/// Covers demo mode, which produces the app's promotional screenshots.
+///
+/// Worth testing despite being non-shipping behaviour: the screenshots have to
+/// be reproducible, so a change that made demo content drift would be caught
+/// only by someone noticing a screenshot looked different.
 @MainActor
 struct RepriseDemoContentTests {
+    /// Either trigger turns demo mode on, and neither turns it on by accident.
+    ///
+    /// The negative case matters most: demo mode reaching a shipping build
+    /// would replace a user's real music with a fabricated track.
     @Test
     func demoModeCanBeEnabledByArgumentOrEnvironment() {
         #expect(
@@ -32,6 +41,13 @@ struct RepriseDemoContentTests {
         )
     }
 
+    /// A demo store presents the fixed promotional track.
+    ///
+    /// The playback rate assertion is the one that keeps screenshots
+    /// reproducible: at 0 the position never advances, so the progress bar and
+    /// the displayed lyric stay put however long the app has been open. The
+    /// lyric assertion follows from that - line four is what is current at the
+    /// pinned position.
     @Test
     func demoModeSeedsStablePromotionalContent() async {
         let store = NowPlayingStore(demoMode: true)
@@ -52,6 +68,12 @@ struct RepriseDemoContentTests {
         )
     }
 
+    /// Demo controls update the fabricated state without reaching a player.
+    ///
+    /// Demo mode has to stay self-contained: a screenshot session must never
+    /// pause or seek whatever the user actually has playing. Seeking to 118
+    /// also moves the displayed lyric, confirming the lyric view is driven by
+    /// the same state the controls change.
     @Test
     func demoControlsStayLocalAndUpdateThePromotionalState() async {
         let store = NowPlayingStore(demoMode: true)

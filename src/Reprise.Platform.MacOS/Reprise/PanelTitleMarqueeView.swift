@@ -9,16 +9,38 @@ import AppKit
 import CoreText
 import SwiftUI
 
+/// Scrolling track title for the player panel.
+///
+/// Bridges to AppKit because SwiftUI has no way to express what this needs:
+/// a Core Animation keyframe track that steps in whole device pixels, so text
+/// stays crisp while it moves. A SwiftUI `offset` animates on a continuous
+/// timeline and lands on fractional pixels, which makes glyphs shimmer.
 struct PanelTitleMarqueeView: NSViewRepresentable {
+    /// Text to display.
     let title: String
+
+    /// Whether an over-long title scrolls on its own, or only on hover.
     let automaticallyScrolls: Bool
+
+    /// Scroll speed in points per second.
     let pointsPerSecond: CGFloat
+
+    /// Text colour, supplied by the panel's theme.
     let foregroundColor: NSColor
 
+    /// Creates the backing AppKit view.
+    ///
+    /// - Parameter context: Representable context; unused.
+    /// - Returns: An empty marquee view, configured by the first update.
     func makeNSView(context: Context) -> PanelTitleMarqueeNSView {
         PanelTitleMarqueeNSView()
     }
 
+    /// Pushes the current values into the AppKit view.
+    ///
+    /// - Parameters:
+    ///   - nsView: View to update.
+    ///   - context: Representable context; unused.
     func updateNSView(
         _ nsView: PanelTitleMarqueeNSView,
         context: Context
@@ -32,6 +54,16 @@ struct PanelTitleMarqueeView: NSViewRepresentable {
     }
 }
 
+/// AppKit view that renders and scrolls the panel's track title.
+///
+/// The title is rasterised once into a bitmap and shown twice, side by side,
+/// inside a layer that translates leftwards. When the first copy scrolls out,
+/// the second is exactly where the first began, so the loop is seamless
+/// without re-rendering anything per frame.
+///
+/// Everything is redrawn only when something that affects the rendering
+/// actually changes - text, size, backing scale, or colour - because
+/// rasterising text is far too expensive to repeat on every layout pass.
 @MainActor
 final class PanelTitleMarqueeNSView: NSView {
     private var title = ""
@@ -49,6 +81,13 @@ final class PanelTitleMarqueeNSView: NSView {
     private var isHovering = false
     private var titleTrackingArea: NSTrackingArea?
 
+    /// Builds the layer tree and subscribes to panel visibility.
+    ///
+    /// The panel notifications matter because a menu bar popover is not
+    /// deallocated when dismissed: without them the marquee would keep
+    /// animating off screen, burning CPU for nothing.
+    ///
+    /// - Parameter frameRect: Initial frame.
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
 
@@ -75,20 +114,33 @@ final class PanelTitleMarqueeNSView: NSView {
         )
     }
 
+    /// Unavailable; this view is never loaded from a nib.
+    ///
+    /// - Parameter coder: Unarchiver; unused.
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
     }
 
+    /// Unsubscribes from the panel visibility notifications.
     deinit {
         NotificationCenter.default.removeObserver(self)
     }
 
+    /// Re-renders when the view's geometry changes.
+    ///
+    /// Passes `force: false`, so a layout pass that did not change the size
+    /// costs a comparison rather than a re-rasterisation.
     override func layout() {
         super.layout()
         refresh(force: false)
     }
 
+    /// Rebuilds the hover tracking region.
+    ///
+    /// Uses `inVisibleRect`, which is why the rect passed in is `.zero`:
+    /// AppKit recomputes it from the visible bounds, keeping the region
+    /// correct as the panel resizes without needing an explicit rect here.
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
 
@@ -109,23 +161,48 @@ final class PanelTitleMarqueeNSView: NSView {
         titleTrackingArea = trackingArea
     }
 
+    /// Starts a hover-driven scroll.
+    ///
+    /// Ignored when the title already scrolls on its own, since there is
+    /// nothing for hovering to trigger.
+    ///
+    /// - Parameter event: Mouse event; unused.
     override func mouseEntered(with event: NSEvent) {
         guard !automaticallyScrolls else { return }
         isHovering = true
         refresh(force: true)
     }
 
+    /// Ends a hover-driven scroll and returns the title to its start.
+    ///
+    /// - Parameter event: Mouse event; unused.
     override func mouseExited(with event: NSEvent) {
         guard isHovering else { return }
         isHovering = false
         refresh(force: true)
     }
 
+    /// Re-renders when the system appearance changes.
+    ///
+    /// The title is a bitmap baked with a resolved colour, so a light-to-dark
+    /// switch would otherwise leave the old colour on screen.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh(force: true)
     }
 
+    /// Applies new content and appearance from SwiftUI.
+    ///
+    /// Returns early when nothing changed, because SwiftUI calls
+    /// `updateNSView` on every re-render of the surrounding panel - which
+    /// happens once a second as the position ticks - and re-rasterising the
+    /// title each time would restart the animation and stutter.
+    ///
+    /// - Parameters:
+    ///   - title: Text to display.
+    ///   - automaticallyScrolls: Whether to scroll without hovering.
+    ///   - pointsPerSecond: Scroll speed.
+    ///   - foregroundColor: Text colour.
     func update(
         title: String,
         automaticallyScrolls: Bool,
@@ -146,17 +223,38 @@ final class PanelTitleMarqueeNSView: NSView {
         refresh(force: true)
     }
 
+    /// Restarts the marquee when the panel becomes visible.
+    ///
+    /// Forced, so the scroll begins from the start of the title each time the
+    /// panel is opened rather than resuming mid-word.
     @objc
     private func playerPanelDidShow() {
         refresh(force: true)
     }
 
+    /// Stops animating once the panel is hidden.
+    ///
+    /// Also clears the hover flag, since no exit event arrives for a pointer
+    /// that was over the title when the panel closed.
     @objc
     private func playerPanelDidHide() {
         isHovering = false
         stopAnimation()
     }
 
+    /// Rebuilds the rendered title and restarts the animation.
+    ///
+    /// The single path through which everything is updated. It bails out
+    /// early when nothing that affects rendering has changed, since it runs
+    /// on every layout pass.
+    ///
+    /// Scrolling only starts when the title genuinely overflows; a title that
+    /// fits is left static and its duplicate hidden, so no second copy shows
+    /// through the gap.
+    ///
+    /// - Parameter force: Re-render even when the inputs look unchanged. Used
+    ///   for changes the cached comparison cannot see, such as a new colour or
+    ///   an appearance switch.
     private func refresh(force: Bool) {
         guard bounds.width > 0, bounds.height > 0, !title.isEmpty else {
             stopAnimation()
@@ -248,12 +346,22 @@ final class PanelTitleMarqueeNSView: NSView {
         )
     }
 
+    /// Halts the marquee and returns the title to its starting position.
     private func stopAnimation() {
         scrollingLayer.removeAnimation(forKey: "marquee")
         scrollingLayer.setAffineTransform(.identity)
         secondTitleLayer.isHidden = false
     }
 
+    /// Measures how wide the title will draw.
+    ///
+    /// Uses Core Text's typographic bounds rather than an `NSAttributedString`
+    /// size, so the measurement matches exactly what ``titleBitmap(_:scale:foregroundColor:)``
+    /// draws with the same line. Any disagreement would show as a seam in the
+    /// loop.
+    ///
+    /// - Parameter text: Text to measure.
+    /// - Returns: Width in points, rounded up.
     private static func textWidth(_ text: String) -> CGFloat {
         let attributedText = NSAttributedString(
             string: text,
@@ -266,6 +374,21 @@ final class PanelTitleMarqueeNSView: NSView {
         return ceil(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
     }
 
+    /// Works out where the title bitmap should sit vertically.
+    ///
+    /// Centres the visual weight of the glyphs rather than the bitmap: a text
+    /// bitmap includes ascender and descender space that most titles do not
+    /// fill, so centring the box leaves the letters looking high. Positioning
+    /// by cap height and descender instead makes the title look centred
+    /// whether or not it happens to contain a descending letter.
+    ///
+    /// The result is snapped to a device pixel, since a half-pixel origin
+    /// blurs the whole line.
+    ///
+    /// - Parameters:
+    ///   - availableHeight: Height of the view in points.
+    ///   - scale: Backing scale factor.
+    /// - Returns: The bitmap's y origin in points.
     private static func titleOriginY(
         availableHeight: CGFloat,
         scale: CGFloat
@@ -276,6 +399,21 @@ final class PanelTitleMarqueeNSView: NSView {
         return (origin * scale).rounded() / scale
     }
 
+    /// Rasterises the title into a bitmap at the display's scale.
+    ///
+    /// Drawing once into an image and animating that costs far less than
+    /// letting Core Animation re-render text on every frame, which is what
+    /// keeps a continuously scrolling title cheap.
+    ///
+    /// The context is scaled and the baseline placed at the descent, so the
+    /// glyphs land inside the bitmap with their descenders intact.
+    ///
+    /// - Parameters:
+    ///   - title: Text to draw.
+    ///   - scale: Backing scale factor.
+    ///   - foregroundColor: Text colour, resolved before drawing.
+    /// - Returns: The image and its point size, or `nil` if the context could
+    ///   not be created.
     private static func titleBitmap(
         _ title: String,
         scale: CGFloat,
@@ -328,19 +466,52 @@ final class PanelTitleMarqueeNSView: NSView {
         return (image, pointSize)
     }
 
+    /// Font the panel title is drawn in.
     private static let font = NSFont.systemFont(
         ofSize: NSFont.systemFontSize,
         weight: .semibold
     )
+
+    /// Extra tracking between characters; none, matching system text.
     private static let characterSpacing: CGFloat = 0
+
+    /// Blank space between the two copies of the title.
+    ///
+    /// Also the extra distance the animation travels, so the loop reads as a
+    /// pause between repetitions rather than the title running into itself.
     private static let titleGap: CGFloat = 24
+
+    /// How long an auto-scrolling title rests before moving.
+    ///
+    /// Long enough to read the beginning of the title before it starts.
     private static let initialPause: TimeInterval = 1.4
+
+    /// How long a hover-scrolling title rests before moving.
+    ///
+    /// Much shorter, because hovering is a deliberate request to see the rest
+    /// and a long wait would feel unresponsive.
     private static let hoverInitialPause: TimeInterval = 0.25
 }
 
+/// Soft fade at the trailing edge of a scrolling title.
+///
+/// Shared by the panel and the menu bar so both taper text the same way,
+/// rather than clipping it at a hard edge.
 enum MarqueeFade {
+    /// Width of the fade in points.
     static let width: CGFloat = 14
 
+    /// Where the gradient begins, as a fraction of the viewport width.
+    ///
+    /// Expressed as a fraction because `CAGradientLayer` locations are
+    /// normalised. Clamped at 0, since a viewport narrower than the fade
+    /// would otherwise produce a negative location and fade the whole line
+    /// out.
+    ///
+    /// - Parameters:
+    ///   - viewportWidth: Visible width in points.
+    ///   - fadeWidth: Fade width in points. Defaults to ``width``.
+    /// - Returns: A location from 0 to 1.
     static func startLocation(
         viewportWidth: CGFloat,
         fadeWidth: CGFloat = width
@@ -349,6 +520,21 @@ enum MarqueeFade {
         return max(0, 1 - fadeWidth / viewportWidth)
     }
 
+    /// Applies or removes the fade mask on a layer.
+    ///
+    /// The mask is removed entirely when the text fits, so a title that does
+    /// not overflow is not needlessly dimmed at its end.
+    ///
+    /// Layer property changes are wrapped in a transaction with actions
+    /// disabled, since Core Animation would otherwise implicitly animate the
+    /// frame and colours - producing a visible sweep every time the title
+    /// changes.
+    ///
+    /// - Parameters:
+    ///   - contentLayer: Layer to mask.
+    ///   - maskLayer: Gradient layer to reuse as the mask.
+    ///   - size: Size of the viewport.
+    ///   - showsFade: Whether the content overflows and needs fading.
     static func update(
         contentLayer: CALayer?,
         maskLayer: CAGradientLayer,
@@ -385,7 +571,31 @@ enum MarqueeFade {
     }
 }
 
+/// Builds the marquee animation that moves in whole device pixels.
 enum PixelAlignedMarquee {
+    /// Creates the scrolling animation.
+    ///
+    /// A `CABasicAnimation` would interpolate continuously and land the text
+    /// on fractional pixels, where the glyph rasteriser resamples it and the
+    /// text visibly shimmers. This instead precomputes one keyframe per device
+    /// pixel of travel and uses discrete calculation mode, so the title only
+    /// ever sits on an exact pixel boundary and stays sharp throughout.
+    ///
+    /// The cost is a values array proportional to the distance - a few hundred
+    /// entries for a typical title, built once per render rather than per
+    /// frame.
+    ///
+    /// The pause is expressed as two identical leading keyframes, which holds
+    /// the title still at the start of each repetition.
+    ///
+    /// - Parameters:
+    ///   - distance: Total travel in points, being the title width plus its
+    ///     trailing gap.
+    ///   - scale: Backing scale factor, which sets the step size.
+    ///   - initialPause: Seconds to hold before moving.
+    ///   - pointsPerSecond: Scroll speed.
+    /// - Returns: An infinitely repeating keyframe animation on
+    ///   `transform.translation.x`.
     static func animation(
         distance: CGFloat,
         scale: CGFloat,
@@ -424,9 +634,18 @@ enum PixelAlignedMarquee {
 }
 
 extension Notification.Name {
+    /// Posted when the player panel becomes visible.
+    ///
+    /// Lets marquee views restart from the beginning of their text. A popover
+    /// is reused rather than rebuilt, so there is no view lifecycle callback
+    /// that would serve.
     static let playerPanelDidShow = Notification.Name(
         "dev.junx.Reprise.playerPanelDidShow"
     )
+
+    /// Posted when the player panel is dismissed.
+    ///
+    /// Lets marquee views stop animating while off screen.
     static let playerPanelDidHide = Notification.Name(
         "dev.junx.Reprise.playerPanelDidHide"
     )

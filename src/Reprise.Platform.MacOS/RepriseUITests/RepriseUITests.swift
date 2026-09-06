@@ -7,35 +7,47 @@
 
 import XCTest
 
+/// End-to-end checks driving the built app.
+///
+/// Coverage here is deliberately thin: Reprise lives in the menu bar, which
+/// `XCUIApplication` cannot reach into the way it can a normal window, so the
+/// behavioural testing sits in the unit target and this one guards launch.
 final class RepriseUITests: XCTestCase {
 
+    /// Stops the run at the first failure.
+    ///
+    /// Later assertions in a UI test almost always fail as a consequence of
+    /// the first, so continuing past it just buries the real cause.
+    ///
+    /// - Throws: Rethrows any setup failure to XCTest.
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
     }
 
+    /// Reserved for teardown; nothing needs releasing yet.
+    ///
+    /// - Throws: Rethrows any teardown failure to XCTest.
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
     }
 
+    /// Checks the app launches without crashing.
+    ///
+    /// There is nothing to assert beyond reaching the end: `launch()` fails
+    /// the test itself if the app does not come up, which makes this a smoke
+    /// test for the launch path rather than for any behaviour.
+    ///
+    /// - Throws: Rethrows any launch failure to XCTest.
     @MainActor
     func testExample() throws {
-        // UI tests must launch the application that they test.
         let app = XCUIApplication()
         app.launch()
-
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
     }
 
+    /// Measures how long a cold launch takes.
+    ///
+    /// - Throws: Rethrows any launch failure to XCTest.
     @MainActor
     func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
         measure(metrics: [XCTApplicationLaunchMetric()]) {
             XCUIApplication().launch()
         }
