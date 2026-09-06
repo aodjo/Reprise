@@ -15,6 +15,10 @@ public sealed record StatusItemIcon(int Width, int Height, byte[] Argb);
 /// Everything the tray shows for Reprise at one moment.
 /// </summary>
 /// <param name="Label">Text beside the icon, or empty for icon only.</param>
+/// <param name="LabelGuide">
+/// Text whose width the host should reserve for the label, so it does not
+/// shrink and grow as the label changes; normally the label itself.
+/// </param>
 /// <param name="ToolTip">Text shown on hover.</param>
 /// <param name="Icons">
 /// The icon at one or more sizes, for the host to choose from. Empty means
@@ -22,6 +26,7 @@ public sealed record StatusItemIcon(int Width, int Height, byte[] Argb);
 /// </param>
 public sealed record StatusItemState(
     string Label,
+    string LabelGuide,
     string ToolTip,
     IReadOnlyList<StatusItemIcon> Icons);
 

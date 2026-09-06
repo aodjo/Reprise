@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Styling;
+using Avalonia.Threading;
 using Avalonia.Themes.Fluent;
 using Reprise.Core;
 
@@ -11,14 +12,15 @@ namespace Reprise.Desktop;
 /// Avalonia application root shared by every desktop build of Reprise.
 /// </summary>
 /// <remarks>
-/// Owns the theme, the panel window, the preferences, and the tray entry,
-/// but deliberately not the media backend or the tray transport: the
-/// platform entry point supplies those, which is what lets this assembly
-/// stay free of any platform-specific reference.
+/// Owns the theme, the panel window, the settings window, the preferences,
+/// and the tray entry, but deliberately not the media backend or the tray
+/// transport: the platform entry point supplies those, which is what lets
+/// this assembly stay free of any platform-specific reference.
 /// </remarks>
 public sealed class RepriseApplication : Application
 {
     private StatusItemController? _statusItem;
+    private SettingsWindow? _settings;
 
     /// <summary>
     /// Supplies the platform's media session backend.
@@ -102,9 +104,19 @@ public sealed class RepriseApplication : Application
 
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var preferences = new PreferencesStore(PreferencesStore.DefaultPath);
-            var viewModel = new NowPlayingViewModel(service, lyricsService: new LyricsService());
+            var viewModel = new NowPlayingViewModel(
+                service,
+                lyricsService: new LyricsService(),
+                preferences: () => preferences.Current);
+            viewModel.LastPlayedPlayerChanged += (_, kind) => Dispatcher.UIThread.Post(() =>
+                preferences.Update(p => p with { LastPlayedPlayer = kind.ToString() }));
             var window = new NowPlayingWindow(viewModel, preferences);
             window.ExitRequested += (_, _) => Quit(desktop, window);
+            window.SettingsRequested += (_, _) =>
+            {
+                _settings ??= new SettingsWindow(viewModel, preferences);
+                _settings.Present();
+            };
             desktop.MainWindow = window;
 
             var statusItem = StatusItemFactory?.Invoke() ?? new AvaloniaTrayStatusItem(this);
@@ -112,6 +124,13 @@ public sealed class RepriseApplication : Application
             _statusItem.Activated += (_, _) => window.TogglePanel();
             _statusItem.OpenRequested += (_, _) => window.ShowPanel();
             _statusItem.QuitRequested += (_, _) => Quit(desktop, window);
+            window.PanelShown += (_, _) =>
+            {
+                if (preferences.Current.ResetsMenuTitleWhenPanelOpens)
+                {
+                    _statusItem?.RestartScroll();
+                }
+            };
             desktop.Exit += (_, _) => _statusItem?.Dispose();
             _ = StartStatusItemAsync(_statusItem);
 
@@ -157,11 +176,16 @@ public sealed class RepriseApplication : Application
     /// </remarks>
     /// <param name="desktop">Lifetime to shut down.</param>
     /// <param name="window">Panel that must be allowed to close.</param>
-    private static void Quit(
+    private void Quit(
         IClassicDesktopStyleApplicationLifetime desktop,
         NowPlayingWindow window)
     {
         window.AllowClose = true;
+        if (_settings is { } settings)
+        {
+            settings.AllowClose = true;
+        }
+
         desktop.Shutdown();
     }
 }

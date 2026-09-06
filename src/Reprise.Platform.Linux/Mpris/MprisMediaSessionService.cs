@@ -171,6 +171,7 @@ public sealed class MprisMediaSessionService : IMediaSessionService
             PlaybackCommand.Previous => "Previous",
             PlaybackCommand.PlayPause => "PlayPause",
             PlaybackCommand.Next => "Next",
+            PlaybackCommand.Pause => "Pause",
             _ => throw new ArgumentOutOfRangeException(nameof(command)),
         };
 

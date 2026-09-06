@@ -89,6 +89,19 @@ public sealed class StatusItemController : IDisposable
     }
 
     /// <summary>
+    /// Restarts a scrolling label from its beginning.
+    /// </summary>
+    /// <remarks>
+    /// Called when the panel opens, if the user asked for it, so the title
+    /// in the tray and the title in the panel line up.
+    /// </remarks>
+    public void RestartScroll()
+    {
+        _textShownAt = DateTimeOffset.UtcNow;
+        Refresh();
+    }
+
+    /// <summary>
     /// Stops updates and releases the tray entry.
     /// </summary>
     public void Dispose()
@@ -131,13 +144,16 @@ public sealed class StatusItemController : IDisposable
         }
 
         var label = preferences.AutomaticallyScrollsTitles
-            ? MenuBarText.Window(text, preferences.MenuBarLabelLength, now - _textShownAt)
+            ? MenuBarText.Window(text, preferences.MenuBarLabelLength, now - _textShownAt, MenuBarText.StepIntervalFor(preferences.MarqueePointsPerSecond))
             : MenuBarText.Window(text, preferences.MenuBarLabelLength, TimeSpan.Zero);
+        var guide = preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth && label.Length > 0
+            ? new string('M', Math.Max(preferences.MenuBarLabelLength, 1))
+            : label;
         var tooltip = session is null
             ? "Reprise"
             : string.IsNullOrEmpty(session.Artist) ? session.Title : $"{session.Title} — {session.Artist}";
 
-        var state = new StatusItemState(label, tooltip, ResolveIcons(session, preferences));
+        var state = new StatusItemState(label, guide, tooltip, ResolveIcons(session, preferences));
         if (state == _lastState)
         {
             return;

@@ -26,9 +26,27 @@ public static class MenuBarText
     public static readonly TimeSpan InitialPause = TimeSpan.FromSeconds(1.4);
 
     /// <summary>
-    /// Time between one-character steps while scrolling.
+    /// Time between one-character steps at the normal marquee speed.
     /// </summary>
     public static readonly TimeSpan StepInterval = TimeSpan.FromMilliseconds(250);
+
+    /// <summary>
+    /// Converts the panel marquee speed into a label step interval.
+    /// </summary>
+    /// <remarks>
+    /// Calibrated so the normal speed of 30 points per second gives one
+    /// character every quarter second, and the slow and fast settings scale
+    /// in proportion.
+    /// </remarks>
+    /// <param name="pointsPerSecond">Panel marquee speed.</param>
+    /// <returns>Time between one-character steps.</returns>
+    /// <example>
+    /// <code>
+    /// MenuBarText.StepIntervalFor(45); // ~167 ms
+    /// </code>
+    /// </example>
+    public static TimeSpan StepIntervalFor(double pointsPerSecond) =>
+        TimeSpan.FromSeconds(7.5 / Math.Max(pointsPerSecond, 1));
 
     /// <summary>
     /// Text for the tray label given the current state.
@@ -108,7 +126,18 @@ public static class MenuBarText
     /// MenuBarText.Window("abcdef", 4, TimeSpan.FromSeconds(2)); // "cdef"
     /// </code>
     /// </example>
-    public static string Window(string text, int maxLength, TimeSpan elapsed)
+    public static string Window(string text, int maxLength, TimeSpan elapsed) =>
+        Window(text, maxLength, elapsed, StepInterval);
+
+    /// <summary>
+    /// The slice of a text visible at a moment, at a chosen scrolling speed.
+    /// </summary>
+    /// <param name="text">Full label text.</param>
+    /// <param name="maxLength">Widest label to show, in text elements.</param>
+    /// <param name="elapsed">Time since the text was first shown.</param>
+    /// <param name="stepInterval">Time between one-character steps.</param>
+    /// <returns>At most <paramref name="maxLength"/> text elements.</returns>
+    public static string Window(string text, int maxLength, TimeSpan elapsed, TimeSpan stepInterval)
     {
         ArgumentNullException.ThrowIfNull(text);
         if (maxLength <= 0)
@@ -123,7 +152,7 @@ public static class MenuBarText
         }
 
         var ring = TextElements(text + ScrollGap);
-        var offset = ScrollOffset(elapsed, ring.Length);
+        var offset = ScrollOffset(elapsed, ring.Length, stepInterval);
         var visible = new string[maxLength];
         for (var index = 0; index < maxLength; index++)
         {
@@ -147,15 +176,16 @@ public static class MenuBarText
     /// </summary>
     /// <param name="elapsed">Time since the text was first shown.</param>
     /// <param name="ringLength">Length of the text ring being scrolled.</param>
+    /// <param name="stepInterval">Time between one-character steps.</param>
     /// <returns>An offset into the ring.</returns>
-    private static int ScrollOffset(TimeSpan elapsed, int ringLength)
+    private static int ScrollOffset(TimeSpan elapsed, int ringLength, TimeSpan stepInterval)
     {
-        if (elapsed <= InitialPause || ringLength <= 0)
+        if (elapsed <= InitialPause || ringLength <= 0 || stepInterval <= TimeSpan.Zero)
         {
             return 0;
         }
 
-        var steps = (long)((elapsed - InitialPause).Ticks / StepInterval.Ticks);
+        var steps = (long)((elapsed - InitialPause).Ticks / stepInterval.Ticks);
         return (int)(steps % ringLength);
     }
 

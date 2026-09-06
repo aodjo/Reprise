@@ -28,6 +28,27 @@ namespace Reprise.Desktop;
 /// <param name="MenuBarLabelLength">
 /// Longest label the tray shows before it starts scrolling, in characters.
 /// </param>
+/// <param name="MenuBarReservesLabelWidth">
+/// Whether the tray label keeps its full width while showing lyrics, so
+/// neighbouring items do not shift as lines change length.
+/// </param>
+/// <param name="ResetsMenuTitleWhenPanelOpens">
+/// Whether a scrolling tray label restarts from the beginning when the panel
+/// is opened.
+/// </param>
+/// <param name="AutomaticallyPausesOtherPlayer">
+/// Whether a player that starts playing pauses any other player that was
+/// already playing.
+/// </param>
+/// <param name="RemembersLastPlayedPlayer">
+/// Whether the player the user most recently started takes precedence over
+/// the display priority.
+/// </param>
+/// <param name="LastPlayedPlayer">Kind of the player most recently started.</param>
+/// <param name="PlayerDisplayPriority">
+/// Comma-separated player kinds, most preferred first; see
+/// <see cref="PlayerPriority"/>.
+/// </param>
 public sealed record DesktopPreferences(
     PanelTheme PanelTheme = PanelTheme.Liquid,
     PanelLeadingTimeStyle LeadingTimeStyle = PanelLeadingTimeStyle.Elapsed,
@@ -37,7 +58,13 @@ public sealed record DesktopPreferences(
     MenuBarTitleFormat MenuBarTitleFormat = MenuBarTitleFormat.TitleOnly,
     bool MenuBarShowsLyrics = false,
     MenuBarArtworkStyle MenuBarArtworkStyle = MenuBarArtworkStyle.AlbumArtwork,
-    int MenuBarLabelLength = 30);
+    int MenuBarLabelLength = 30,
+    bool MenuBarReservesLabelWidth = true,
+    bool ResetsMenuTitleWhenPanelOpens = true,
+    bool AutomaticallyPausesOtherPlayer = false,
+    bool RemembersLastPlayedPlayer = false,
+    string LastPlayedPlayer = "",
+    string PlayerDisplayPriority = "spotify,youTubeMusic,generic");
 
 /// <summary>
 /// Loads, holds, and saves <see cref="DesktopPreferences"/>.

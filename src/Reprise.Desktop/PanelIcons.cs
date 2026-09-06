@@ -16,6 +16,30 @@ namespace Reprise.Desktop;
 public static class PanelIcons
 {
     /// <summary>
+    /// Outlined painter's palette with four wells, standing in for <c>paintpalette</c>.
+    /// </summary>
+    public static readonly Geometry Palette = Geometry.Parse(
+        "F0 M2 12 A10 10 0 1 1 22 12 A10 10 0 1 1 2 12 Z M3.8 12 A8.2 8.2 0 1 1 20.2 12 A8.2 8.2 0 1 1 3.8 12 Z M5.8 9.5 A1.7 1.7 0 1 1 9.2 9.5 A1.7 1.7 0 1 1 5.8 9.5 Z M9.8 6.5 A1.7 1.7 0 1 1 13.2 6.5 A1.7 1.7 0 1 1 9.8 6.5 Z M14.8 8.5 A1.7 1.7 0 1 1 18.2 8.5 A1.7 1.7 0 1 1 14.8 8.5 Z M15.3 14 A1.7 1.7 0 1 1 18.7 14 A1.7 1.7 0 1 1 15.3 14 Z M12 20.5 L15 20.5 A2 2 0 0 0 15 16.5 L12 16.5 Z");
+
+    /// <summary>
+    /// Outlined window with a filled title strip, standing in for <c>menubar.rectangle</c>.
+    /// </summary>
+    public static readonly Geometry MenuBarRectangle = Geometry.Parse(
+        "F0 M5 4.5 L19 4.5 A2.5 2.5 0 0 1 21.5 7 L21.5 17 A2.5 2.5 0 0 1 19 19.5 L5 19.5 A2.5 2.5 0 0 1 2.5 17 L2.5 7 A2.5 2.5 0 0 1 5 4.5 Z M5.5 6.3 L18.5 6.3 A1.2 1.2 0 0 1 19.7 7.5 L19.7 16.5 A1.2 1.2 0 0 1 18.5 17.7 L5.5 17.7 A1.2 1.2 0 0 1 4.3 16.5 L4.3 7.5 A1.2 1.2 0 0 1 5.5 6.3 Z M4.3 6.3 L19.7 6.3 L19.7 9.5 L4.3 9.5 Z");
+
+    /// <summary>
+    /// Outlined rounded square with an i cut out, standing in for <c>info.square</c>.
+    /// </summary>
+    public static readonly Geometry InfoSquare = Geometry.Parse(
+        "F0 M7 3 L17 3 A4 4 0 0 1 21 7 L21 17 A4 4 0 0 1 17 21 L7 21 A4 4 0 0 1 3 17 L3 7 A4 4 0 0 1 7 3 Z M7.3 4.8 L16.7 4.8 A2.5 2.5 0 0 1 19.2 7.3 L19.2 16.7 A2.5 2.5 0 0 1 16.7 19.2 L7.3 19.2 A2.5 2.5 0 0 1 4.8 16.7 L4.8 7.3 A2.5 2.5 0 0 1 7.3 4.8 Z M11 10.5 L13 10.5 L13 17 L11 17 Z M10.8 7.9 A1.2 1.2 0 1 1 13.2 7.9 A1.2 1.2 0 1 1 10.8 7.9 Z");
+
+    /// <summary>
+    /// Ring with a play triangle cut out, standing in for <c>play.circle</c>.
+    /// </summary>
+    public static readonly Geometry PlayCircle = Geometry.Parse(
+        "F0 M2 12 A10 10 0 1 1 22 12 A10 10 0 1 1 2 12 Z M3.8 12 A8.2 8.2 0 1 1 20.2 12 A8.2 8.2 0 1 1 3.8 12 Z M9.8 8.2 L16.2 12 L9.8 15.8 Z");
+
+    /// <summary>
     /// Solid play triangle, standing in for SF Symbols <c>play.fill</c>.
     /// </summary>
     public static readonly Geometry Play = Geometry.Parse(

@@ -73,6 +73,18 @@ public sealed class MenuBarTextTests
     }
 
     /// <summary>
+    /// The marquee speed scales the step interval around the normal setting.
+    /// </summary>
+    [Fact]
+    public void StepIntervalScalesWithSpeed()
+    {
+        Assert.Equal(MenuBarText.StepInterval, MenuBarText.StepIntervalFor(30));
+        Assert.True(MenuBarText.StepIntervalFor(45) < MenuBarText.StepInterval);
+        Assert.True(MenuBarText.StepIntervalFor(20) > MenuBarText.StepInterval);
+        Assert.Equal("bcde", MenuBarText.Window("abcdef", 4, MenuBarText.InitialPause + MenuBarText.StepIntervalFor(45), MenuBarText.StepIntervalFor(45)));
+    }
+
+    /// <summary>
     /// Surrogate pairs and combining sequences move as one character.
     /// </summary>
     [Fact]

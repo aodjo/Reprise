@@ -263,6 +263,67 @@ public sealed class NowPlayingViewModelTests
     }
 
     /// <summary>
+    /// The display priority breaks ties between players in the same state.
+    /// </summary>
+    [Fact]
+    public async Task DisplayPriorityBreaksTies()
+    {
+        var backend = new FakeBackend
+        {
+            Sessions =
+            [
+                Session(status: PlaybackStatus.Paused),
+                Session(status: PlaybackStatus.Paused) with { PlayerId = "vlc", PlayerName = "VLC" },
+            ],
+        };
+        var preferences = new DesktopPreferences(PlayerDisplayPriority: "generic,spotify");
+        using var viewModel = new NowPlayingViewModel(backend, new FakeArtworkLoader(), new FixedClock(Observed), preferences: () => preferences);
+
+        await viewModel.RefreshAsync();
+
+        Assert.Equal("vlc", viewModel.ActiveSession?.PlayerId);
+    }
+
+    /// <summary>
+    /// With auto-pause on, a player that starts pauses the one already playing.
+    /// </summary>
+    [Fact]
+    public async Task NewlyStartedPlayerPausesTheOther()
+    {
+        var backend = new FakeBackend { Sessions = [Session()] };
+        var preferences = new DesktopPreferences(AutomaticallyPausesOtherPlayer: true);
+        using var viewModel = new NowPlayingViewModel(backend, new FakeArtworkLoader(), new FixedClock(Observed), preferences: () => preferences);
+        await viewModel.RefreshAsync();
+
+        backend.Sessions = [Session(), Session() with { PlayerId = "vlc", PlayerName = "VLC" }];
+        await viewModel.RefreshAsync();
+
+        Assert.Equal([("spotify", PlaybackCommand.Pause)], backend.Commands);
+        Assert.Equal("vlc", viewModel.ActiveSession?.PlayerId);
+    }
+
+    /// <summary>
+    /// A remembered player that is playing wins over the priority order.
+    /// </summary>
+    [Fact]
+    public async Task RememberedPlayerWinsWhilePlaying()
+    {
+        var backend = new FakeBackend
+        {
+            Sessions = [Session(), Session() with { PlayerId = "vlc", PlayerName = "VLC" }],
+        };
+        var preferences = new DesktopPreferences(RemembersLastPlayedPlayer: true, LastPlayedPlayer: "Generic");
+        using var viewModel = new NowPlayingViewModel(backend, new FakeArtworkLoader(), new FixedClock(Observed), preferences: () => preferences);
+        PanelPlayerLogo? remembered = null;
+        viewModel.LastPlayedPlayerChanged += (_, kind) => remembered = kind;
+
+        await viewModel.RefreshAsync();
+
+        Assert.Equal("vlc", viewModel.ActiveSession?.PlayerId);
+        Assert.Equal(PanelPlayerLogo.Spotify, remembered);
+    }
+
+    /// <summary>
     /// Player ids map onto the marks the panel can draw.
     /// </summary>
     /// <param name="playerId">MPRIS player id.</param>
@@ -394,6 +455,11 @@ public sealed class NowPlayingViewModelTests
         public bool HoldVolumeWrites { get; set; }
 
         /// <summary>
+        /// Every transport command sent, in order.
+        /// </summary>
+        public List<(string PlayerId, PlaybackCommand Command)> Commands { get; } = [];
+
+        /// <summary>
         /// Most recent seek, as player id and position.
         /// </summary>
         public (string PlayerId, TimeSpan Position)? LastSeek { get; private set; }
@@ -425,8 +491,11 @@ public sealed class NowPlayingViewModelTests
         public Task SendCommandAsync(
             string playerId,
             PlaybackCommand command,
-            CancellationToken cancellationToken = default) =>
-            CommandFailure is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+            CancellationToken cancellationToken = default)
+        {
+            Commands.Add((playerId, command));
+            return CommandFailure is { } failure ? Task.FromException(failure) : Task.CompletedTask;
+        }
 
         /// <inheritdoc />
         public Task SeekAsync(

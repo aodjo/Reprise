@@ -14,12 +14,15 @@ with the indicator plugin - show the track title (or the current lyric line)
 next to the album cover; KDE Plasma and other hosts show the cover and menu
 only. Long text scrolls by stepping one character every quarter second.
 
-Settings live in `$XDG_CONFIG_HOME/reprise/preferences.json` (normally
-`~/.config/reprise/preferences.json`) and cover the panel theme (White, Dark,
-Liquid, System), the two time labels, title scrolling, and the tray label:
-its format (title, title - artist, artist - title, none), whether it shows
-lyrics, and whether the icon is the album cover. They are edited from the
-gear button in the panel footer.
+The gear button in the panel footer opens a settings window with the same
+six tabs as the macOS app - General, YouTube Music, Theme, Menu bar, Panel,
+and System info - including the live previews. Settings live in
+`$XDG_CONFIG_HOME/reprise/preferences.json` (normally
+`~/.config/reprise/preferences.json`) and cover auto-pausing other players,
+tray lyrics and their width, display priority and the remembered player,
+launch at login (an XDG autostart entry), the panel theme, the tray text and
+icon, the marquee, and the two time labels. The YouTube Music tab lists
+browser tabs seen over MPRIS, since Linux browsers need no extension.
 
 Synced lyrics come from VIBE and LRCLIB, the same services the macOS app
 uses, and are looked up once per track.

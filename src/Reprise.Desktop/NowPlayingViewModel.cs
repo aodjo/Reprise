@@ -81,6 +81,9 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     private readonly IArtworkLoader _artworkLoader;
     private readonly ILyricsService? _lyricsService;
     private readonly TimeProvider _timeProvider;
+    private readonly Func<DesktopPreferences> _preferences;
+    private IReadOnlyList<MediaSessionSnapshot> _sessions = [];
+    private HashSet<string> _previouslyPlaying = [];
     private readonly Dictionary<LyricsTrackQuery, SyncedLyrics?> _lyricsCache = [];
     private LyricsTrackQuery? _lyricsQuery;
     private CancellationTokenSource? _lyricsLoad;
@@ -121,29 +124,50 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     /// <param name="lyricsService">
     /// Looks up synced lyrics. Null disables lyrics entirely.
     /// </param>
+    /// <param name="preferences">
+    /// Supplies the current settings for player priority and auto-pause.
+    /// Defaults to the built-in defaults.
+    /// </param>
     /// <example>
     /// <code>
     /// var viewModel = new NowPlayingViewModel(
     ///     new MprisMediaSessionService(),
-    ///     lyricsService: new LyricsService());
+    ///     lyricsService: new LyricsService(),
+    ///     preferences: () => store.Current);
     /// </code>
     /// </example>
     public NowPlayingViewModel(
         IMediaSessionService mediaSessionService,
         IArtworkLoader? artworkLoader = null,
         TimeProvider? timeProvider = null,
-        ILyricsService? lyricsService = null)
+        ILyricsService? lyricsService = null,
+        Func<DesktopPreferences>? preferences = null)
     {
         _mediaSessionService = mediaSessionService;
         _artworkLoader = artworkLoader ?? new ArtworkLoader();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _lyricsService = lyricsService;
+        _preferences = preferences ?? DefaultPreferences;
     }
+
+    /// <summary>
+    /// Raised on the calling thread when the remembered player changes.
+    /// </summary>
+    /// <remarks>
+    /// The view model has no store to write to, so whoever owns the
+    /// preferences persists the kind carried by the event.
+    /// </remarks>
+    public event EventHandler<PanelPlayerLogo>? LastPlayedPlayerChanged;
 
     /// <summary>
     /// Raised on the calling thread whenever a bound property changes.
     /// </summary>
     public event PropertyChangedEventHandler? PropertyChanged;
+
+    /// <summary>
+    /// Every session from the latest poll, in the backend's order.
+    /// </summary>
+    public IReadOnlyList<MediaSessionSnapshot> Sessions => _sessions;
 
     /// <summary>
     /// The session currently on display, or null when nothing is playing.
@@ -382,8 +406,15 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
 
         try
         {
-            var sessions = await _mediaSessionService.GetSessionsAsync(_lifetime.Token);
-            Apply(ActiveSessionSelector.Select(sessions));
+            var polled = await _mediaSessionService.GetSessionsAsync(_lifetime.Token);
+            var (started, paused) = await ReconcilePlaybackAsync(polled);
+            var sessions = paused.Count == 0
+                ? polled
+                : polled.Select(session => paused.Contains(session.PlayerId)
+                    ? session with { Status = PlaybackStatus.Paused }
+                    : session).ToList();
+            _sessions = sessions;
+            Apply(SelectActive(sessions, started));
             SetPollError(null);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
@@ -672,6 +703,102 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
             ? PanelPlayerLogo.YouTubeMusic
             : PanelPlayerLogo.Generic;
     }
+
+    /// <summary>
+    /// Chooses the session to display, honouring the user's priorities.
+    /// </summary>
+    /// <remarks>
+    /// Mirrors the macOS store: a remembered player that is playing wins
+    /// outright, otherwise the kind ordering from settings breaks ties
+    /// between sessions in the same playback state.
+    /// </remarks>
+    /// <param name="sessions">Sessions from the latest poll.</param>
+    /// <param name="started">Player ids that began playing in this poll.</param>
+    /// <returns>The session to display, or null.</returns>
+    private MediaSessionSnapshot? SelectActive(IReadOnlyList<MediaSessionSnapshot> sessions, IReadOnlyList<string> started)
+    {
+        var preferences = _preferences();
+        if (preferences.RemembersLastPlayedPlayer)
+        {
+            if (started.Count > 0)
+            {
+                var kind = LogoFor(started[0]);
+                if (!string.Equals(preferences.LastPlayedPlayer, kind.ToString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    LastPlayedPlayerChanged?.Invoke(this, kind);
+                }
+            }
+
+            if (Enum.TryParse<PanelPlayerLogo>(preferences.LastPlayedPlayer, ignoreCase: true, out var remembered))
+            {
+                var match = sessions.FirstOrDefault(session =>
+                    session.Status == PlaybackStatus.Playing
+                    && !string.IsNullOrEmpty(session.Title)
+                    && LogoFor(session.PlayerId) == remembered);
+                if (match is not null)
+                {
+                    return match;
+                }
+            }
+        }
+
+        var order = PlayerPriority.Parse(preferences.PlayerDisplayPriority);
+        return ActiveSessionSelector.Select(sessions, PlayerPriority.PreferredIds(sessions, order));
+    }
+
+    /// <summary>
+    /// Notes which players just started, and pauses the others when asked to.
+    /// </summary>
+    /// <remarks>
+    /// A player counts as started when it is playing now but was not in
+    /// the previous poll. With auto-pause on and more than one player
+    /// playing, every playing player other than the newest is paused, so
+    /// two apps never talk over each other.
+    /// </remarks>
+    /// <param name="sessions">Sessions from the latest poll.</param>
+    /// <returns>
+    /// Ids of the players that started in this poll, and ids of the players
+    /// that were just told to pause and should be treated as paused already.
+    /// </returns>
+    private async Task<(IReadOnlyList<string> Started, IReadOnlyList<string> Paused)> ReconcilePlaybackAsync(
+        IReadOnlyList<MediaSessionSnapshot> sessions)
+    {
+        var playing = sessions
+            .Where(session => session.Status == PlaybackStatus.Playing)
+            .Select(session => session.PlayerId)
+            .ToList();
+        var started = playing.Where(id => !_previouslyPlaying.Contains(id)).ToList();
+        _previouslyPlaying = [.. playing];
+
+        if (!_preferences().AutomaticallyPausesOtherPlayer || playing.Count < 2)
+        {
+            return (started, []);
+        }
+
+        var keep = started.Count > 0 ? started[0] : playing[0];
+        var paused = new List<string>();
+        foreach (var id in playing.Where(id => id != keep))
+        {
+            try
+            {
+                await _mediaSessionService.SendCommandAsync(id, PlaybackCommand.Pause, _lifetime.Token);
+                _previouslyPlaying.Remove(id);
+                paused.Add(id);
+            }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            {
+                SetCommandError(exception.Message);
+            }
+        }
+
+        return (started, paused);
+    }
+
+    /// <summary>
+    /// Settings used when no store is supplied.
+    /// </summary>
+    /// <returns>The built-in defaults.</returns>
+    private static DesktopPreferences DefaultPreferences() => new();
 
     /// <summary>
     /// Publishes a freshly selected session and reconciles the derived state.

@@ -147,6 +147,7 @@ public sealed class MprisMediaSessionServiceTests
     [InlineData(PlaybackCommand.Previous, "Previous")]
     [InlineData(PlaybackCommand.PlayPause, "PlayPause")]
     [InlineData(PlaybackCommand.Next, "Next")]
+    [InlineData(PlaybackCommand.Pause, "Pause")]
     public async Task PlaybackCommandsTargetTheSelectedPlayer(
         PlaybackCommand command,
         string expectedMember)

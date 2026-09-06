@@ -96,13 +96,11 @@ public sealed class NowPlayingWindow : Window
     private readonly PanelIconButton _muteButton;
     private readonly CompactSlider _volumeSlider;
     private readonly TextBlock _volumeValue;
-    private readonly MenuFlyout _settingsFlyout;
     private PanelPalette _palette;
     private Bitmap? _artworkBitmap;
     private byte[]? _artworkBytes;
     private bool _wasActivated;
     private bool _positioned;
-    private bool _settingsOpen;
 
     /// <summary>
     /// Whether a close request should actually close the window.
@@ -118,6 +116,16 @@ public sealed class NowPlayingWindow : Window
     /// Raised when the user presses the footer's exit button.
     /// </summary>
     public event EventHandler? ExitRequested;
+
+    /// <summary>
+    /// Raised when the user presses the footer's gear button.
+    /// </summary>
+    public event EventHandler? SettingsRequested;
+
+    /// <summary>
+    /// Raised each time the panel is shown.
+    /// </summary>
+    public event EventHandler? PanelShown;
 
     /// <summary>
     /// Builds the panel and starts polling for playback state.
@@ -284,7 +292,7 @@ public sealed class NowPlayingWindow : Window
         _settingsButton = CreateFooterButton(PanelIcons.Gear, "설정 열기");
         _exitButton = CreateFooterButton(PanelIcons.Exit, "Reprise 종료");
         _volumeButton.Click += (_, _) => ToggleVolumePopup();
-        _settingsButton.Click += (_, _) => ShowSettingsFlyout();
+        _settingsButton.Click += (_, _) => SettingsRequested?.Invoke(this, EventArgs.Empty);
         _exitButton.Click += (_, _) => ExitRequested?.Invoke(this, EventArgs.Empty);
         _footerRule = new Border { Height = 1 };
         _footer = new Grid
@@ -347,10 +355,6 @@ public sealed class NowPlayingWindow : Window
             IsLightDismissEnabled = true,
         };
         _volumePopup.Closed += (_, _) => _viewModel.IsVolumeEditing = false;
-
-        _settingsFlyout = new MenuFlyout();
-        _settingsFlyout.Opened += (_, _) => _settingsOpen = true;
-        _settingsFlyout.Closed += (_, _) => _settingsOpen = false;
 
         _root = new Border
         {
@@ -419,6 +423,7 @@ public sealed class NowPlayingWindow : Window
         Show();
         Activate();
         _ = _viewModel.RefreshAsync();
+        PanelShown?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -427,7 +432,6 @@ public sealed class NowPlayingWindow : Window
     public void HidePanel()
     {
         _volumePopup.IsOpen = false;
-        _settingsFlyout.Hide();
         _wasActivated = false;
         Hide();
     }
@@ -641,7 +645,7 @@ public sealed class NowPlayingWindow : Window
     /// <param name="e">Unused.</param>
     private void HandleDeactivated(object? sender, EventArgs e)
     {
-        if (!_wasActivated || _volumePopup.IsOpen || _settingsOpen)
+        if (!_wasActivated || _volumePopup.IsOpen)
         {
             return;
         }
@@ -1038,109 +1042,5 @@ public sealed class NowPlayingWindow : Window
 
         _volumeSlider.Value = _viewModel.Volume;
         _volumePopup.IsOpen = true;
-    }
-
-    /// <summary>
-    /// Rebuilds and shows the settings menu under the gear button.
-    /// </summary>
-    /// <remarks>
-    /// Rebuilt on every open so each radio item reflects the current value,
-    /// which is simpler than keeping a persistent menu in sync.
-    /// </remarks>
-    private void ShowSettingsFlyout()
-    {
-        var current = _preferences.Current;
-        _settingsFlyout.Items.Clear();
-
-        _settingsFlyout.Items.Add(new MenuItem { Header = "패널 테마", IsEnabled = false });
-        foreach (var theme in Enum.GetValues<PanelTheme>())
-        {
-            _settingsFlyout.Items.Add(RadioItem(
-                theme.DisplayName(),
-                current.PanelTheme == theme,
-                () => _preferences.Update(p => p with { PanelTheme = theme })));
-        }
-
-        _settingsFlyout.Items.Add(new Separator());
-        _settingsFlyout.Items.Add(new MenuItem { Header = "왼쪽 시간", IsEnabled = false });
-        foreach (var style in Enum.GetValues<PanelLeadingTimeStyle>())
-        {
-            _settingsFlyout.Items.Add(RadioItem(
-                style.DisplayName(),
-                current.LeadingTimeStyle == style,
-                () => _preferences.Update(p => p with { LeadingTimeStyle = style })));
-        }
-
-        _settingsFlyout.Items.Add(new Separator());
-        _settingsFlyout.Items.Add(new MenuItem { Header = "오른쪽 시간", IsEnabled = false });
-        foreach (var style in Enum.GetValues<PanelTrailingTimeStyle>())
-        {
-            _settingsFlyout.Items.Add(RadioItem(
-                style.DisplayName(),
-                current.TrailingTimeStyle == style,
-                () => _preferences.Update(p => p with { TrailingTimeStyle = style })));
-        }
-
-        _settingsFlyout.Items.Add(new Separator());
-        var scroll = new MenuItem
-        {
-            Header = "제목 자동 스크롤",
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = current.AutomaticallyScrollsTitles,
-        };
-        scroll.Click += (_, _) => _preferences.Update(
-            p => p with { AutomaticallyScrollsTitles = !p.AutomaticallyScrollsTitles });
-        _settingsFlyout.Items.Add(scroll);
-
-        _settingsFlyout.Items.Add(new Separator());
-        _settingsFlyout.Items.Add(new MenuItem { Header = "상단 바 제목", IsEnabled = false });
-        foreach (var format in Enum.GetValues<MenuBarTitleFormat>())
-        {
-            _settingsFlyout.Items.Add(RadioItem(
-                format.DisplayName(),
-                current.MenuBarTitleFormat == format,
-                () => _preferences.Update(p => p with { MenuBarTitleFormat = format })));
-        }
-
-        var lyrics = new MenuItem
-        {
-            Header = "상단 바에 가사 표시",
-            ToggleType = MenuItemToggleType.CheckBox,
-            IsChecked = current.MenuBarShowsLyrics,
-        };
-        lyrics.Click += (_, _) => _preferences.Update(
-            p => p with { MenuBarShowsLyrics = !p.MenuBarShowsLyrics });
-        _settingsFlyout.Items.Add(lyrics);
-
-        _settingsFlyout.Items.Add(new Separator());
-        _settingsFlyout.Items.Add(new MenuItem { Header = "상단 바 아이콘", IsEnabled = false });
-        foreach (var style in Enum.GetValues<MenuBarArtworkStyle>())
-        {
-            _settingsFlyout.Items.Add(RadioItem(
-                style.DisplayName(),
-                current.MenuBarArtworkStyle == style,
-                () => _preferences.Update(p => p with { MenuBarArtworkStyle = style })));
-        }
-
-        _settingsFlyout.ShowAt(_settingsButton);
-    }
-
-    /// <summary>
-    /// Creates a radio-style menu item.
-    /// </summary>
-    /// <param name="header">Label.</param>
-    /// <param name="isChecked">Whether it is the current choice.</param>
-    /// <param name="select">Applies the choice.</param>
-    /// <returns>The configured item.</returns>
-    private static MenuItem RadioItem(string header, bool isChecked, Action select)
-    {
-        var item = new MenuItem
-        {
-            Header = header,
-            ToggleType = MenuItemToggleType.Radio,
-            IsChecked = isChecked,
-        };
-        item.Click += (_, _) => select();
-        return item;
     }
 }
