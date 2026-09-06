@@ -21,7 +21,8 @@ namespace Reprise.Desktop;
 /// <remarks>
 /// A port of the macOS <c>PlayerPopoverView</c> to Avalonia, laid out to the
 /// same measurements: a 360-wide borderless panel with 16-point corners, a
-/// 112-point card, and a 30-point footer. It behaves like a popover too -
+/// 112-point card, a 136-point lyrics strip when synced lyrics exist, and a
+/// 30-point footer. It behaves like a popover too -
 /// it hides when it loses focus or on Escape, and the tray icon brings it
 /// back - rather than like a document window.
 /// <para>
@@ -80,6 +81,7 @@ public sealed class NowPlayingWindow : Window
     private readonly PanelGlyph _emptyIcon;
     private readonly TextBlock _emptyTitle;
     private readonly TextBlock _emptyDescription;
+    private readonly PanelLyricsView _lyricsView;
     private readonly Border _errorBanner;
     private readonly PanelGlyph _errorIcon;
     private readonly TextBlock _errorText;
@@ -239,6 +241,7 @@ public sealed class NowPlayingWindow : Window
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
         };
+        _lyricsView = new PanelLyricsView { IsVisible = false };
 
         _errorIcon = new PanelGlyph
         {
@@ -359,7 +362,7 @@ public sealed class NowPlayingWindow : Window
                 {
                     new StackPanel
                     {
-                        Children = { _body, _errorBanner, _footerRule, _footer },
+                        Children = { _body, _lyricsView, _errorBanner, _footerRule, _footer },
                     },
                     _volumePopup,
                 },
@@ -816,6 +819,8 @@ public sealed class NowPlayingWindow : Window
         _emptyTitle.Foreground = primary;
         _emptyDescription.Foreground = secondary;
         _errorText.Foreground = primary;
+        _lyricsView.Foreground = primary;
+        _lyricsView.SeparatorBrush = separator;
 
         _footerRule.Background = separator;
         _versionText.Foreground = secondary;
@@ -857,6 +862,10 @@ public sealed class NowPlayingWindow : Window
 
         _errorBanner.IsVisible = session is not null && error is not null;
         _errorText.Text = error ?? string.Empty;
+
+        var lyrics = session is null ? null : _viewModel.Lyrics;
+        _lyricsView.Lyrics = lyrics;
+        _lyricsView.IsVisible = lyrics is not null;
 
         var volume = _viewModel.Volume;
         _volumeButton.Icon = PanelIcons.Speaker(volume);
@@ -999,6 +1008,8 @@ public sealed class NowPlayingWindow : Window
         {
             _seekSlider.Value = position.TotalSeconds;
         }
+
+        _lyricsView.Advance(position);
 
         _leadingTime.Text = PanelTimeDisplay.LeadingText(
             _preferences.Current.LeadingTimeStyle,
