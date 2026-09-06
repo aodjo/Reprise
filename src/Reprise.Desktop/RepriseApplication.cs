@@ -146,13 +146,6 @@ public sealed class RepriseApplication : Application
                 preferences,
                 MenuBarPublisherFactory?.Invoke());
             _statusItem.Activated += (_, _) => window.TogglePanel();
-            window.PanelShown += (_, _) =>
-            {
-                if (preferences.Current.ResetsMenuTitleWhenPanelOpens)
-                {
-                    _statusItem?.RestartScroll();
-                }
-            };
             desktop.Exit += (_, _) => _statusItem?.Dispose();
             _ = StartStatusItemAsync(_statusItem);
 

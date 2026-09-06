@@ -11,50 +11,16 @@ namespace Reprise.Desktop;
 /// hidden, the current lyric line when lyrics are shown and available, and
 /// otherwise the title in the chosen format.
 /// <para>
-/// A tray label is a string the desktop panel draws, not a surface the
-/// application can animate, so scrolling means publishing a moving slice
-/// of the text and stepping it a whole character at a time. That is what
-/// <see cref="Window"/> does when the carousel is on: coarser than the
-/// panel's own title, which really is drawn pixel by pixel, but it does
-/// move. With the carousel off the line is published whole and nothing is
-/// ever cut.
+/// The line is never shortened. A tray label is a string the desktop
+/// draws, so it cannot move; the nearest imitation would be to publish a
+/// different slice of it each tick, which reads as the letters changing
+/// rather than the words sliding past. Scrolling is left to the surfaces
+/// Reprise draws itself. <see cref="Reserve"/> is the one adjustment, and
+/// it only ever adds width.
 /// </para>
 /// </remarks>
 public static class MenuBarText
 {
-    /// <summary>
-    /// Separator inserted between the end of a scrolling text and its restart.
-    /// </summary>
-    public const string ScrollGap = "   ·   ";
-
-    /// <summary>
-    /// Rest before a long label starts scrolling.
-    /// </summary>
-    public static readonly TimeSpan InitialPause = TimeSpan.FromSeconds(1.4);
-
-    /// <summary>
-    /// Time between one-character steps at the normal marquee speed.
-    /// </summary>
-    public static readonly TimeSpan StepInterval = TimeSpan.FromMilliseconds(250);
-
-    /// <summary>
-    /// Converts the panel marquee speed into a label step interval.
-    /// </summary>
-    /// <remarks>
-    /// Calibrated so the normal speed of 30 points per second gives one
-    /// character every quarter second, and the slow and fast settings scale
-    /// in proportion.
-    /// </remarks>
-    /// <param name="pointsPerSecond">Panel marquee speed.</param>
-    /// <returns>Time between one-character steps.</returns>
-    /// <example>
-    /// <code>
-    /// MenuBarText.StepIntervalFor(45); // ~167 ms
-    /// </code>
-    /// </example>
-    public static TimeSpan StepIntervalFor(double pointsPerSecond) =>
-        TimeSpan.FromSeconds(7.5 / Math.Max(pointsPerSecond, 1));
-
     /// <summary>
     /// Text for the tray label given the current state.
     /// </summary>
@@ -113,63 +79,6 @@ public static class MenuBarText
     }
 
     /// <summary>
-    /// The slice of a text that is visible at a moment of scrolling.
-    /// </summary>
-    /// <remarks>
-    /// Text that fits is returned whole. Otherwise the text plus
-    /// <see cref="ScrollGap"/> is treated as a ring; after
-    /// <see cref="InitialPause"/> the window advances one character every
-    /// <see cref="StepInterval"/> and wraps, so the text scrolls past and
-    /// returns. Characters are counted as text elements, so an emoji or a
-    /// combining sequence is never split.
-    /// </remarks>
-    /// <param name="text">Full label text.</param>
-    /// <param name="maxLength">Widest label to show, in text elements.</param>
-    /// <param name="elapsed">Time since the text was first shown.</param>
-    /// <returns>At most <paramref name="maxLength"/> text elements.</returns>
-    /// <example>
-    /// <code>
-    /// MenuBarText.Window("abcdef", 4, TimeSpan.Zero);          // "abcd"
-    /// MenuBarText.Window("abcdef", 4, TimeSpan.FromSeconds(2)); // "cdef"
-    /// </code>
-    /// </example>
-    public static string Window(string text, int maxLength, TimeSpan elapsed) =>
-        Window(text, maxLength, elapsed, StepInterval);
-
-    /// <summary>
-    /// The slice of a text visible at a moment, at a chosen scrolling speed.
-    /// </summary>
-    /// <param name="text">Full label text.</param>
-    /// <param name="maxLength">Widest label to show, in text elements.</param>
-    /// <param name="elapsed">Time since the text was first shown.</param>
-    /// <param name="stepInterval">Time between one-character steps.</param>
-    /// <returns>At most <paramref name="maxLength"/> text elements.</returns>
-    public static string Window(string text, int maxLength, TimeSpan elapsed, TimeSpan stepInterval)
-    {
-        ArgumentNullException.ThrowIfNull(text);
-        if (maxLength <= 0)
-        {
-            return string.Empty;
-        }
-
-        var elements = TextElements(text);
-        if (elements.Length <= maxLength)
-        {
-            return text;
-        }
-
-        var ring = TextElements(text + ScrollGap);
-        var offset = ScrollOffset(elapsed, ring.Length, stepInterval);
-        var visible = new string[maxLength];
-        for (var index = 0; index < maxLength; index++)
-        {
-            visible[index] = ring[(offset + index) % ring.Length];
-        }
-
-        return string.Concat(visible);
-    }
-
-    /// <summary>
     /// Pads a label out to a fixed width so the tray entry stops resizing.
     /// </summary>
     /// <remarks>
@@ -194,33 +103,6 @@ public static class MenuBarText
         ArgumentNullException.ThrowIfNull(text);
         var elements = TextElements(text).Length;
         return elements >= length ? text : text + new string(' ', length - elements);
-    }
-
-    /// <summary>
-    /// Whether a text is long enough to scroll.
-    /// </summary>
-    /// <param name="text">Label text.</param>
-    /// <param name="maxLength">Widest label to show, in text elements.</param>
-    /// <returns>True when <see cref="Window"/> will move over time.</returns>
-    public static bool Scrolls(string text, int maxLength) =>
-        maxLength > 0 && TextElements(text).Length > maxLength;
-
-    /// <summary>
-    /// How many characters the window has advanced at a moment.
-    /// </summary>
-    /// <param name="elapsed">Time since the text was first shown.</param>
-    /// <param name="ringLength">Length of the text ring being scrolled.</param>
-    /// <param name="stepInterval">Time between one-character steps.</param>
-    /// <returns>An offset into the ring.</returns>
-    private static int ScrollOffset(TimeSpan elapsed, int ringLength, TimeSpan stepInterval)
-    {
-        if (elapsed <= InitialPause || ringLength <= 0 || stepInterval <= TimeSpan.Zero)
-        {
-            return 0;
-        }
-
-        var steps = (long)((elapsed - InitialPause).Ticks / stepInterval.Ticks);
-        return (int)(steps % ringLength);
     }
 
     /// <summary>

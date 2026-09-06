@@ -141,10 +141,6 @@ public sealed class NowPlayingWindow : Window
     /// </summary>
     public event EventHandler? SettingsRequested;
 
-    /// <summary>
-    /// Raised each time the panel is shown.
-    /// </summary>
-    public event EventHandler? PanelShown;
 
 
     /// <summary>
@@ -451,7 +447,6 @@ public sealed class NowPlayingWindow : Window
         }
 
         _ = _viewModel.RefreshAsync();
-        PanelShown?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

@@ -53,55 +53,20 @@ public sealed class MenuBarTextTests
     }
 
     /// <summary>
-    /// Composing never shortens; only the marquee window does.
+    /// A line reaches the tray whole, however long it is.
     /// </summary>
+    /// <remarks>
+    /// The width setting bounds what the GNOME extension shows at once; it
+    /// must never shorten what is published, or the extension would have
+    /// nothing left to scroll.
+    /// </remarks>
     [Fact]
-    public void ComposingNeverShortensTheLine()
+    public void LinesReachTheTrayWhole()
     {
         var title = new string('가', 80);
         var session = Session with { Title = title };
 
         Assert.Equal(title, MenuBarText.Compose(session, null, new DesktopPreferences(MenuBarLabelLength: 10)));
-    }
-
-    /// <summary>
-    /// A short text is returned whole; a long one rests, then steps along.
-    /// </summary>
-    [Fact]
-    public void WindowRestsThenScrolls()
-    {
-        Assert.Equal("abc", MenuBarText.Window("abc", 4, TimeSpan.FromSeconds(10)));
-        Assert.Equal("abcd", MenuBarText.Window("abcdef", 4, TimeSpan.Zero));
-        Assert.Equal("abcd", MenuBarText.Window("abcdef", 4, MenuBarText.InitialPause));
-        Assert.Equal("bcde", MenuBarText.Window("abcdef", 4, MenuBarText.InitialPause + MenuBarText.StepInterval));
-
-        var ring = "abcdef" + MenuBarText.ScrollGap;
-        Assert.Equal("abcd", MenuBarText.Window("abcdef", 4, MenuBarText.InitialPause + MenuBarText.StepInterval * ring.Length));
-        Assert.True(MenuBarText.Scrolls("abcdef", 4));
-        Assert.False(MenuBarText.Scrolls("abc", 4));
-    }
-
-    /// <summary>
-    /// The marquee speed scales the step interval around the normal setting.
-    /// </summary>
-    [Fact]
-    public void StepIntervalScalesWithSpeed()
-    {
-        Assert.Equal(MenuBarText.StepInterval, MenuBarText.StepIntervalFor(30));
-        Assert.True(MenuBarText.StepIntervalFor(45) < MenuBarText.StepInterval);
-        Assert.True(MenuBarText.StepIntervalFor(20) > MenuBarText.StepInterval);
-    }
-
-    /// <summary>
-    /// Surrogate pairs and combining sequences move as one character.
-    /// </summary>
-    [Fact]
-    public void WindowKeepsTextElementsIntact()
-    {
-        const string text = "🎵ábcd";
-
-        Assert.Equal("🎵áb", MenuBarText.Window(text, 3, TimeSpan.Zero));
-        Assert.Equal("ábc", MenuBarText.Window(text, 3, MenuBarText.InitialPause + MenuBarText.StepInterval));
     }
 
     /// <summary>

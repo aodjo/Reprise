@@ -9,11 +9,16 @@ namespace Reprise.Desktop;
 /// item follows the menu bar store.
 /// </summary>
 /// <remarks>
-/// Owns the only timer that touches the tray. It recomputes the label and
-/// icon on a fine tick and pushes an update only when something visible
-/// changed, so a still label costs no bus traffic while a scrolling one
-/// steps as smoothly as a text label can. Events from the tray arrive on
-/// the platform's thread and are re-raised on the UI thread.
+/// Owns the only timer that touches the tray, and pushes an update only
+/// when something visible changed, so an idle player costs no bus traffic.
+/// <para>
+/// The label it publishes is the whole line. A tray label is a string the
+/// desktop draws, so it cannot move; swapping in a different slice of the
+/// text each tick would read as the letters changing rather than the words
+/// sliding past, which is not what a marquee looks like. Scrolling belongs
+/// to the surfaces Reprise draws itself: the panel's own title, and the
+/// GNOME extension fed through <see cref="IMenuBarPublisher"/>.
+/// </para>
 /// </remarks>
 public sealed class StatusItemController : IDisposable
 {
@@ -26,9 +31,9 @@ public sealed class StatusItemController : IDisposable
     /// How often the tray content is recomputed.
     /// </summary>
     /// <remarks>
-    /// Fine enough to drive the label marquee at its fastest step and to
-    /// put a lyric line up about when it is sung. Nothing is pushed unless
-    /// the content actually changed, so a still label costs no bus traffic.
+    /// Fine enough that a lyric line reaches the top bar about when it is
+    /// sung. Nothing is pushed unless the content actually changed, so a
+    /// still track costs no bus traffic between lines.
     /// </remarks>
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMilliseconds(80);
 
@@ -39,8 +44,6 @@ public sealed class StatusItemController : IDisposable
     private readonly DispatcherTimer _timer;
     private byte[] _iconPng = [];
     private MenuBarState? _lastPublished;
-    private string _fullText = string.Empty;
-    private DateTimeOffset _textShownAt;
     private byte[]? _iconSource;
     private IReadOnlyList<StatusItemIcon> _icons = [];
     private StatusItemState? _lastState;
@@ -131,19 +134,6 @@ public sealed class StatusItemController : IDisposable
     }
 
     /// <summary>
-    /// Sends a scrolling label back to the start of the text.
-    /// </summary>
-    /// <remarks>
-    /// Called when the panel opens, if the user asked for it, so the title
-    /// in the tray and the title in the panel read from the same place.
-    /// </remarks>
-    public void RestartScroll()
-    {
-        _textShownAt = DateTimeOffset.UtcNow;
-        Refresh();
-    }
-
-    /// <summary>
     /// Stops updates and releases the tray entry.
     /// </summary>
     public void Dispose()
@@ -180,19 +170,7 @@ public sealed class StatusItemController : IDisposable
         var now = DateTimeOffset.UtcNow;
         var lyric = preferences.MenuBarShowsLyrics ? _viewModel.CurrentLyricLine(now)?.Text : null;
         var text = MenuBarText.Compose(session, lyric, preferences);
-        if (text != _fullText)
-        {
-            _fullText = text;
-            _textShownAt = now;
-        }
-
-        var label = preferences.AutomaticallyScrollsTitles
-            ? MenuBarText.Window(
-                text,
-                preferences.MenuBarLabelLength,
-                now - _textShownAt,
-                MenuBarText.StepIntervalFor(preferences.MarqueePointsPerSecond))
-            : text;
+        var label = text;
         if (preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth && label.Length > 0)
         {
             label = MenuBarText.Reserve(label, preferences.MenuBarLabelLength);

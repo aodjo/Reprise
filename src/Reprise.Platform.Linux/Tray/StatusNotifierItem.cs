@@ -45,6 +45,16 @@ public sealed class StatusNotifierItem : IStatusItem
 
     private static readonly TimeSpan CallTimeout = TimeSpan.FromSeconds(5);
 
+    /// <summary>
+    /// Bus name the GNOME extension holds while it draws Reprise itself.
+    /// </summary>
+    /// <remarks>
+    /// Both surfaces would otherwise show at once, one drawn by the shell
+    /// extension and one by the panel's tray host, which is why the item
+    /// steps aside while that name is owned.
+    /// </remarks>
+    private const string ShellExtensionName = "dev.junx.Reprise.Shell";
+
     private readonly ItemHandler _item;
     private DBusConnection? _connection;
     private string? _serviceName;
@@ -103,6 +113,7 @@ public sealed class StatusNotifierItem : IStatusItem
         }
 
         connection.AddMethodHandler(_item);
+        await WatchShellExtensionAsync(connection);
 
         var rule = new MatchRule
         {
@@ -123,7 +134,7 @@ public sealed class StatusNotifierItem : IStatusItem
             },
             (Notification<string> notification) =>
             {
-                if (notification.Exception is null && notification.HasValue && notification.Value.Length > 0)
+                if (notification.HasValue && notification.Value.Length > 0)
                 {
                     _ = RegisterAsync(CancellationToken.None);
                 }
@@ -191,6 +202,100 @@ public sealed class StatusNotifierItem : IStatusItem
             _connection = null;
             connection.Dispose();
         }
+    }
+
+    /// <summary>
+    /// Follows the shell extension, so only one of the two is ever shown.
+    /// </summary>
+    /// <remarks>
+    /// Reads the current owner first and then watches for changes, so an
+    /// extension already running when Reprise starts is noticed as surely
+    /// as one enabled later.
+    /// </remarks>
+    /// <param name="connection">Connection the item is exported on.</param>
+    /// <returns>A task that completes once the watch is in place.</returns>
+    private async Task WatchShellExtensionAsync(DBusConnection connection)
+    {
+        var rule = new MatchRule
+        {
+            Type = MessageType.Signal,
+            Sender = "org.freedesktop.DBus",
+            Interface = "org.freedesktop.DBus",
+            Member = "NameOwnerChanged",
+            Arg0 = ShellExtensionName,
+        };
+        await connection.AddMatchAsync(
+            rule,
+            static (Message message, object? _) =>
+            {
+                var reader = message.GetBodyReader();
+                reader.ReadString();
+                reader.ReadString();
+                return reader.ReadString();
+            },
+            (Notification<string> notification) =>
+            {
+                if (notification.HasValue)
+                {
+                    SetShellExtensionRunning(notification.Value.Length > 0);
+                }
+            },
+            emitOnCapturedContext: false);
+
+        try
+        {
+            var owned = await connection
+                .CallMethodAsync(
+                    CreateNameHasOwnerMessage(connection),
+                    static (Message message, object? _) => message.GetBodyReader().ReadBool())
+                .WaitAsync(CallTimeout);
+            SetShellExtensionRunning(owned);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+        }
+    }
+
+    /// <summary>
+    /// Shows or withdraws the item as the extension comes and goes.
+    /// </summary>
+    /// <remarks>
+    /// The specification's Passive status is the polite way to disappear:
+    /// hosts hide the item but keep it registered, so it comes straight
+    /// back when the extension is switched off.
+    /// </remarks>
+    /// <param name="running">Whether the extension owns its bus name.</param>
+    private void SetShellExtensionRunning(bool running)
+    {
+        if (_item.IsPassive == running)
+        {
+            return;
+        }
+
+        _item.IsPassive = running;
+        if (_connection is { } connection && !_disposed)
+        {
+            DBusReply.Emit(connection, ItemPath, ItemInterface, "NewStatus", "s",
+                (ref MessageWriter writer) => writer.WriteString(running ? "Passive" : "Active"));
+        }
+    }
+
+    /// <summary>
+    /// Builds the call that asks whether the extension is running.
+    /// </summary>
+    /// <param name="connection">Connection whose writer builds the message.</param>
+    /// <returns>An encoded method call ready to send.</returns>
+    private static MessageBuffer CreateNameHasOwnerMessage(DBusConnection connection)
+    {
+        using var writer = connection.GetMessageWriter();
+        writer.WriteMethodCallHeader(
+            destination: "org.freedesktop.DBus",
+            path: "/org/freedesktop/DBus",
+            @interface: "org.freedesktop.DBus",
+            member: "NameHasOwner",
+            signature: "s");
+        writer.WriteString(ShellExtensionName);
+        return writer.CreateMessage();
     }
 
     /// <summary>
@@ -303,6 +408,11 @@ public sealed class StatusNotifierItem : IStatusItem
         /// Content currently served to hosts.
         /// </summary>
         public StatusItemState State { get; set; } = new(string.Empty, "Reprise", []);
+
+        /// <summary>
+        /// Whether hosts should hide the item for now.
+        /// </summary>
+        public bool IsPassive { get; set; }
 
         /// <summary>
         /// Serves the whole object tree, not just the item's own path.
@@ -418,13 +528,15 @@ public sealed class StatusNotifierItem : IStatusItem
                     }
 
                     var state = State;
-                    DBusReply.Send(context, "v", (ref MessageWriter writer) => WriteProperty(ref writer, state, name));
+                    var passive = IsPassive;
+                    DBusReply.Send(context, "v", (ref MessageWriter writer) => WriteProperty(ref writer, state, passive, name));
                     break;
                 }
 
                 case "GetAll":
                 {
                     var state = State;
+                    var passive = IsPassive;
                     DBusReply.Send(context, "a{sv}", (ref MessageWriter writer) =>
                     {
                         var dictionary = writer.WriteDictionaryStart();
@@ -432,7 +544,7 @@ public sealed class StatusNotifierItem : IStatusItem
                         {
                             writer.WriteDictionaryEntryStart();
                             writer.WriteString(name);
-                            WriteProperty(ref writer, state, name);
+                            WriteProperty(ref writer, state, passive, name);
                         }
 
                         writer.WriteDictionaryEnd(dictionary);
@@ -455,8 +567,9 @@ public sealed class StatusNotifierItem : IStatusItem
         /// </summary>
         /// <param name="writer">Writer positioned where the variant goes.</param>
         /// <param name="state">Content being served.</param>
+        /// <param name="passive">Whether hosts should hide the item.</param>
         /// <param name="name">Property to write.</param>
-        private static void WriteProperty(ref MessageWriter writer, StatusItemState state, string name)
+        private static void WriteProperty(ref MessageWriter writer, StatusItemState state, bool passive, string name)
         {
             switch (name)
             {
@@ -470,7 +583,7 @@ public sealed class StatusNotifierItem : IStatusItem
                     writer.WriteVariantString("Reprise");
                     break;
                 case "Status":
-                    writer.WriteVariantString("Active");
+                    writer.WriteVariantString(passive ? "Passive" : "Active");
                     break;
                 case "WindowId":
                 case "XAyatanaOrderingIndex":

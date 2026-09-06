@@ -12,21 +12,22 @@ it can carry text beside the icon the way the macOS menu bar does. Panels that
 honour the Ubuntu label extension - Ubuntu's GNOME, Budgie, MATE, and Xfce
 with the indicator plugin - show the track title (or the current lyric line)
 next to the album cover; KDE Plasma and other hosts show the cover alone. Long
-label carries the line whole: a tray label cannot animate, so imitating the
-panel's scrolling title would mean publishing a moving slice of the text
-and cutting words in half, and showing the line in full is the honest
-alternative. Reserving space for lyrics pads the label with spaces rather
-than claiming a width it does not use. The entry publishes no menu, so a
+label carries the line whole and still: a tray label is a string the desktop
+draws, so it cannot move, and swapping in a different slice each tick reads
+as the letters changing rather than the words sliding past. Reserving space
+for lyrics pads the label with spaces rather than claiming a width it does
+not use. The entry publishes no menu, so a
 click opens the panel straight away as it does on macOS; quitting is in
 the panel footer. Its font is the panel's own, which no application can
 set.
 
 On GNOME the optional extension in `packaging/linux/gnome-extension` replaces
 that entry with one the shell draws from Reprise's own D-Bus service,
-`dev.junx.Reprise`. Because the extension owns the actor, the title scrolls
-pixel by pixel like the macOS menu bar rather than stepping a character at a
-time, and the service hands it the whole line, the cover as a PNG, and the
-user's scrolling settings. The Debian package installs and enables it, and Reprise asks the shell to
+`dev.junx.Reprise`. Because the extension owns the actor, the title slides
+pixel by pixel like the macOS menu bar, and the service hands it the whole
+line, the cover as a PNG, and the user's scrolling settings. While the
+extension runs it holds `dev.junx.Reprise.Shell`, and the tray entry marks
+itself Passive so the two never show at once. The Debian package installs and enables it, and Reprise asks the shell to
 enable it on every start, so it needs no command from the user; the archive
 build carries `install-gnome-extension.sh` for the same purpose.
 

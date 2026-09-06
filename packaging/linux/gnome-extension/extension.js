@@ -2,11 +2,14 @@
  * Reprise in the GNOME top bar.
  *
  * The tray protocol every desktop shares carries a label as a plain string,
- * so a title can only ever step a whole character at a time. GNOME lets an
- * extension draw its own panel button, which is what this does: it reads the
- * current track from Reprise over D-Bus and scrolls the title pixel by pixel,
- * the way the macOS menu bar does. Clicking the button asks Reprise to show
- * its panel.
+ * so a title there cannot move: the best it could do is swap in a different
+ * slice of the text, which reads as the letters changing rather than the
+ * words sliding past. GNOME lets an extension draw its own panel button, so
+ * this one does, and the title slides pixel by pixel the way the macOS menu
+ * bar does. Clicking the button asks Reprise to show its panel.
+ *
+ * While this extension runs it holds the bus name Reprise watches for, and
+ * Reprise withdraws its own tray entry, so the two never appear at once.
  */
 
 import Clutter from 'gi://Clutter';
@@ -36,6 +39,44 @@ const INITIAL_PAUSE = 1400;
 
 /** Edge length of the album cover in the panel, in pixels. */
 const ICON_SIZE = 18;
+
+/** Bus name held while this extension is drawing Reprise's entry. */
+const SHELL_NAME = 'dev.junx.Reprise.Shell';
+
+/**
+ * How far the text has slid at a moment of the scroll.
+ *
+ * The text and a repeat of it sit one distance apart, so sliding the pair
+ * left by exactly that distance puts the repeat where the original began:
+ * wrapping there is invisible, which is what makes the motion endless
+ * rather than a jump back to the start. The rest is constant speed, with a
+ * rest at each end that is spent parked on the repeat.
+ *
+ * @param {number} elapsed - Milliseconds since the text appeared.
+ * @param {number} distance - Width of the text plus the gap, in pixels.
+ * @param {number} pointsPerSecond - Scrolling speed.
+ * @param {number} [pause=INITIAL_PAUSE] - Rest before moving, in milliseconds.
+ * @returns {number} Pixels to slide left, from 0 to distance.
+ *
+ * @example
+ * scrollOffset(0, 100, 30);    // 0, still resting
+ * scrollOffset(2400, 100, 30); // 30, one second of travel
+ */
+export function scrollOffset(elapsed, distance, pointsPerSecond, pause = INITIAL_PAUSE) {
+    if (distance <= 0 || pointsPerSecond <= 0) {
+        return 0;
+    }
+
+    const moving = elapsed - pause;
+    if (moving <= 0) {
+        return 0;
+    }
+
+    const travel = (distance / pointsPerSecond) * 1000;
+    const cycle = travel + pause;
+    const phase = moving % cycle;
+    return Math.min((phase / 1000) * pointsPerSecond, distance);
+}
 
 /**
  * A panel button showing the album cover and a scrolling title.
@@ -198,17 +239,12 @@ class RepriseButton extends PanelMenu.Button {
      * @returns {void} Nothing; the track actor is moved in place.
      */
     _step() {
-        const distance = this._textWidth + SCROLL_GAP;
-        const elapsed = GLib.get_monotonic_time() / 1000 - this._startedAt - INITIAL_PAUSE;
-        if (elapsed <= 0) {
-            this._track.set_translation(0, 0, 0);
-            return;
-        }
-
-        const travelled = (elapsed / 1000) * this._pointsPerSecond;
-        const cycle = distance + (this._pointsPerSecond * INITIAL_PAUSE) / 1000;
-        const position = travelled % cycle;
-        this._track.set_translation(-Math.min(position, distance), 0, 0);
+        const elapsed = GLib.get_monotonic_time() / 1000 - this._startedAt;
+        const offset = scrollOffset(
+            elapsed,
+            this._textWidth + SCROLL_GAP,
+            this._pointsPerSecond);
+        this._track.set_translation(-offset, 0, 0);
     }
 
     /**
@@ -235,6 +271,14 @@ export default class RepriseExtension extends Extension {
         this._button = new RepriseButton(() => this._activate());
         Main.panel.addToStatusArea('reprise', this._button, 0, 'right');
 
+        this._nameId = Gio.bus_own_name(
+            Gio.BusType.SESSION,
+            SHELL_NAME,
+            Gio.BusNameOwnerFlags.REPLACE,
+            null,
+            null,
+            null);
+
         this._proxy = null;
         this._watchId = Gio.bus_watch_name(
             Gio.BusType.SESSION,
@@ -250,6 +294,11 @@ export default class RepriseExtension extends Extension {
      * @returns {void} Nothing; every watch and proxy is released.
      */
     disable() {
+        if (this._nameId) {
+            Gio.bus_unown_name(this._nameId);
+            this._nameId = null;
+        }
+
         if (this._watchId) {
             Gio.bus_unwatch_name(this._watchId);
             this._watchId = null;

@@ -303,7 +303,7 @@ public sealed class SettingsWindow : Window
                 autoPauseRow),
             SettingsForm.Section(
                 "제어 목록",
-                "캐러셀을 켜면 상단 바에 이 너비만큼 보이면서 흐르고, 끄면 줄 전체가 그대로 표시됩니다. 공간 확보는 짧은 줄을 이 너비까지 늘려 주변 항목이 움직이지 않게 합니다.",
+                "GNOME 확장이 상단 바에서 가사를 이 너비만큼 보여 주며 흐르게 합니다. 공간 확보는 짧은 줄을 이 너비까지 늘려 주변 항목이 움직이지 않게 합니다.",
                 lyricsRow,
                 widthRow,
                 reserveRow),
@@ -681,7 +681,7 @@ public sealed class SettingsWindow : Window
                 SettingsForm.Picker("제목 왼쪽 표시", artworkPicker)),
             SettingsForm.Section(
                 "캐러셀",
-                "상단 바 텍스트는 글자 단위로 흐릅니다. 패널이 직접 그리는 곡 제목과 달리 데스크톱이 문자열만 받기 때문입니다. 끄면 줄 전체가 잘리지 않고 그대로 표시됩니다.",
+                "패널의 곡 제목과 GNOME 확장이 그리는 상단 바 항목에 적용됩니다. 확장 없이 트레이만 쓰는 데스크톱에서는 데스크톱이 문자열만 그리므로 줄 전체가 움직이지 않고 표시됩니다.",
                 scrollRow,
                 speedRow,
                 resetRow));
