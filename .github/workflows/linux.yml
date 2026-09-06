@@ -275,6 +275,31 @@ jobs:
 
           ls Artifacts/*.deb
 
+      - name: Build AppImage
+        if: steps.discover.outputs.ready == 'true'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squashfs-tools
+
+          case '${{ matrix.architecture }}' in
+            x64) appimage_architecture=x86_64 ;;
+            arm64) appimage_architecture=aarch64 ;;
+            *) echo 'unsupported architecture' >&2; exit 1 ;;
+          esac
+
+          version="$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
+          suffix="$(grep -oPm1 '(?<=<VersionSuffix>)[^<]+' Directory.Build.props || true)"
+          if [[ -n "$suffix" ]]; then
+            version="$version-$suffix"
+          fi
+
+          packaging/linux/build-appimage.sh \
+            "Artifacts/${{ matrix.target }}/app" \
+            "$appimage_architecture" \
+            "$version" \
+            Artifacts
+
       - name: Upload Linux application
         if: steps.discover.outputs.ready == 'true'
         uses: actions/upload-artifact@v7
@@ -283,6 +308,7 @@ jobs:
           path: |
             Artifacts/reprise-${{ matrix.runtime }}.tar.gz
             Artifacts/*.deb
+            Artifacts/*.AppImage
           if-no-files-found: error
           retention-days: 7
 

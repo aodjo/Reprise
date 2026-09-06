@@ -33,6 +33,20 @@ Removing it takes the extension with it:
 sudo apt remove reprise
 ```
 
+## AppImage
+
+One file, nothing installed. Mark it executable once and run it, from the
+file manager or the terminal:
+
+```bash
+chmod +x Reprise-2.0.0-alpha.1-x86_64.AppImage
+./Reprise-2.0.0-alpha.1-x86_64.AppImage
+```
+
+Updating means replacing the file. The GNOME extension travels inside the
+image, and Reprise copies it into the user's extension directory and enables
+it on first run, so the top bar entry works here too.
+
 ## Archive
 
 Each archive contains the application and the desktop entry in this
