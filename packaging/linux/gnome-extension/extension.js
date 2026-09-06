@@ -15,6 +15,7 @@
 import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import GLib from 'gi://GLib';
+import Pango from 'gi://Pango';
 import Gio from 'gi://Gio';
 import St from 'gi://St';
 
@@ -104,9 +105,16 @@ class RepriseButton extends PanelMenu.Button {
         this._startedAt = 0;
 
         this._icon = new St.Icon({ icon_size: ICON_SIZE, style_class: 'system-status-icon' });
-        this._first = new St.Label({ y_align: Clutter.ActorAlign.CENTER });
-        this._second = new St.Label({ y_align: Clutter.ActorAlign.CENTER });
-        this._track = new St.BoxLayout({ y_align: Clutter.ActorAlign.CENTER });
+        this._first = this._createLabel();
+        this._second = this._createLabel();
+        // The track keeps its natural width and sits at the start of the
+        // viewport: a child aligned to FILL would be squeezed into the
+        // viewport instead of overflowing it, leaving nothing to scroll.
+        this._track = new St.BoxLayout({
+            x_align: Clutter.ActorAlign.START,
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: false,
+        });
         this._track.add_child(this._first);
         this._track.add_child(this._second);
 
@@ -114,6 +122,7 @@ class RepriseButton extends PanelMenu.Button {
             layout_manager: new Clutter.BinLayout(),
             clip_to_allocation: true,
             y_align: Clutter.ActorAlign.CENTER,
+            x_expand: false,
         });
         this._viewport.add_child(this._track);
 
@@ -122,6 +131,25 @@ class RepriseButton extends PanelMenu.Button {
         box.add_child(this._viewport);
         this.add_child(box);
         this.connect('destroy', () => this._stopScrolling());
+    }
+
+    /**
+     * Creates one copy of the title label.
+     *
+     * Ellipsis is turned off explicitly: a label that is narrower than its
+     * text would otherwise end in three dots, and here the text is meant to
+     * run past the edge and be clipped.
+     *
+     * @returns {St.Label} A label that never shortens its text.
+     */
+    _createLabel() {
+        const label = new St.Label({
+            y_align: Clutter.ActorAlign.CENTER,
+            x_expand: false,
+        });
+        label.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        label.clutter_text.single_line_mode = true;
+        return label;
     }
 
     /**
@@ -172,10 +200,11 @@ class RepriseButton extends PanelMenu.Button {
         this._textWidth = this._first.get_preferred_width(-1)[1];
         const characters = Math.max([...state.text].length, 1);
         const perCharacter = this._textWidth / characters;
-        this._viewportWidth = Math.min(
-            this._textWidth,
-            Math.max(state.maxWidthChars, 1) * perCharacter);
+        this._viewportWidth = Math.max(
+            Math.min(this._textWidth, Math.max(state.maxWidthChars, 1) * perCharacter),
+            1);
         this._viewport.set_width(this._viewportWidth);
+        this._viewport.set_height(-1);
         this._second.visible = this._scrolls && this._textWidth > this._viewportWidth;
         this._second.set_style(`margin-left: ${SCROLL_GAP}px;`);
 

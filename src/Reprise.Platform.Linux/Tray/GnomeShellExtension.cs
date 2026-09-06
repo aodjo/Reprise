@@ -59,7 +59,17 @@ public static class GnomeShellExtension
     public const string Uuid = "reprise@junx.dev";
 
     private const string ShellService = "org.gnome.Shell";
-    private const string ExtensionsPath = "/org/gnome/Shell/Extensions";
+
+    /// <summary>
+    /// Object carrying the extensions interface.
+    /// </summary>
+    /// <remarks>
+    /// The shell exports <c>org.gnome.Shell.Extensions</c> on its main
+    /// object rather than on a path of the interface's own name, which is
+    /// the obvious guess and answers nothing.
+    /// </remarks>
+    private const string ExtensionsPath = "/org/gnome/Shell";
+
     private const string ExtensionsInterface = "org.gnome.Shell.Extensions";
 
     /// <summary>
