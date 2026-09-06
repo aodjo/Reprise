@@ -21,6 +21,14 @@ click opens the panel straight away as it does on macOS; quitting is in
 the panel footer. Its font is the panel's own, which no application can
 set.
 
+On GNOME the optional extension in `packaging/linux/gnome-extension` replaces
+that entry with one the shell draws from Reprise's own D-Bus service,
+`dev.junx.Reprise`. Because the extension owns the actor, the title scrolls
+pixel by pixel like the macOS menu bar rather than stepping a character at a
+time, and the service hands it the whole line, the cover as a PNG, and the
+user's scrolling settings. Install it with
+`packaging/linux/install-gnome-extension.sh`.
+
 The interface is set in Pretendard, bundled with the application, so the panel
 looks the same on every distribution and covers Hangul without depending on
 which fonts are installed.

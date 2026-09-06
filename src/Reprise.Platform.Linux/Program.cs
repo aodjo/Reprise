@@ -64,6 +64,8 @@ internal static class Program
             new MprisMediaSessionService();
         RepriseApplication.StatusItemFactory = static () =>
             new StatusNotifierItem();
+        RepriseApplication.MenuBarPublisherFactory = static () =>
+            new RepriseMenuBarService();
 
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }

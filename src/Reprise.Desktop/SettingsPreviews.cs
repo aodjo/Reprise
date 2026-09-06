@@ -182,8 +182,9 @@ public sealed class ThemePanelPreview : Border
 /// A mock of the tray entry on a blue top bar, used by the menu bar tab.
 /// </summary>
 /// <remarks>
-/// The text does not move here, because the real tray label does not
-/// either: it carries the whole line and the panel sizes itself to it.
+/// The preview scrolls smoothly because it is drawn here; the real tray
+/// label steps a character at a time, which is as fine as a string label
+/// can move.
 /// </remarks>
 public sealed class MenuBarPreview : Border
 {
@@ -232,7 +233,7 @@ public sealed class MenuBarPreview : Border
             ? "다시 만나요"
             : MenuBarText.FormatTitle(preferences.MenuBarTitleFormat, "여기에 재생 중인 음악 제목이 표시됩니다", "미리보기 아티스트");
         _marquee.Title = text;
-        _marquee.AutomaticallyScrolls = false;
+        _marquee.AutomaticallyScrolls = preferences.AutomaticallyScrollsTitles;
         _marquee.PointsPerSecond = preferences.MarqueePointsPerSecond;
         var natural = Math.Min(text.Length * 7.5, 260);
         _marquee.Width = preferences.MenuBarShowsLyrics && preferences.MenuBarReservesLabelWidth

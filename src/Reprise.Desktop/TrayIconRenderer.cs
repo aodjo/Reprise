@@ -102,6 +102,71 @@ public static class TrayIconRenderer
     }
 
     /// <summary>
+    /// Renders an album cover as a PNG for consumers that decode images.
+    /// </summary>
+    /// <remarks>
+    /// The StatusNotifierItem protocol takes raw pixels, but a shell
+    /// extension loads an image far more easily than it assembles a
+    /// pixmap, so the same cover is offered in both forms.
+    /// </remarks>
+    /// <param name="artwork">Encoded cover image, or null for the app icon.</param>
+    /// <param name="size">Edge length in pixels.</param>
+    /// <returns>PNG bytes, or an empty array when nothing could be drawn.</returns>
+    /// <example>
+    /// <code>
+    /// var png = TrayIconRenderer.RenderPng(viewModel.ArtworkData, 32);
+    /// </code>
+    /// </example>
+    public static byte[] RenderPng(byte[]? artwork, int size)
+    {
+        Bitmap? cover = null;
+        try
+        {
+            if (artwork is not null)
+            {
+                using var source = new MemoryStream(artwork);
+                cover = Bitmap.DecodeToWidth(source, size * 2);
+            }
+        }
+        catch (Exception)
+        {
+            cover = null;
+        }
+
+        try
+        {
+            using var target = new RenderTargetBitmap(new PixelSize(size, size), new Vector(96, 96));
+            using (var context = target.CreateDrawingContext(clear: true))
+            {
+                var bounds = new Rect(0, 0, size, size);
+                if (cover is not null)
+                {
+                    using var clip = context.PushClip(new RoundedRect(bounds, size * 0.22));
+                    context.DrawImage(cover, CenteredSquare(cover.PixelSize), bounds);
+                }
+                else
+                {
+                    using var stream = AssetLoader.Open(ApplicationIconUri);
+                    using var icon = new Bitmap(stream);
+                    context.DrawImage(icon, new Rect(icon.Size), bounds);
+                }
+            }
+
+            using var png = new MemoryStream();
+            target.Save(png, PngBitmapEncoderOptions.Default);
+            return png.ToArray();
+        }
+        catch (Exception)
+        {
+            return [];
+        }
+        finally
+        {
+            cover?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Converts a bitmap's pixels into straight-alpha ARGB bytes.
     /// </summary>
     /// <remarks>

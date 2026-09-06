@@ -64,6 +64,25 @@ public sealed class RepriseApplication : Application
     }
 
     /// <summary>
+    /// Supplies the service a shell extension reads to draw the top bar.
+    /// </summary>
+    /// <remarks>
+    /// Optional. Without one, Reprise appears only as a tray entry, whose
+    /// label the desktop draws and which therefore cannot scroll smoothly.
+    /// </remarks>
+    /// <example>
+    /// <code>
+    /// RepriseApplication.MenuBarPublisherFactory =
+    ///     static () => new RepriseMenuBarService();
+    /// </code>
+    /// </example>
+    public static Func<IMenuBarPublisher>? MenuBarPublisherFactory
+    {
+        get;
+        set;
+    }
+
+    /// <summary>
     /// Installs the control theme before any window is created.
     /// </summary>
     /// <remarks>
@@ -121,8 +140,19 @@ public sealed class RepriseApplication : Application
             desktop.MainWindow = window;
 
             var statusItem = StatusItemFactory?.Invoke() ?? new AvaloniaTrayStatusItem(this);
-            _statusItem = new StatusItemController(statusItem, viewModel, preferences);
+            _statusItem = new StatusItemController(
+                statusItem,
+                viewModel,
+                preferences,
+                MenuBarPublisherFactory?.Invoke());
             _statusItem.Activated += (_, _) => window.TogglePanel();
+            window.PanelShown += (_, _) =>
+            {
+                if (preferences.Current.ResetsMenuTitleWhenPanelOpens)
+                {
+                    _statusItem?.RestartScroll();
+                }
+            };
             desktop.Exit += (_, _) => _statusItem?.Dispose();
             _ = StartStatusItemAsync(_statusItem);
 

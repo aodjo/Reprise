@@ -91,7 +91,9 @@ dotnet run --project src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj
 One click on the tray icon opens the panel, which hides again when it loses
 focus, like the macOS popover. On panels that support the Ubuntu tray label
 extension, the track title or the current lyric line appears beside the icon,
-as it does in the macOS menu bar. The interface is set in Pretendard, bundled
+as it does in the macOS menu bar. GNOME users can install the small shell
+extension shipped in the archive, which draws that entry itself and scrolls
+the title smoothly. The interface is set in Pretendard, bundled
 with the application. Linux CI also publishes self-contained `linux-x64` and
 `linux-arm64` archives.
 
