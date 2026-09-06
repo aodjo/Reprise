@@ -8,17 +8,44 @@
 import AppKit
 import Foundation
 
+/// Reads and controls the local media players.
+///
+/// Spotify and Music are driven with AppleScript; YouTube Music has no app to
+/// script, so it is delegated to the browser extension bridge. Presenting both
+/// behind one type keeps that split out of the store and the UI.
+///
+/// An actor because it owns caches that a once-a-second poll and the user's
+/// button presses both reach, and because AppleScript execution is
+/// synchronous and blocking - serialising it here keeps it off the main
+/// thread without a lock at every call site.
 actor MediaAutomationService {
+    /// Artwork held for one track, so a poll does not re-fetch a cover that
+    /// has not changed.
     private struct ArtworkCacheEntry {
+        /// Identity of the track the artwork belongs to.
         let trackKey: String
+
+        /// The cover data, or `nil` if the track genuinely has none. Caching
+        /// the absence matters as much as the data: it stops every poll
+        /// retrying a download for a track that will never have a cover.
         let data: Data?
     }
 
+    /// The last good snapshot for a player, with when it was taken.
     private struct SnapshotCacheEntry {
+        /// The snapshot itself.
         let snapshot: PlayerSnapshot
+
+        /// When it was captured, for judging whether it is still usable.
         let observedAt: Date
     }
 
+    /// How long a stale snapshot may stand in for a failed read.
+    ///
+    /// AppleScript intermittently fails for a poll or two while a player
+    /// changes tracks or the system is busy. Bridging that gap keeps the panel
+    /// from flashing an error over a player that is working normally; beyond
+    /// it, the failure is real enough to show.
     private static let transientFailureGraceInterval: TimeInterval = 2
 
     private var artworkCache: [MediaPlayerKind: ArtworkCacheEntry] = [:]
@@ -26,12 +53,28 @@ actor MediaAutomationService {
     private var snapshotScriptCache: [MediaPlayerKind: NSAppleScript] = [:]
     private let youtubeMusicBridge: YouTubeMusicBridge
 
+    /// Creates the service.
+    ///
+    /// - Parameter youtubeMusicBridge: Bridge to the browser extension.
+    ///   Defaults to the shared instance; injectable for tests.
     init(
         youtubeMusicBridge: YouTubeMusicBridge = .shared
     ) {
         self.youtubeMusicBridge = youtubeMusicBridge
     }
 
+    /// Polls every supported player once.
+    ///
+    /// Players are read sequentially rather than concurrently because each
+    /// AppleScript call blocks, and running them in parallel would multiply
+    /// the automation load without shortening the slowest one.
+    ///
+    /// - Parameter automaticallyPausesOtherYouTubeMusicSessions: Whether the
+    ///   extension should pause its other tabs when one starts playing. Passed
+    ///   through on every poll so a settings change takes effect without
+    ///   needing its own notification path.
+    /// - Returns: One snapshot per player. Players that are not running are
+    ///   present as unavailable rather than absent.
     func snapshots(
         automaticallyPausesOtherYouTubeMusicSessions: Bool
     ) async -> [MediaPlayerKind: PlayerSnapshot] {
@@ -48,6 +91,15 @@ actor MediaAutomationService {
         return result
     }
 
+    /// Sends a transport command to one player.
+    ///
+    /// - Parameters:
+    ///   - command: Transport control to invoke.
+    ///   - player: Player to command.
+    /// - Throws: ``AutomationError/playerNotRunning(_:)`` when the app is not
+    ///   open, ``AutomationError/appleScript(number:message:)`` when the
+    ///   script fails - automation permission being the usual cause - or a
+    ///   `YouTubeMusicBridgeProtocolError` from the extension.
     func perform(
         _ command: PlaybackCommand,
         on player: MediaPlayerKind
@@ -72,6 +124,19 @@ actor MediaAutomationService {
         _ = try execute(source)
     }
 
+    /// Sets a player's volume and reports back what it actually took.
+    ///
+    /// The value is read back rather than assumed, because players round and
+    /// clamp differently; returning the real level keeps the slider from
+    /// drifting away from the player it controls.
+    ///
+    /// - Parameters:
+    ///   - volume: Desired level from 0 to 100; clamped before use.
+    ///   - player: Player to adjust.
+    /// - Returns: The level the player settled on, falling back to the
+    ///   requested value if it reported something unparsable.
+    /// - Throws: ``AutomationError/playerNotRunning(_:)`` or
+    ///   ``AutomationError/appleScript(number:message:)``.
     func setVolume(
         _ volume: Int,
         on player: MediaPlayerKind
@@ -100,6 +165,22 @@ actor MediaAutomationService {
             ?? volume
     }
 
+    /// Seeks a player and waits for it to confirm the new position.
+    ///
+    /// Spotify and Music both accept a seek and then keep reporting the old
+    /// position for a short while. Returning immediately would hand the UI a
+    /// stale value and make the progress bar snap backwards, so the position
+    /// is polled until it agrees with the target within
+    /// ``PlaybackPosition/seekConfirmationTolerance``. Twelve attempts at
+    /// 100ms covers roughly a second, well past what a healthy player needs.
+    ///
+    /// - Parameters:
+    ///   - position: Target position in seconds; non-finite values become 0.
+    ///   - player: Player to seek.
+    /// - Returns: The confirmed position, as the player reports it.
+    /// - Throws: ``AutomationError/seekNotConfirmed(requested:observed:)`` if
+    ///   the player never agrees, plus the errors the other commands can
+    ///   raise.
     func setPosition(
         _ position: TimeInterval,
         on player: MediaPlayerKind
@@ -130,8 +211,6 @@ actor MediaAutomationService {
         """
         var lastObservedPosition: TimeInterval?
 
-        // Spotify and Music can briefly report the old position immediately
-        // after accepting a seek. Do not expose that stale value to the UI.
         for attempt in 0..<12 {
             if attempt > 0 {
                 try await Task.sleep(for: .milliseconds(100))
@@ -159,6 +238,20 @@ actor MediaAutomationService {
         )
     }
 
+    /// Reads one player's current state.
+    ///
+    /// A player that is not running clears its caches on the way out, so
+    /// relaunching it cannot serve artwork or a snapshot from its previous
+    /// session.
+    ///
+    /// Errors never propagate: a poll failure within the grace interval
+    /// replays the last good snapshot, and anything longer becomes an
+    /// unavailable snapshot carrying a readable message. The panel therefore
+    /// always has something to render, and one failing player never blocks
+    /// the others in the same sweep.
+    ///
+    /// - Parameter player: Player to read.
+    /// - Returns: The player's state, never a thrown error.
     private func snapshot(for player: MediaPlayerKind) async -> PlayerSnapshot {
         if player == .youtubeMusic {
             return await youtubeMusicBridge.snapshot()
@@ -229,6 +322,15 @@ actor MediaAutomationService {
         }
     }
 
+    /// Whether a player's app is currently open.
+    ///
+    /// Checked before every script so Reprise never sends AppleScript to a
+    /// closed app, which macOS would answer by launching it - turning a
+    /// routine poll into an unwanted app launch.
+    ///
+    /// - Parameter player: Player to check.
+    /// - Returns: `true` when the app is running. Always `false` for players
+    ///   with no bundle identifier, such as YouTube Music.
     private func isRunning(_ player: MediaPlayerKind) -> Bool {
         guard let bundleIdentifier = player.automationBundleIdentifier else {
             return false
@@ -238,6 +340,19 @@ actor MediaAutomationService {
         ).isEmpty
     }
 
+    /// Builds the AppleScript that reads a player's whole state at once.
+    ///
+    /// One script returning a fixed eight-element list, rather than a call per
+    /// field: it is a single automation round trip, and every value describes
+    /// the same instant. A stopped player returns the same shape with empty
+    /// track fields, so the caller's index-based parsing never has to branch.
+    ///
+    /// Spotify's artwork URL read is wrapped in `try` because it fails on
+    /// local files and podcasts, where the rest of the track is still valid.
+    ///
+    /// - Parameter player: Player to build the script for.
+    /// - Returns: AppleScript source, or an empty string for players that are
+    ///   not scripted.
     private func snapshotScript(for player: MediaPlayerKind) -> String {
         let trackStatements = switch player {
         case .spotify:
@@ -290,6 +405,16 @@ actor MediaAutomationService {
         """
     }
 
+    /// Runs the snapshot script, compiling it only once per player.
+    ///
+    /// Compiling AppleScript is the expensive part, and the source never
+    /// varies for a given player, so the compiled script is cached across the
+    /// once-a-second poll.
+    ///
+    /// - Parameter player: Player to read.
+    /// - Returns: The descriptor holding the eight-element result list.
+    /// - Throws: ``AutomationError/invalidScript`` if the source will not
+    ///   compile, or ``AutomationError/appleScript(number:message:)``.
     private func executeSnapshotScript(
         for player: MediaPlayerKind
     ) throws -> NSAppleEventDescriptor {
@@ -308,6 +433,18 @@ actor MediaAutomationService {
         return try execute(script)
     }
 
+    /// Fetches cover art for a track, reusing the cached copy when possible.
+    ///
+    /// The cache is keyed on the track's own identity rather than the player,
+    /// so the expensive part - a network download for Spotify, a second
+    /// AppleScript round trip for Music - happens once per track instead of
+    /// once per poll.
+    ///
+    /// - Parameters:
+    ///   - player: Player the track belongs to.
+    ///   - trackKey: Identity of the track, built from its text metadata.
+    ///   - remoteURL: Artwork URL, used by Spotify only.
+    /// - Returns: Encoded artwork, or `nil` when there is none to be had.
     private func artwork(
         for player: MediaPlayerKind,
         trackKey: String,
@@ -332,6 +469,20 @@ actor MediaAutomationService {
         return data
     }
 
+    /// Downloads cover art from a URL.
+    ///
+    /// The response is validated before it is trusted: status code, an 8MB
+    /// ceiling, and a decode check. Artwork is the one thing Reprise fetches
+    /// from a URL a third-party app supplies, so it is treated as untrusted
+    /// input - the size limit bounds memory, and the decode check keeps
+    /// something that is not an image from reaching the UI layer.
+    ///
+    /// The five-second timeout matters because this sits inside the poll: a
+    /// slow host would otherwise stall every player's refresh.
+    ///
+    /// - Parameter urlString: Absolute URL of the artwork.
+    /// - Returns: The image data, or `nil` on any failure. Never throws, since
+    ///   a missing cover is not worth failing a snapshot over.
     private func downloadArtwork(from urlString: String) async -> Data? {
         guard let url = URL(string: urlString), !urlString.isEmpty else { return nil }
 
@@ -354,6 +505,15 @@ actor MediaAutomationService {
         }
     }
 
+    /// Reads the current track's cover art out of the Music app.
+    ///
+    /// Music holds artwork as embedded data rather than a URL, so it comes
+    /// back over AppleScript instead of over the network. The count is checked
+    /// first because asking for `artwork 1` of a track with none raises a
+    /// script error rather than returning empty.
+    ///
+    /// - Returns: The raw image data, or `nil` when the track has no artwork
+    ///   or the script fails.
     private func appleMusicArtwork() -> Data? {
         let source = """
         tell application id "com.apple.Music"
@@ -368,6 +528,17 @@ actor MediaAutomationService {
         return data.isEmpty ? nil : data
     }
 
+    /// Maps a transport command onto the player's AppleScript vocabulary.
+    ///
+    /// Mostly a one-to-one translation, except that Spotify exposes no stop
+    /// command: pausing and rewinding to zero produces the same observable
+    /// result the user expects from stop.
+    ///
+    /// - Parameters:
+    ///   - command: Command to translate.
+    ///   - player: Player whose vocabulary to use.
+    /// - Returns: AppleScript statements, or an empty string for players not
+    ///   driven by script.
     private func appleScriptCommand(
         _ command: PlaybackCommand,
         for player: MediaPlayerKind
@@ -382,8 +553,6 @@ actor MediaAutomationService {
         case .stop:
             switch player {
             case .spotify:
-                // Spotify does not expose a native stop command. Rewinding and
-                // pausing gives the user the same observable stop behavior.
                 return """
                 pause
                 set player position to 0
@@ -398,6 +567,12 @@ actor MediaAutomationService {
         }
     }
 
+    /// Compiles and runs AppleScript source.
+    ///
+    /// - Parameter source: Script source.
+    /// - Returns: The script's result descriptor.
+    /// - Throws: ``AutomationError/invalidScript`` if it will not compile, or
+    ///   ``AutomationError/appleScript(number:message:)`` if it fails to run.
     private func execute(_ source: String) throws -> NSAppleEventDescriptor {
         guard let script = NSAppleScript(source: source) else {
             throw AutomationError.invalidScript
@@ -406,6 +581,17 @@ actor MediaAutomationService {
         return try execute(script)
     }
 
+    /// Runs an already compiled script.
+    ///
+    /// `NSAppleScript` signals failure through an out-parameter dictionary
+    /// rather than by returning nil, so the presence of that dictionary - not
+    /// the result - is what decides whether the call succeeded.
+    ///
+    /// - Parameter script: Compiled script to run.
+    /// - Returns: The script's result descriptor.
+    /// - Throws: ``AutomationError/appleScript(number:message:)`` carrying the
+    ///   OSA error number, which the caller needs to recognise a permission
+    ///   denial.
     private func execute(_ script: NSAppleScript) throws -> NSAppleEventDescriptor {
         var details: NSDictionary?
         let result = script.executeAndReturnError(&details)
@@ -419,6 +605,15 @@ actor MediaAutomationService {
         return result
     }
 
+    /// Turns any automation failure into a message worth showing a user.
+    ///
+    /// The case that matters is OSA error -1743, macOS refusing automation
+    /// access. It is the one failure the user can actually fix, and the raw
+    /// message does not say how, so it is matched specifically and answered
+    /// with the path through System Settings.
+    ///
+    /// - Parameter error: Error from any of the automation paths.
+    /// - Returns: A Korean message for the panel's error line.
     nonisolated static func userFacingMessage(for error: Error) -> String {
         if let bridgeError = error as? YouTubeMusicBridgeProtocolError {
             return bridgeError.localizedDescription
@@ -443,10 +638,24 @@ actor MediaAutomationService {
     }
 }
 
+/// Failures from the AppleScript control path.
 enum AutomationError: LocalizedError {
+    /// The player's app is not open.
     case playerNotRunning(MediaPlayerKind)
+
+    /// The script source could not be compiled.
     case invalidScript
+
+    /// The script ran and failed.
+    ///
+    /// The number is the OSA error code; -1743 means automation permission was
+    /// denied, which is the only value any caller inspects.
     case appleScript(number: Int, message: String)
+
+    /// A seek was sent but the player never reported the new position.
+    ///
+    /// Carries the observed position, if one was ever read, to distinguish a
+    /// player that ignored the seek from one that never answered at all.
     case seekNotConfirmed(
         requested: TimeInterval,
         observed: TimeInterval?

@@ -9,7 +9,24 @@ import AppKit
 import Foundation
 import Network
 
+/// Reprise's side of the YouTube Music browser extension link.
+///
+/// Runs a loopback WebSocket server, tracks every connected browser and the
+/// tabs each reports, and picks one to present as the YouTube Music "player".
+///
+/// The complexity here is that this is a one-to-many bridge where the other
+/// players are one-to-one: a user can have Chrome and Firefox connected at
+/// once, each with several YouTube Music tabs. Most of the state below exists
+/// to choose a single tab out of that, keep the choice stable while it stays
+/// valid, and abandon it the moment it goes quiet.
+///
+/// An actor because callbacks arrive on the network queue while commands come
+/// from the main actor.
 actor YouTubeMusicBridge {
+    /// The app-wide bridge.
+    ///
+    /// Singleton because it binds a fixed port; a second instance would fail
+    /// to listen and leave the extension connected to the wrong one.
     static let shared = YouTubeMusicBridge()
 
     private let port: UInt16
@@ -29,10 +46,20 @@ actor YouTubeMusicBridge {
     private var artworkURL: URL?
     private var artworkData: Data?
 
+    /// Creates the bridge without starting it.
+    ///
+    /// - Parameter port: Port to listen on. Defaults to the protocol's fixed
+    ///   port; injectable so tests can bind an ephemeral one.
     init(port: UInt16 = YouTubeMusicBridgeProtocol.port) {
         self.port = port
     }
 
+    /// Starts listening for extension connections.
+    ///
+    /// Safe to call repeatedly - the poll loop does, on every sweep - because
+    /// an existing server short-circuits it. A bind failure is recorded as a
+    /// status rather than thrown, since the caller is a poll with nowhere to
+    /// report to, and the settings pane surfaces it instead.
     func start() {
         guard server == nil else { return }
 
@@ -66,6 +93,11 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Stops the server and discards all connection state.
+    ///
+    /// Everything is cleared rather than kept for a restart, because a browser
+    /// reconnecting is issued a new connection id and none of the old state
+    /// would apply to it.
     func stop() async {
         await server?.stop()
         server = nil
@@ -82,18 +114,34 @@ actor YouTubeMusicBridge {
         clearArtwork()
     }
 
+    /// The bridge's current state, for the settings pane.
+    ///
+    /// - Returns: The status.
     func connectionStatus() -> YouTubeMusicBridgeStatus {
         status
     }
 
+    /// The port actually bound, which differs when 0 was requested.
+    ///
+    /// - Returns: The port, or `nil` when not listening.
     func listeningPort() -> UInt16? {
         server?.listeningPort
     }
 
+    /// Version of the extension on the active connection.
+    ///
+    /// - Returns: The version, or `nil` when nothing is connected.
     func connectedExtensionVersion() -> String? {
         extensionVersion
     }
 
+    /// Turns single-session enforcement on or off.
+    ///
+    /// Switching it on pauses the extra tabs immediately rather than waiting
+    /// for the next one to start playing, since a user enabling it while three
+    /// tabs play expects that to take effect now.
+    ///
+    /// - Parameter enabled: Whether only one tab may play at a time.
     func setAutomaticallyPausesOtherSessions(_ enabled: Bool) async {
         guard automaticallyPausesOtherSessions != enabled else { return }
 
@@ -105,6 +153,18 @@ actor YouTubeMusicBridge {
         await pausePlayingSessions(except: retainedSession)
     }
 
+    /// Every YouTube Music tab across every connected browser.
+    ///
+    /// Two shapes are handled. Extensions that send a session list report all
+    /// their tabs; older ones report only the tab they selected, and a single
+    /// session is synthesised from their snapshot so they still appear.
+    ///
+    /// The sort puts the active session first and is otherwise fully
+    /// deterministic - browser, then connection, then tab - so the settings
+    /// list does not reshuffle on every refresh.
+    ///
+    /// - Parameter date: Instant to judge freshness against. Defaults to now.
+    /// - Returns: Sessions, active first.
     func sessions(at date: Date = Date()) -> [YouTubeMusicSession] {
         _ = selectActiveConnection(at: date)
 
@@ -195,6 +255,22 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Presents the selected tab as an ordinary player snapshot.
+    ///
+    /// This is what makes YouTube Music look like Spotify or Music to the rest
+    /// of the app despite having no app of its own.
+    ///
+    /// A stale snapshot yields a running-but-stopped player rather than a
+    /// track: the extension is connected, so YouTube Music is available, but
+    /// its last report is too old to show as current.
+    ///
+    /// Position is projected forward from the observation, since the extension
+    /// reports far less often than the progress bar updates. Artwork is only
+    /// attached when the cached image belongs to this exact track, so a stale
+    /// cover never appears over a new one.
+    ///
+    /// - Parameter date: Instant to evaluate. Defaults to now.
+    /// - Returns: A snapshot, never an error.
     func snapshot(at date: Date = Date()) -> PlayerSnapshot {
         guard status.isConnected else {
             return .notRunning(.youtubeMusic)
@@ -250,10 +326,29 @@ actor YouTubeMusicBridge {
         )
     }
 
+    /// Sends a transport command to the selected tab.
+    ///
+    /// - Parameter command: Transport control to invoke.
+    /// - Throws: ``YouTubeMusicBridgeProtocolError/extensionNotConnected``,
+    ///   ``YouTubeMusicBridgeProtocolError/commandRejected(_:)``, or
+    ///   ``YouTubeMusicBridgeProtocolError/commandNotConfirmed``.
     func perform(_ command: PlaybackCommand) async throws {
         _ = try await send(.playback(command))
     }
 
+    /// Sets the volume and waits for a snapshot confirming it.
+    ///
+    /// Waiting for the acknowledgement is not enough: it only says the command
+    /// was received, and the caller needs the level the page settled on. So it
+    /// polls for a snapshot newer than the one before the command whose volume
+    /// is within one step of the target, tolerating YouTube Music's own
+    /// rounding.
+    ///
+    /// - Parameter volume: Desired level from 0 to 100.
+    /// - Returns: The level the page reports.
+    /// - Throws: ``YouTubeMusicBridgeProtocolError/commandNotConfirmed`` if no
+    ///   matching snapshot arrives within about two seconds, plus the errors
+    ///   sending can raise.
     func setVolume(_ volume: Int) async throws -> Int {
         let volume = PlayerVolume.clamped(volume)
         let dispatch = try await send(.setVolume(volume))
@@ -270,6 +365,17 @@ actor YouTubeMusicBridge {
         throw YouTubeMusicBridgeProtocolError.commandNotConfirmed
     }
 
+    /// Seeks and waits for a snapshot confirming the new position.
+    ///
+    /// Same reasoning as ``setVolume(_:)``, at a longer interval: a seek makes
+    /// the page buffer, so its next snapshot takes noticeably longer to
+    /// arrive.
+    ///
+    /// - Parameter position: Target position in seconds.
+    /// - Returns: The position the page reports.
+    /// - Throws: ``YouTubeMusicBridgeProtocolError/commandNotConfirmed`` if no
+    ///   matching snapshot arrives within about 1.2 seconds, plus the errors
+    ///   sending can raise.
     func setPosition(_ position: TimeInterval) async throws -> TimeInterval {
         let position = position.isFinite ? max(position, 0) : 0
         let dispatch = try await send(.seek(to: position))
@@ -292,6 +398,13 @@ actor YouTubeMusicBridge {
         throw YouTubeMusicBridgeProtocolError.commandNotConfirmed
     }
 
+    /// Records a server status change, clearing state when disconnected.
+    ///
+    /// Losing the last connection invalidates everything: connection ids are
+    /// not reused, so keeping snapshots would leave the panel showing a track
+    /// from a browser that has gone.
+    ///
+    /// - Parameter status: New server status.
     private func setStatus(_ status: YouTubeMusicBridgeStatus) {
         self.status = status
         if !status.isConnected {
@@ -306,6 +419,21 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Handles one message from a connection.
+    ///
+    /// Everything except `hello` requires the connection to have identified
+    /// itself first, so a client that skipped the handshake cannot inject
+    /// state. Anything that fails to decode or validate is dropped silently:
+    /// the sender is a browser extension with no channel to report to, and a
+    /// malformed message is not worth surfacing to the user.
+    ///
+    /// Snapshots and session lists each carry their own sequence number and
+    /// older ones are discarded, since WebSocket ordering does not survive the
+    /// hop through the extension's own async plumbing.
+    ///
+    /// - Parameters:
+    ///   - data: Raw frame.
+    ///   - connectionID: Connection it arrived on.
     private func receive(
         _ data: Data,
         from connectionID: UUID
@@ -429,6 +557,25 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Sends a command and waits for its acknowledgement.
+    ///
+    /// The sequence number is captured before sending so callers that need to
+    /// confirm an effect can tell a snapshot from after the command apart from
+    /// one already in flight.
+    ///
+    /// Acknowledgements are matched by command id and required to come from
+    /// the connection the command was sent to, so a second browser cannot
+    /// answer for the first. Six seconds is generous, but a page that is
+    /// buffering can genuinely take that long.
+    ///
+    /// - Parameters:
+    ///   - command: Command to send.
+    ///   - targetConnectionID: Connection to send to. Defaults to `nil`,
+    ///     meaning the active one.
+    /// - Returns: The dispatch record, for confirming the effect.
+    /// - Throws: ``YouTubeMusicBridgeProtocolError/extensionNotConnected``,
+    ///   ``YouTubeMusicBridgeProtocolError/commandRejected(_:)``, or
+    ///   ``YouTubeMusicBridgeProtocolError/commandNotConfirmed``.
     private func send(
         _ command: YouTubeMusicCommandMessage,
         to targetConnectionID: UUID? = nil
@@ -475,6 +622,13 @@ actor YouTubeMusicBridge {
         throw YouTubeMusicBridgeProtocolError.commandNotConfirmed
     }
 
+    /// Picks which playing tab should keep playing.
+    ///
+    /// Ranked by visibility, then selection, then recency: the tab the user is
+    /// actually looking at is the best guess at what they meant to hear.
+    ///
+    /// - Parameter date: Instant to judge freshness against. Defaults to now.
+    /// - Returns: The tab to retain, or `nil` when none is playing.
     private func preferredPlayingSession(
         at date: Date = Date()
     ) -> YouTubeMusicSessionTarget? {
@@ -492,6 +646,13 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Every tab currently playing, across all connections.
+    ///
+    /// Stale tabs are excluded: one that has stopped reporting may well have
+    /// been closed, and pausing it would only waste a round trip.
+    ///
+    /// - Parameter date: Instant to judge freshness against. Defaults to now.
+    /// - Returns: Addressable targets for the playing tabs.
     private func playingSessionTargets(
         at date: Date = Date()
     ) -> [YouTubeMusicSessionTarget] {
@@ -514,6 +675,16 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Pauses every playing tab except one.
+    ///
+    /// Sent concurrently, since these go to different tabs and possibly
+    /// different browsers; doing them in sequence would leave the last one
+    /// audible for as long as the earlier ones took.
+    ///
+    /// Failures are ignored: a tab that will not pause is usually one that has
+    /// just been closed, and there is nothing useful to tell the user.
+    ///
+    /// - Parameter retainedSession: The tab allowed to keep playing.
     private func pausePlayingSessions(
         except retainedSession: YouTubeMusicSessionTarget
     ) async {
@@ -536,6 +707,19 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Chooses which browser connection to present as the player.
+    ///
+    /// Stale connections are excluded outright, then the rest are ranked by
+    /// ``selectionPriority(for:)``.
+    ///
+    /// The tie-break is what keeps the panel steady: the current connection is
+    /// kept whenever it still ties for the best priority, so two browsers both
+    /// playing do not trade the panel back and forth as their snapshots
+    /// arrive. Only when it drops behind does the most recently heard-from
+    /// connection take over.
+    ///
+    /// - Parameter date: Instant to judge freshness against. Defaults to now.
+    /// - Returns: The selected connection, or `nil` when none is fresh.
     @discardableResult
     private func selectActiveConnection(at date: Date = Date()) -> UUID? {
         let candidates = connectionSnapshots.filter {
@@ -575,6 +759,12 @@ actor YouTubeMusicBridge {
         return selectedConnectionID
     }
 
+    /// Switches the active connection and resets what belonged to the old one.
+    ///
+    /// Artwork is cleared because it was cached for the previous connection's
+    /// track and would otherwise appear over the new one's.
+    ///
+    /// - Parameter connectionID: Connection to activate.
     private func activateConnection(_ connectionID: UUID) {
         guard activeConnectionID != connectionID else { return }
 
@@ -583,6 +773,17 @@ actor YouTubeMusicBridge {
         clearArtwork()
     }
 
+    /// Cleans up after a browser disconnects.
+    ///
+    /// Commands still awaiting an acknowledgement from that connection are
+    /// failed immediately rather than left to time out, since the reply can
+    /// never arrive.
+    ///
+    /// If the active connection was the one that left, another is selected at
+    /// once - so closing one of two browsers falls back to the other rather
+    /// than blanking the panel until the next poll.
+    ///
+    /// - Parameter connectionID: Connection that closed.
     private func connectionClosed(_ connectionID: UUID) async {
         connectionIdentities[connectionID] = nil
         connectionSnapshots[connectionID] = nil
@@ -609,6 +810,22 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Downloads cover art for the selected track.
+    ///
+    /// Skipped when the track and URL are both unchanged, so a snapshot
+    /// arriving several times a second does not re-download the same image.
+    ///
+    /// The response is validated the same way as Spotify artwork - status,
+    /// size ceiling, decode check - because the URL came from a web page.
+    ///
+    /// The conditions are re-checked after the download because it is the one
+    /// suspension point here long enough for everything to change: the track
+    /// may have moved on, or another browser taken over. Without that, a slow
+    /// download would land a stale cover on a track it does not belong to.
+    ///
+    /// - Parameters:
+    ///   - snapshot: Snapshot naming the track and its artwork URL.
+    ///   - connectionID: Connection it came from, re-checked afterwards.
     private func updateArtwork(
         for snapshot: YouTubeMusicSnapshotPayload,
         from connectionID: UUID
@@ -651,12 +868,25 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Discards the cached cover art.
     private func clearArtwork() {
         artworkTrackKey = nil
         artworkURL = nil
         artworkData = nil
     }
 
+    /// Decides which timestamp a snapshot's position was measured at.
+    ///
+    /// The extension's own capture time is more accurate than arrival, since
+    /// it excludes the hop through the browser and the socket. But it comes
+    /// from another process's clock, so it is only trusted when it sits within
+    /// a sane window before arrival - a skewed or malicious clock would
+    /// otherwise throw every position estimate off.
+    ///
+    /// - Parameters:
+    ///   - capturedAt: Time the extension reported, or `nil`.
+    ///   - receivedAt: Time Reprise received the message.
+    /// - Returns: The timestamp to anchor position estimates on.
     private nonisolated static func observationDate(
         capturedAt: Date?,
         receivedAt: Date
@@ -669,6 +899,14 @@ actor YouTubeMusicBridge {
         return capturedAt
     }
 
+    /// Ranks a connection by how much it deserves to be the active one.
+    ///
+    /// Playing with a track beats merely having a track, which beats nothing
+    /// at all - so a browser sitting on a paused tab never displaces one
+    /// actually playing music.
+    ///
+    /// - Parameter snapshot: Snapshot to rank.
+    /// - Returns: 2, 1, or 0, higher being better.
     private nonisolated static func selectionPriority(
         for snapshot: YouTubeMusicSnapshotPayload
     ) -> Int {
@@ -681,6 +919,22 @@ actor YouTubeMusicBridge {
         return 0
     }
 
+    /// Finds a tab that has just started playing in this session list.
+    ///
+    /// Comparing against the previous list is what makes this a transition
+    /// rather than a state: without it, every session message would re-pause
+    /// the other tabs for as long as one kept playing.
+    ///
+    /// Selection outranks visibility here, the reverse of
+    /// ``preferredPlayingSession(at:)``, because a tab starting on its own is
+    /// most likely the one the extension already considers selected.
+    ///
+    /// - Parameters:
+    ///   - payload: The new session list.
+    ///   - previousPayload: The previous list, or `nil` if this is the first.
+    ///   - connectionID: Connection the list came from.
+    ///   - date: Instant to judge freshness against. Defaults to now.
+    /// - Returns: The tab that just started, or `nil` when none did.
     private nonisolated static func newlyPlayingSession(
         in payload: YouTubeMusicSessionsPayload,
         previousPayload: YouTubeMusicSessionsPayload?,
@@ -721,6 +975,15 @@ actor YouTubeMusicBridge {
         }
     }
 
+    /// Builds a stable identity for a tab across refreshes.
+    ///
+    /// Combines both parts because tab ids are only unique within a browser,
+    /// so two browsers could otherwise collide in the settings list.
+    ///
+    /// - Parameters:
+    ///   - connectionID: Connection the tab belongs to.
+    ///   - tabID: Tab id, or `nil` before one is known.
+    /// - Returns: The identifier.
     private nonisolated static func sessionIdentifier(
         connectionID: UUID,
         tabID: Int?
@@ -729,35 +992,73 @@ actor YouTubeMusicBridge {
     }
 }
 
+/// A snapshot with the two timestamps that matter for it.
+///
+/// Both are kept because they answer different questions: arrival decides
+/// whether the connection is still alive, while observation is what position
+/// estimates are measured from.
 nonisolated private struct ConnectionSnapshot: Sendable {
+    /// The validated snapshot.
     let payload: YouTubeMusicSnapshotPayload
+
+    /// When Reprise received it, used for staleness.
     let receivedAt: Date
+
+    /// When the position was measured, used for estimation.
     let observedAt: Date
 }
 
+/// The most recent tab list from one connection.
 nonisolated private struct ConnectionSessionList: Sendable {
+    /// The validated session list.
     let payload: YouTubeMusicSessionsPayload
 }
 
+/// Enough to address one tab and rank it against others.
 nonisolated private struct YouTubeMusicSessionTarget: Sendable {
+    /// Connection the tab belongs to.
     let connectionID: UUID
+
+    /// Browser-assigned tab id.
     let tabID: Int
+
+    /// Whether the extension considers this its selected tab.
     let isSelected: Bool
+
+    /// Whether the tab is visible in its window.
     let isVisible: Bool
+
+    /// When the tab last reported.
     let updatedAt: Date
 }
 
+/// Who is on the other end of a connection.
 nonisolated private struct ConnectionIdentity: Sendable {
+    /// Extension id from the handshake.
     let extensionID: String
+
+    /// Extension version, for display.
     let extensionVersion: String
+
+    /// Browser name, for display.
     let browserName: String
 }
 
+/// What a sent command needs to remember to confirm its effect.
 nonisolated private struct CommandDispatch: Sendable {
+    /// Connection the command went to.
     let connectionID: UUID
+
+    /// Sequence number before sending, so a later snapshot can be recognised.
     let startingSequence: Int
 }
 
+/// Loopback WebSocket server the extension connects to.
+///
+/// Wraps `Network.framework`, which is callback- and queue-based rather than
+/// async. All mutable state is confined to one serial queue, which is what
+/// `@unchecked Sendable` is asserting; the actor above never touches these
+/// fields directly, only through the callbacks.
 nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable {
     private let queue = DispatchQueue(
         label: "dev.junx.Reprise.youtubeMusicBridge"
@@ -770,6 +1071,13 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
     private var connections: [UUID: NWConnection] = [:]
     private var readyConnectionIDs: Set<UUID> = []
 
+    /// Creates the server without starting it.
+    ///
+    /// - Parameters:
+    ///   - port: Port to bind.
+    ///   - onMessage: Called with each accepted text frame.
+    ///   - onStatusChange: Called when the listener or connection set changes.
+    ///   - onConnectionClosed: Called when a connection goes away.
     init(
         port: UInt16,
         onMessage: @escaping @Sendable (UUID, Data) -> Void,
@@ -782,12 +1090,34 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         self.onConnectionClosed = onConnectionClosed
     }
 
+    /// The port actually bound.
+    ///
+    /// Reads through the queue because the listener is queue-confined. Only
+    /// safe from outside that queue, which is the sole caller.
+    ///
+    /// - Returns: The port, or `nil` when not listening.
     var listeningPort: UInt16? {
         queue.sync {
             listener?.port?.rawValue
         }
     }
 
+    /// Binds the port and begins accepting connections.
+    ///
+    /// Three settings define the security posture. `acceptLocalOnly` keeps the
+    /// listener off every non-loopback interface, so nothing on the network
+    /// can reach it. The message size cap is applied at the protocol layer, so
+    /// an oversized frame is refused before it is buffered. And the client
+    /// request handler runs
+    /// ``YouTubeMusicBridgeProtocol/acceptsHandshake(subprotocols:headers:)``,
+    /// rejecting the handshake outright rather than accepting and filtering
+    /// later.
+    ///
+    /// `allowLocalEndpointReuse` lets a relaunched Reprise rebind immediately
+    /// instead of waiting out the socket's lingering close.
+    ///
+    /// - Throws: ``YouTubeMusicWebSocketServerError/invalidPort`` for an
+    ///   unusable port, or an `NWError` if the listener cannot be created.
     func start() throws {
         let parameters = NWParameters(tls: nil)
         parameters.allowLocalEndpointReuse = true
@@ -836,6 +1166,11 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         listener.start(queue: queue)
     }
 
+    /// Closes every connection and stops listening.
+    ///
+    /// Bridged to async through a continuation so the caller knows the port is
+    /// released before it returns - important if the bridge is restarted, as
+    /// the rebind would otherwise race the teardown.
     func stop() async {
         await withCheckedContinuation { continuation in
             queue.async { [weak self] in
@@ -854,6 +1189,17 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         }
     }
 
+    /// Sends a text frame to one connection.
+    ///
+    /// The connection must be in the ready set, not merely present: a socket
+    /// that is still handshaking would accept the write and drop it.
+    ///
+    /// - Parameters:
+    ///   - data: Frame body.
+    ///   - connectionID: Connection to send to.
+    /// - Throws: ``YouTubeMusicBridgeProtocolError/extensionNotConnected``
+    ///   when the connection is gone or not ready, or an `NWError` if the
+    ///   write fails.
     func send(
         _ data: Data,
         to connectionID: UUID
@@ -892,6 +1238,13 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         }
     }
 
+    /// Maps listener state onto a bridge status.
+    ///
+    /// Ready reports waiting or connected depending on whether any browser has
+    /// arrived, so the settings pane distinguishes "listening, nobody there"
+    /// from "listening, connected".
+    ///
+    /// - Parameter state: New listener state.
     private func handleListenerState(_ state: NWListener.State) {
         switch state {
         case .ready:
@@ -909,6 +1262,12 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         }
     }
 
+    /// Registers an incoming connection and starts reading once it is ready.
+    ///
+    /// Reading only begins on `.ready`, since receiving before the handshake
+    /// completes would deliver nothing.
+    ///
+    /// - Parameter connection: The new connection.
     private func accept(_ connection: NWConnection) {
         let connectionID = UUID()
         connections[connectionID] = connection
@@ -941,6 +1300,19 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         connection.start(queue: queue)
     }
 
+    /// Reads one frame and queues the next read.
+    ///
+    /// The recursive tail is how `Network.framework` models a continuous read;
+    /// it is not unbounded recursion, since each call returns before the
+    /// next is invoked from the completion handler.
+    ///
+    /// Only text frames are forwarded. The size is checked again here even
+    /// though the protocol layer caps it, because that cap governs reassembly
+    /// rather than what reaches this handler.
+    ///
+    /// - Parameters:
+    ///   - connection: Connection to read from.
+    ///   - connectionID: Its identifier.
     private func receiveNextMessage(
         from connection: NWConnection,
         connectionID: UUID
@@ -988,6 +1360,13 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
         }
     }
 
+    /// Forgets a connection and reports it closed, exactly once.
+    ///
+    /// The removal check is what makes it idempotent: failure, cancellation,
+    /// and a close frame can all fire for the same connection, and the bridge
+    /// must not be told about it more than once.
+    ///
+    /// - Parameter connectionID: Connection to remove.
     private func removeConnection(_ connectionID: UUID) {
         guard connections.removeValue(forKey: connectionID) != nil else {
             return
@@ -997,9 +1376,12 @@ nonisolated private final class YouTubeMusicWebSocketServer: @unchecked Sendable
     }
 }
 
+/// Failures from the bridge's WebSocket server.
 nonisolated private enum YouTubeMusicWebSocketServerError: LocalizedError {
+    /// The configured port is not a valid port number.
     case invalidPort
 
+    /// Korean message for the settings pane.
     var errorDescription: String? {
         "YouTube Music 브리지 포트를 열 수 없습니다."
     }

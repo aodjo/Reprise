@@ -8,12 +8,30 @@
 import AppKit
 import SwiftUI
 
+/// Square album cover, with a branded placeholder when no artwork exists.
+///
+/// Used at every size Reprise shows a cover, from the menu bar item to the
+/// panel, so it always renders something: a track with no artwork still
+/// occupies its slot instead of collapsing the surrounding layout.
 struct ArtworkView: View {
+    /// Encoded cover art, or `nil` to draw the placeholder.
     let data: Data?
+
+    /// Edge length in points; the view is always square.
     let size: CGFloat
+
+    /// Corner rounding, defaulting to the panel's card radius.
     var cornerRadius: CGFloat = 12
+
+    /// SF Symbol drawn on the placeholder. Defaults to a generic music note.
     var symbolName: String = "music.note"
 
+    /// Draws the cover, or an accent gradient carrying ``symbolName``.
+    ///
+    /// The whole view is collapsed into a single accessibility element: the
+    /// artwork conveys nothing a screen reader user cannot get from the track
+    /// title beside it, so exposing the gradient and symbol separately would
+    /// add noise without information.
     var body: some View {
         Group {
             if let image = displayImage {
@@ -46,12 +64,19 @@ struct ArtworkView: View {
         }
     }
 
+    /// Decodes ``data`` into an image sized for this view.
+    ///
+    /// The explicit `size` assignment is load-bearing: `MenuBarExtra` measures
+    /// an `NSImage`'s intrinsic point size before SwiftUI applies view
+    /// modifiers, so a high-resolution cover would widen the macOS status item
+    /// itself. Stamping the intended point size up front keeps the menu bar
+    /// item at a fixed width whatever the source resolution.
+    ///
+    /// - Returns: The decoded image, or `nil` when there is no data or it is
+    ///   not a format AppKit can read.
     private var displayImage: NSImage? {
         guard let data, let image = NSImage(data: data) else { return nil }
 
-        // MenuBarExtra measures an NSImage's intrinsic point size before SwiftUI
-        // applies view modifiers. Give it the intended point size up front so a
-        // high-resolution cover never expands the macOS status item.
         image.size = NSSize(width: size, height: size)
         return image
     }

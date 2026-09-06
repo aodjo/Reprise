@@ -8,16 +8,31 @@
 import AppKit
 import SwiftUI
 
+/// The Settings window, split into six tabs.
+///
+/// Every pane writes straight to `UserDefaults` through `@AppStorage`, so
+/// there is no apply step and no settings model: a change reaches the panel
+/// and the menu bar as soon as it is made.
 struct RepriseSettingsView: View {
     @Environment(\.controlActiveState)
     private var controlActiveState
 
+    /// Accent colour that dims when the window is not active.
+    ///
+    /// The tab strip is tinted manually, since a tinted `TabView` does not
+    /// follow the window's active state on its own and would keep a
+    /// full-strength accent in a background window.
     private var controlTint: Color {
         controlActiveState == .inactive
             ? Color(nsColor: .tertiaryLabelColor)
             : .accentColor
     }
 
+    /// The tab strip and its panes.
+    ///
+    /// Fixed size because a settings window with movable panes would reflow
+    /// its previews, which are laid out at the real dimensions of the menu bar
+    /// item and the player panel.
     var body: some View {
         TabView {
             GeneralSettingsView()
@@ -60,6 +75,7 @@ struct RepriseSettingsView: View {
     }
 }
 
+/// Playback, lyrics, player priority, and launch at login.
 private struct GeneralSettingsView: View {
     @StateObject private var launchAtLoginController =
         LaunchAtLoginController()
@@ -80,12 +96,19 @@ private struct GeneralSettingsView: View {
     @State private var dragStartIndex: Int?
     @State private var dragOffset = CGFloat.zero
 
+    /// The user's player order, decoded from the stored string.
     private var orderedPlayers: [MediaPlayerKind] {
         ReprisePreferences.playerDisplayOrder(
             from: playerDisplayOrder
         )
     }
 
+    /// The General pane.
+    ///
+    /// The login item state is re-read on appearance and whenever the app
+    /// becomes active, because approval happens in System Settings with no
+    /// callback: coming back to Reprise is the only cue that it may have
+    /// changed.
     var body: some View {
         Form {
             Section {
@@ -247,6 +270,14 @@ private struct GeneralSettingsView: View {
         }
     }
 
+    /// Small icon for a player in the priority list.
+    ///
+    /// Bundled logos are rendered as templates so they take the list's
+    /// foreground colour; Music uses an SF Symbol, since Apple's mark is not
+    /// redistributable.
+    ///
+    /// - Parameter player: Player to represent.
+    /// - Returns: The icon view.
     @ViewBuilder
     private func playerIcon(
         for player: MediaPlayerKind
@@ -268,6 +299,21 @@ private struct GeneralSettingsView: View {
         }
     }
 
+    /// Reorders the priority list as a row is dragged.
+    ///
+    /// Written by hand rather than using `List`'s move support, because the
+    /// rows live in a `Form` section alongside a toggle - a `List` there would
+    /// bring its own chrome and break the grouped layout.
+    ///
+    /// The drag translates a row's position into an index by dividing by the
+    /// row height, and reorders as soon as that index changes, so the list
+    /// rearranges under the pointer rather than only on release. The offset
+    /// applied afterwards is the remainder: it keeps the dragged row glued to
+    /// the pointer even though the rows beneath it have already moved.
+    ///
+    /// - Parameters:
+    ///   - player: Player being dragged.
+    ///   - translation: Vertical movement since the drag began.
     private func updateDrag(
         for player: MediaPlayerKind,
         translation: CGFloat
@@ -317,6 +363,10 @@ private struct GeneralSettingsView: View {
             * PlayerPriorityDragMetrics.rowStep
     }
 
+    /// Settles the dragged row into place.
+    ///
+    /// The order has already been written during the drag, so this only
+    /// animates the offset back to zero.
     private func endDrag() {
         withAnimation(
             .spring(response: 0.22, dampingFraction: 0.86)
@@ -327,6 +377,15 @@ private struct GeneralSettingsView: View {
         }
     }
 
+    /// Moves a player to a new position and stores the order.
+    ///
+    /// The offset adjustment is required by `move(fromOffsets:toOffset:)`,
+    /// which inserts before the given offset: moving downwards needs one more
+    /// to land after the target rather than before it.
+    ///
+    /// - Parameters:
+    ///   - player: Player to move.
+    ///   - targetIndex: Index to move it to.
     private func movePlayer(
         _ player: MediaPlayerKind,
         to targetIndex: Int
@@ -350,9 +409,15 @@ private struct GeneralSettingsView: View {
     }
 }
 
+/// Connected browser sessions and extension download links.
 private struct YouTubeMusicSettingsView: View {
     @State private var sessions: [YouTubeMusicSession] = []
 
+    /// The YouTube Music pane.
+    ///
+    /// Polls the bridge twice a second while visible. Polling rather than
+    /// observing because the bridge is an actor with no change notification,
+    /// and this list is only on screen while the user is looking at it.
     var body: some View {
         Form {
             Section {
@@ -423,6 +488,20 @@ private struct YouTubeMusicSettingsView: View {
         }
     }
 
+    /// One row describing a browser tab.
+    ///
+    /// The badge distinguishes three states the user would otherwise conflate:
+    /// the tab Reprise is controlling, one the extension selected but that is
+    /// not in use, and one that has stopped responding.
+    ///
+    /// Collapsed into a single accessibility element, since read out
+    /// separately the icon, badge, and version are noise around the one fact
+    /// that matters.
+    ///
+    /// - Parameters:
+    ///   - session: Session to describe.
+    ///   - displayName: Pre-computed name for the row.
+    /// - Returns: The row view.
     @ViewBuilder
     private func sessionRow(
         _ session: YouTubeMusicSession,
@@ -489,6 +568,14 @@ private struct YouTubeMusicSettingsView: View {
         )
     }
 
+    /// Names a session, numbering tabs when a browser has several.
+    ///
+    /// The tab number is positional rather than the browser's own tab id,
+    /// which is an arbitrary large integer that would mean nothing to a user.
+    /// It is omitted entirely when a browser has only one tab.
+    ///
+    /// - Parameter session: Session to name.
+    /// - Returns: The display name.
     private func sessionDisplayName(
         for session: YouTubeMusicSession
     ) -> String {
@@ -504,6 +591,14 @@ private struct YouTubeMusicSettingsView: View {
         return "\(session.browserName) · 탭 \(index + 1)"
     }
 
+    /// Secondary line describing what a session is playing.
+    ///
+    /// A session with no title is distinguished by freshness: a fresh one has
+    /// genuinely nothing loaded, while a stale one may simply not have
+    /// reported yet.
+    ///
+    /// - Parameter session: Session to describe.
+    /// - Returns: The detail text.
     private func sessionDetailText(
         for session: YouTubeMusicSession
     ) -> String {
@@ -528,6 +623,10 @@ private struct YouTubeMusicSettingsView: View {
         }
     }
 
+    /// SF Symbol standing in for a browser family.
+    ///
+    /// - Parameter browser: Browser to represent.
+    /// - Returns: The symbol name.
     private func browserSymbol(
         for browser: YouTubeMusicBrowserKind
     ) -> String {
@@ -539,6 +638,10 @@ private struct YouTubeMusicSettingsView: View {
         }
     }
 
+    /// SF Symbol for a playback state.
+    ///
+    /// - Parameter state: State to represent.
+    /// - Returns: The symbol name.
     private func stateSymbol(for state: PlaybackState) -> String {
         switch state {
         case .playing:
@@ -553,18 +656,27 @@ private struct YouTubeMusicSettingsView: View {
     }
 }
 
+/// Geometry the priority drag converts movement into indices with.
 private enum PlayerPriorityDragMetrics {
+    /// Height of one row plus its spacing, in points.
+    ///
+    /// Measured from the rendered form rather than derived, since a grouped
+    /// `Form` does not expose its row metrics. It must track the row layout:
+    /// if the rows change height, dragging picks the wrong index.
     static let rowStep: CGFloat = 39
 }
 
+/// Panel theme picker with a live preview.
 private struct ThemeSettingsView: View {
     @AppStorage(ReprisePreferenceKey.playerPanelTheme)
     private var playerPanelTheme = PlayerPanelTheme.liquid.rawValue
 
+    /// The currently selected theme.
     private var theme: PlayerPanelTheme {
         PlayerPanelTheme(rawValue: playerPanelTheme) ?? .liquid
     }
 
+    /// The Theme pane.
     var body: some View {
         Form {
             Section("미리보기") {
@@ -587,6 +699,11 @@ private struct ThemeSettingsView: View {
     }
 }
 
+/// Non-functional replica of the player panel, for previewing a theme.
+///
+/// Rebuilt rather than reusing ``PlayerPopoverView``, which would need a live
+/// store and would send real commands from a preview. Kept at the panel's
+/// actual dimensions so the preview is a true likeness.
 private struct ThemePanelPreview: View {
     @Environment(\.colorScheme) private var systemColorScheme
     @State private var previewPosition = 69.0
@@ -597,8 +714,14 @@ private struct ThemePanelPreview: View {
     @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
     private var panelTrailingTimeStyle = PanelTrailingTimeStyle.remaining.rawValue
 
+    /// Theme being previewed.
     let theme: PlayerPanelTheme
 
+    /// Colour scheme the preview renders in.
+    ///
+    /// Unlike the real panel this always resolves to a concrete scheme, since
+    /// the preview has to look right inside a Settings window that may be in
+    /// the opposite appearance.
     private var previewColorScheme: ColorScheme {
         switch theme {
         case .white: .light
@@ -607,6 +730,7 @@ private struct ThemePanelPreview: View {
         }
     }
 
+    /// Title colour for the previewed theme.
     private var titleColor: Color {
         switch theme {
         case .white: .black
@@ -616,14 +740,20 @@ private struct ThemePanelPreview: View {
         }
     }
 
+    /// What the time on the left shows, mirrored from the Panel pane.
     private var leadingTimeStyle: PanelLeadingTimeStyle {
         PanelLeadingTimeStyle(rawValue: panelLeadingTimeStyle) ?? .elapsed
     }
 
+    /// What the time on the right shows, mirrored from the Panel pane.
     private var trailingTimeStyle: PanelTrailingTimeStyle {
         PanelTrailingTimeStyle(rawValue: panelTrailingTimeStyle) ?? .remaining
     }
 
+    /// The preview panel.
+    ///
+    /// The border and shadow are reproduced too, since the Liquid theme's
+    /// translucency reads quite differently without them.
     var body: some View {
         HStack(spacing: 14) {
             PreviewAlbumArtwork(symbolSize: 28)
@@ -712,6 +842,7 @@ private struct ThemePanelPreview: View {
         .animation(.easeInOut(duration: 0.2), value: theme)
     }
 
+    /// Background matching the previewed theme.
     @ViewBuilder
     private var themeBackground: some View {
         switch theme {
@@ -727,6 +858,7 @@ private struct ThemePanelPreview: View {
     }
 }
 
+/// Time display options for the player panel.
 private struct PanelSettingsView: View {
     @AppStorage(ReprisePreferenceKey.panelLeadingTimeStyle)
     private var panelLeadingTimeStyle = PanelLeadingTimeStyle.elapsed.rawValue
@@ -734,14 +866,17 @@ private struct PanelSettingsView: View {
     @AppStorage(ReprisePreferenceKey.panelTrailingTimeStyle)
     private var panelTrailingTimeStyle = PanelTrailingTimeStyle.remaining.rawValue
 
+    /// Selected leading time style.
     private var leadingStyle: PanelLeadingTimeStyle {
         PanelLeadingTimeStyle(rawValue: panelLeadingTimeStyle) ?? .elapsed
     }
 
+    /// Selected trailing time style.
     private var trailingStyle: PanelTrailingTimeStyle {
         PanelTrailingTimeStyle(rawValue: panelTrailingTimeStyle) ?? .remaining
     }
 
+    /// The Panel pane.
     var body: some View {
         Form {
             Section("미리보기") {
@@ -775,12 +910,21 @@ private struct PanelSettingsView: View {
     }
 }
 
+/// Progress bar and time labels, previewing the time styles.
+///
+/// The slider is draggable so the effect of each style can be seen at
+/// different positions - a countdown reads very differently near the end of a
+/// track than at its start.
 private struct PanelTimePreview: View {
     @State private var previewPosition = 69.0
 
+    /// Leading style to preview.
     let leadingStyle: PanelLeadingTimeStyle
+
+    /// Trailing style to preview.
     let trailingStyle: PanelTrailingTimeStyle
 
+    /// The preview.
     var body: some View {
         VStack(spacing: 1) {
             SettingsPreviewSlider(
@@ -820,14 +964,30 @@ private struct PanelTimePreview: View {
     }
 }
 
+/// AppKit slider used in the settings previews.
+///
+/// SwiftUI's `Slider` inside a `Form` picks up the form's control sizing and
+/// label treatment, which makes it look nothing like the compact slider in the
+/// player panel. An `NSSlider` gives the preview the same appearance as the
+/// real thing.
 private struct SettingsPreviewSlider: NSViewRepresentable {
+    /// Slider position.
     @Binding var value: Double
+
+    /// Range the slider spans.
     let range: ClosedRange<Double>
 
+    /// Creates the coordinator that receives the slider's action.
+    ///
+    /// - Returns: A coordinator bound to the value.
     func makeCoordinator() -> Coordinator {
         Coordinator(value: $value)
     }
 
+    /// Builds the slider.
+    ///
+    /// - Parameter context: Representable context, carrying the coordinator.
+    /// - Returns: The configured slider.
     func makeNSView(context: Context) -> NSSlider {
         let slider = NSSlider(
             value: value,
@@ -843,6 +1003,14 @@ private struct SettingsPreviewSlider: NSViewRepresentable {
         return slider
     }
 
+    /// Pushes the current value and range into the slider.
+    ///
+    /// The value is only written when it differs beyond a small epsilon, since
+    /// assigning during a drag would fight the user's pointer.
+    ///
+    /// - Parameters:
+    ///   - slider: Slider to update.
+    ///   - context: Representable context, carrying the coordinator.
     func updateNSView(_ slider: NSSlider, context: Context) {
         context.coordinator.value = $value
         slider.minValue = range.lowerBound
@@ -853,13 +1021,24 @@ private struct SettingsPreviewSlider: NSViewRepresentable {
         }
     }
 
+    /// Bridges the slider's target-action back to the SwiftUI binding.
     final class Coordinator: NSObject {
+        /// Binding to write the slider's value into.
+        ///
+        /// Replaced on every update, because SwiftUI hands out a fresh binding
+        /// each time the view is rebuilt and a stale one would write nowhere.
         var value: Binding<Double>
 
+        /// Creates the coordinator.
+        ///
+        /// - Parameter value: Binding to write into.
         init(value: Binding<Double>) {
             self.value = value
         }
 
+        /// Forwards a slider change to the binding.
+        ///
+        /// - Parameter sender: The slider that changed.
         @objc
         func valueChanged(_ sender: NSSlider) {
             value.wrappedValue = sender.doubleValue
@@ -867,6 +1046,7 @@ private struct SettingsPreviewSlider: NSViewRepresentable {
     }
 }
 
+/// Menu bar appearance options, with a live preview.
 private struct MenuBarSettingsView: View {
     @AppStorage(ReprisePreferenceKey.automaticallyScrollTitles)
     private var automaticallyScrollTitles = true
@@ -892,18 +1072,29 @@ private struct MenuBarSettingsView: View {
     @AppStorage(ReprisePreferenceKey.menuBarTitleFormat)
     private var menuBarTitleFormat = MenuBarTitleFormat.titleOnly.rawValue
 
+    /// Selected artwork style.
     private var artworkStyle: MenuBarArtworkStyle {
         MenuBarArtworkStyle(rawValue: menuBarArtworkStyle) ?? .albumArtwork
     }
 
+    /// Selected title format.
     private var titleFormat: MenuBarTitleFormat {
         MenuBarTitleFormat(rawValue: menuBarTitleFormat) ?? .titleOnly
     }
 
+    /// Marquee speed as a layout value.
     private var carouselSpeed: CGFloat {
         CGFloat(marqueeSpeed)
     }
 
+    /// The Menu Bar pane.
+    ///
+    /// The three handlers at the bottom enforce one invariant: the artwork and
+    /// the title cannot both be hidden. That combination leaves an invisible
+    /// menu bar item, which the user could not click to get back into Reprise
+    /// or reach Settings to undo it. Whichever option was not just changed is
+    /// restored instead. The check on appear covers a preferences file that
+    /// already holds that pair.
     var body: some View {
         Form {
             Section("미리보기") {
@@ -986,15 +1177,41 @@ private struct MenuBarSettingsView: View {
     }
 }
 
+/// Replica of the menu bar item, for previewing its appearance.
+///
+/// Drawn over a blue gradient standing in for a desktop wallpaper, since the
+/// real item composites its white template against whatever is behind the menu
+/// bar and would be invisible on the settings background.
+///
+/// Uses the real ``PanelTitleMarqueeView`` and ``MenuBarMarquee`` measurements,
+/// so the preview scrolls and sizes exactly as the item will.
 private struct MenuBarArtworkPreview: View {
+    /// Artwork style to preview.
     let style: MenuBarArtworkStyle
+
+    /// Title format to preview.
     let titleFormat: MenuBarTitleFormat
+
+    /// Whether lyrics mode is on.
     let showsLyrics: Bool
+
+    /// Width budget for lyrics.
     let lyricsWidth: CGFloat
+
+    /// Whether the lyrics width is held when text is shorter.
     let reservesLyricsWidth: Bool
+
+    /// Whether long titles scroll.
     let automaticallyScrolls: Bool
+
+    /// Scroll speed.
     let pointsPerSecond: CGFloat
 
+    /// Sample text for the preview.
+    ///
+    /// A short line in lyrics mode and a deliberately long one otherwise, so
+    /// the scrolling and truncation behaviour is visible without waiting for a
+    /// real track that happens to be long.
     private var previewTitle: String {
         if showsLyrics, titleFormat != .hidden {
             return "다시 만나요"
@@ -1005,12 +1222,14 @@ private struct MenuBarArtworkPreview: View {
         )
     }
 
+    /// Text width budget for the preview.
     private var maximumTextWidth: CGFloat {
         showsLyrics
             ? lyricsWidth
             : MenuBarMarquee.maximumTextWidth
     }
 
+    /// The preview item.
     var body: some View {
         HStack(spacing: 5) {
             if style != .hidden {
@@ -1062,9 +1281,12 @@ private struct MenuBarArtworkPreview: View {
     }
 }
 
+/// Preview of the menu bar item's leading visual.
 private struct MenuBarLeadingArtworkPreview: View {
+    /// Style to preview.
     let style: MenuBarArtworkStyle
 
+    /// The chosen visual.
     var body: some View {
         switch style {
         case .albumArtwork:
@@ -1080,9 +1302,18 @@ private struct MenuBarLeadingArtworkPreview: View {
     }
 }
 
+/// Stand-in album cover for the settings previews.
+///
+/// An angular gradient rather than a real image, so the previews ship no
+/// third-party artwork and read as generic at any size.
 private struct PreviewAlbumArtwork: View {
+    /// Size of the centred note glyph.
+    ///
+    /// Set by the caller because the same artwork appears at 18 points in the
+    /// menu bar preview and 112 in the panel preview.
     var symbolSize: CGFloat = 8
 
+    /// The gradient with its note.
     var body: some View {
         ZStack {
             AngularGradient(
@@ -1104,9 +1335,15 @@ private struct PreviewAlbumArtwork: View {
     }
 }
 
+/// Spinning disc preview for the compact-disc style.
+///
+/// Uses a SwiftUI animation rather than the Core Animation rotation the real
+/// item runs; they are visually equivalent, and this needs no layer plumbing.
+/// It matches the real rotation duration so the speed is faithful.
 private struct RotatingDiscPreview: View {
     @State private var rotation = 0.0
 
+    /// The rotating disc.
     var body: some View {
         PreviewAlbumArtwork()
             .clipShape(Circle())
@@ -1132,7 +1369,13 @@ private struct RotatingDiscPreview: View {
     }
 }
 
+/// Animated level meter preview.
+///
+/// Driven by a sine of the timeline's clock rather than keyframes, which is
+/// less code for the same effect. Each bar is offset in phase so they never
+/// move in unison.
 private struct PlayingIndicatorPreview: View {
+    /// The animated bars.
     var body: some View {
         TimelineView(.animation) { timeline in
             let time = timeline.date.timeIntervalSinceReferenceDate
@@ -1152,7 +1395,13 @@ private struct PlayingIndicatorPreview: View {
     }
 }
 
+/// Version, update settings, and system details.
+///
+/// Serves as the About window a menu bar app has nowhere else to put, which is
+/// why the version and display details are here: they are what a user quotes
+/// in a bug report.
 private struct SystemInfoSettingsView: View {
+    /// Marketing version and build number.
     private var version: String {
         let shortVersion = Bundle.main.object(
             forInfoDictionaryKey: "CFBundleShortVersionString"
@@ -1164,10 +1413,16 @@ private struct SystemInfoSettingsView: View {
         return "\(shortVersion) (\(build))"
     }
 
+    /// The macOS version string.
     private var operatingSystem: String {
         ProcessInfo.processInfo.operatingSystemVersionString
     }
 
+    /// The System Info pane.
+    ///
+    /// Screens are enumerated by offset rather than by name, since two
+    /// identical displays report the same localized name and would collide as
+    /// identifiers.
     var body: some View {
         VStack(spacing: 0) {
             Form {
@@ -1217,6 +1472,13 @@ private struct SystemInfoSettingsView: View {
         }
     }
 
+    /// A display's resolution in pixels.
+    ///
+    /// Multiplies by the backing scale so a Retina display reports its real
+    /// pixel count rather than its point size.
+    ///
+    /// - Parameter screen: Screen to describe.
+    /// - Returns: A `width × height` string.
     private func resolution(of screen: NSScreen) -> String {
         let width = Int(screen.frame.width * screen.backingScaleFactor)
         let height = Int(screen.frame.height * screen.backingScaleFactor)
@@ -1224,11 +1486,17 @@ private struct SystemInfoSettingsView: View {
     }
 }
 
+/// Sparkle's update preferences.
 private struct UpdateSettingsView: View {
     @ObservedObject private var updateController: UpdateController
     @State private var automaticallyChecksForUpdates: Bool
     @State private var automaticallyDownloadsUpdates: Bool
 
+    /// Seeds the toggles from Sparkle's current settings.
+    ///
+    /// Sparkle stores these itself rather than in Reprise's preferences, so
+    /// they cannot be `@AppStorage` and are mirrored into local state,
+    /// initialised here and written back on change.
     init() {
         let updateController = UpdateController.shared
         self.updateController = updateController
@@ -1240,6 +1508,11 @@ private struct UpdateSettingsView: View {
         )
     }
 
+    /// The update controls.
+    ///
+    /// Automatic downloading is disabled without automatic checking, since
+    /// there would be nothing to download from. The check button follows
+    /// Sparkle's own readiness so it cannot be pressed mid-check.
     var body: some View {
         Toggle(
             "자동으로 업데이트 확인",
