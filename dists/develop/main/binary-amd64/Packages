@@ -1,0 +1,22 @@
+Package: reprise
+Version: 2.0.0~alpha.1+20260906124610
+Architecture: amd64
+Maintainer: aodjo <jjoons2010@gmail.com>
+Depends: libc6, libgcc-s1, libstdc++6, zlib1g, libx11-6, libice6, libsm6, libfontconfig1, libgl1, ca-certificates
+Filename: pool/develop/main/r/reprise/reprise_2.0.0~alpha.1+20260906124610_amd64.deb
+Size: 39014366
+MD5sum: 4f6fa25dc5c03adf7d6e0cb19a9faacc
+SHA1: 573cf226f023360bfefae500d77fc2ef8b41e6fd
+SHA256: 1aadf34cf928904fa2634f978fad20cedffe60cba25672b925843034f2685faf
+Section: sound
+Priority: optional
+Homepage: https://github.com/aodjo/Reprise
+Description: Menu bar music controller for MPRIS players
+ Reprise follows whichever MPRIS player is playing and puts it one click
+ away: album art, the track title and artist, a scrubber, volume, and
+ synced lyrics, in a panel that opens from the system tray.
+ .
+ On GNOME a small shell extension, installed with this package, draws the
+ entry in the top bar itself so the title scrolls smoothly. Enable it with
+ "gnome-extensions enable reprise@junx.dev".
+

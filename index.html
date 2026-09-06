@@ -1,0 +1,32 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Reprise for Linux</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 3rem auto; max-width: 44rem; padding: 0 1.5rem; }
+  code, pre { font-family: ui-monospace, monospace; }
+  pre { background: #f4f4f6; padding: 1rem; border-radius: 8px; overflow-x: auto; }
+  h1 { font-size: 1.6rem; }
+  h2 { font-size: 1.1rem; margin-top: 2rem; }
+  p.note { color: #555; }
+</style>
+<h1>Reprise for Linux</h1>
+<p>A menu bar music controller for MPRIS players. Add one channel, and every
+   later build in it arrives with your usual updates.</p>
+<h2>Stable</h2>
+<p class="note">Built from the main branch.</p>
+<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
+sudo apt update
+sudo apt install reprise</pre>
+<h2>Development</h2>
+<p class="note">Built from the development branch, updated far more often.</p>
+<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise develop main" | sudo tee /etc/apt/sources.list.d/reprise-develop.list
+sudo apt update
+sudo apt install reprise</pre>
+<h2>Update</h2>
+<pre>sudo apt update &amp;&amp; sudo apt upgrade</pre>
+<h2>Remove</h2>
+<pre>sudo apt remove reprise
+sudo rm /etc/apt/sources.list.d/reprise*.list</pre>
+<p class="note">Packages are unsigned, which is what <code>[trusted=yes]</code>
+   allows; they are served over HTTPS from GitHub Pages. An AppImage sits
+   beside this page for running Reprise without installing anything.</p>
