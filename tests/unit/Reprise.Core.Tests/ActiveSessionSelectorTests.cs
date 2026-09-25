@@ -111,6 +111,34 @@ public sealed class ActiveSessionSelectorTests
     }
 
     /// <summary>
+    /// The choice does not move with the order players answered in.
+    /// </summary>
+    /// <remarks>
+    /// Each player is dated by its own read, so two otherwise identical
+    /// candidates carry timestamps a few microseconds apart. Ranking on that
+    /// would hand the panel to whichever answered last and swap it back the
+    /// moment the order changed; the player id has to decide.
+    /// </remarks>
+    [Fact]
+    public void ObservationOrderDoesNotDecideBetweenEqualSessions()
+    {
+        var first = new DateTimeOffset(2026, 9, 26, 12, 0, 0, TimeSpan.Zero);
+        var later = first.AddMilliseconds(3);
+
+        var spotifyRepliedFirst = ActiveSessionSelector.Select([
+            Session("spotify", PlaybackStatus.Playing, first),
+            Session("firefox", PlaybackStatus.Playing, later),
+        ]);
+        var firefoxRepliedFirst = ActiveSessionSelector.Select([
+            Session("firefox", PlaybackStatus.Playing, first),
+            Session("spotify", PlaybackStatus.Playing, later),
+        ]);
+
+        Assert.Equal("firefox", spotifyRepliedFirst?.PlayerId);
+        Assert.Equal("firefox", firefoxRepliedFirst?.PlayerId);
+    }
+
+    /// <summary>
     /// Builds a snapshot carrying only the fields these tests sort on.
     /// </summary>
     /// <remarks>

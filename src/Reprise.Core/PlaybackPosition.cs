@@ -84,13 +84,49 @@ public static class PlaybackPosition
         PlaybackStatus status,
         DateTimeOffset observedAt,
         DateTimeOffset now,
-        TimeSpan? duration)
+        TimeSpan? duration) =>
+        Clamp(Project(observedPosition, status, observedAt, now), duration);
+
+    /// <summary>
+    /// Projects an observed position forward without confining it to a track.
+    /// </summary>
+    /// <remarks>
+    /// Where <see cref="Estimate(TimeSpan, PlaybackStatus, DateTimeOffset, DateTimeOffset, TimeSpan?)"/>
+    /// answers what to show, this answers where playback has got to, which
+    /// is the question to ask when comparing a fresh reading against what
+    /// the clock predicted. Clamping belongs to display: a track whose
+    /// length has not been reported yet shows nothing, and folding that into
+    /// the comparison would read as playback having jumped.
+    /// </remarks>
+    /// <param name="observedPosition">Position the player reported.</param>
+    /// <param name="status">Playback state at the time of the report.</param>
+    /// <param name="observedAt">When the report was taken.</param>
+    /// <param name="now">Moment to project to.</param>
+    /// <returns>
+    /// The position plus the time played since, which for a session that is
+    /// not playing is the position unchanged.
+    /// </returns>
+    /// <example>
+    /// <code>
+    /// var reached = PlaybackPosition.Project(
+    ///     TimeSpan.FromSeconds(10),
+    ///     PlaybackStatus.Playing,
+    ///     observedAt,
+    ///     observedAt.AddSeconds(2));
+    /// // 00:00:12
+    /// </code>
+    /// </example>
+    public static TimeSpan Project(
+        TimeSpan observedPosition,
+        PlaybackStatus status,
+        DateTimeOffset observedAt,
+        DateTimeOffset now)
     {
         var elapsed = status == PlaybackStatus.Playing && now > observedAt
             ? now - observedAt
             : TimeSpan.Zero;
 
-        return Clamp(observedPosition + elapsed, duration);
+        return observedPosition + elapsed;
     }
 
     /// <summary>

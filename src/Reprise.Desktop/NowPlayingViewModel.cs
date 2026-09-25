@@ -107,6 +107,7 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     private TimeSpan? _pendingSeek;
     private int _unconfirmedSeekPolls;
     private string? _trackIdentity;
+    private PlaybackAnchor? _anchor;
     private bool _disposed;
 
     /// <summary>
@@ -330,8 +331,14 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     /// </summary>
     /// <remarks>
     /// Resolved in priority order: the point the user is dragging to, then a
-    /// seek that was sent but not yet reflected by the player, then the last
-    /// sample projected forward by the time since it was taken.
+    /// seek that was sent but not yet reflected by the player, then the
+    /// playback anchor projected forward on the clock.
+    /// <para>
+    /// The anchor rather than the latest sample, because a player may round
+    /// the position it publishes or leave it standing between updates, and
+    /// adopting each sample would pass that straight to the synced lyrics.
+    /// See <see cref="PlaybackAnchor"/>.
+    /// </para>
     /// </remarks>
     /// <param name="now">Moment to project the last sample to.</param>
     /// <returns>A position clamped to the current track.</returns>
@@ -358,7 +365,9 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
             return PlaybackPosition.Clamp(pending, session.Duration);
         }
 
-        return PlaybackPosition.Estimate(session, now);
+        return _anchor is { } anchor
+            ? anchor.Estimate(now)
+            : PlaybackPosition.Estimate(session, now);
     }
 
     /// <summary>
@@ -823,6 +832,10 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
             _pendingSeek = null;
             _unconfirmedSeekPolls = 0;
         }
+
+        _anchor = session is null || identity is null
+            ? null
+            : PlaybackAnchor.Reconcile(_anchor, session, identity);
 
         ActiveSession = session;
         ReconcilePendingSeek(session);

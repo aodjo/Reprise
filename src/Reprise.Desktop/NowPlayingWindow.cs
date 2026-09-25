@@ -74,6 +74,18 @@ public sealed class NowPlayingWindow : Window
     /// </remarks>
     private static readonly TimeSpan FocusGracePeriod = TimeSpan.FromMilliseconds(600);
 
+    /// <summary>
+    /// How often the players are polled.
+    /// </summary>
+    /// <remarks>
+    /// Matches the macOS app. Between polls the position advances on the
+    /// clock from its anchor, so this rate does not decide how smoothly the
+    /// scrubber moves; it decides how quickly a jump Reprise did not make -
+    /// a seek in the player itself, or a track ending early - is noticed,
+    /// and a lyric sheet left on the wrong verse is obvious at once.
+    /// </remarks>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(500);
+
     private readonly NowPlayingViewModel _viewModel;
     private readonly PreferencesStore _preferences;
     private readonly DispatcherTimer _refreshTimer;
@@ -393,7 +405,7 @@ public sealed class NowPlayingWindow : Window
         Content = _root;
 
         _refreshTimer = new DispatcherTimer(
-            TimeSpan.FromSeconds(1),
+            PollInterval,
             DispatcherPriority.Background,
             async (_, _) => await _viewModel.RefreshAsync());
         _progressTimer = new DispatcherTimer(
