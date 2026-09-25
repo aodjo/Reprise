@@ -58,9 +58,10 @@ public sealed class MprisMediaSessionService : IMediaSessionService
     /// issuing them concurrently would gain little while multiplying the work
     /// a slow player can hold up.
     /// <para>
-    /// All players share one timestamp taken before the queries begin, so the
-    /// recency tie-break in <see cref="ActiveSessionSelector"/> does not
-    /// quietly favour whichever player happened to be polled last.
+    /// Each player is dated by its own read rather than by the sweep, because
+    /// the position is projected forward from that moment and an anchor holds
+    /// it for as long as playback runs on undisturbed. A shared timestamp
+    /// would bake the round trips into every estimate.
     /// </para>
     /// <para>
     /// Players that quit mid-sweep are dropped rather than reported as empty
@@ -95,10 +96,10 @@ public sealed class MprisMediaSessionService : IMediaSessionService
             return [];
         }
 
-        var observedAt = DateTimeOffset.UtcNow;
         var sessions = new List<MediaSessionSnapshot>(serviceNames.Count);
         foreach (var serviceName in serviceNames)
         {
+            var startedAt = DateTimeOffset.UtcNow;
             var properties = await _bus.GetPlayerPropertiesAsync(
                 serviceName,
                 cancellationToken);
@@ -110,11 +111,35 @@ public sealed class MprisMediaSessionService : IMediaSessionService
             sessions.Add(MprisPropertyMapper.ToSnapshot(
                 MprisPropertyMapper.ToPlayerId(serviceName),
                 properties,
-                observedAt));
+                ObservationTime(startedAt, DateTimeOffset.UtcNow)));
         }
 
         return sessions;
     }
+
+    /// <summary>
+    /// When a position read over the bus was true.
+    /// </summary>
+    /// <remarks>
+    /// The value the player returns held at some instant inside the call, so
+    /// the midpoint is the closest a caller can get without the player saying
+    /// when it sampled. Dating the sweep as a whole instead would stamp every
+    /// player from before the first request went out, which runs the estimate
+    /// ahead by as much as the round trips took - and a position ahead of the
+    /// music shows up at once as a lyric line arriving early.
+    /// </remarks>
+    /// <param name="startedAt">Moment the request went out.</param>
+    /// <param name="completedAt">Moment the reply came back.</param>
+    /// <returns>The midpoint of the two.</returns>
+    /// <example>
+    /// <code>
+    /// var observedAt = ObservationTime(startedAt, DateTimeOffset.UtcNow);
+    /// </code>
+    /// </example>
+    private static DateTimeOffset ObservationTime(
+        DateTimeOffset startedAt,
+        DateTimeOffset completedAt) =>
+        startedAt + (completedAt - startedAt) / 2;
 
     /// <summary>
     /// Sends a transport command to one MPRIS player.
