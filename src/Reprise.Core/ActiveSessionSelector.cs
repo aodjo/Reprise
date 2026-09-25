@@ -15,11 +15,19 @@ public static class ActiveSessionSelector
     /// Chooses the session that best represents what the user is listening to.
     /// </summary>
     /// <remarks>
-    /// Candidates are ranked on four keys, applied in order: playback status
+    /// Candidates are ranked on three keys, applied in order: playback status
     /// first, so anything actually playing outranks anything idle; then the
-    /// caller's preference list; then how recently the session was observed;
-    /// and finally the player id, so the result stays stable across polls
-    /// instead of flickering between two otherwise identical players.
+    /// caller's preference list; and finally the player id, so the result
+    /// stays stable across polls instead of flickering between two otherwise
+    /// identical players.
+    /// <para>
+    /// How recently a session was observed is deliberately not a key. Every
+    /// candidate comes from one sweep of the same backend, so none is fresher
+    /// than another in any meaningful sense, and the timestamps differ only
+    /// by the microseconds between two reads. Ranking on them would hand the
+    /// choice to whichever player happened to answer last and take it away
+    /// from the player id, which is what keeps the panel from flickering.
+    /// </para>
     /// </remarks>
     /// <param name="sessions">
     /// Sessions reported by the platform backend. May be empty; must not be
@@ -64,7 +72,6 @@ public static class ActiveSessionSelector
             .ThenBy(session => priorities.GetValueOrDefault(
                 session.PlayerId,
                 int.MaxValue))
-            .ThenByDescending(session => session.ObservedAt)
             .ThenBy(session => session.PlayerId, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault();
     }

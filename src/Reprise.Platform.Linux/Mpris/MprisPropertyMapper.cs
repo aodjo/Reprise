@@ -89,9 +89,8 @@ internal static class MprisPropertyMapper
     /// Reads the flat player properties and the nested Metadata dictionary in
     /// one pass, since the two live at different depths but describe the same
     /// moment. The observation timestamp is supplied by the caller rather
-    /// than read from the clock here, so every player polled in the same
-    /// sweep shares one timestamp and the recency tie-break in
-    /// <see cref="ActiveSessionSelector"/> compares like with like.
+    /// than read from the clock here, so it can name the instant the read
+    /// itself happened rather than the instant the mapping ran.
     /// </remarks>
     /// <param name="playerId">
     /// Identifier for the player, already stripped of its bus-name prefix by
@@ -102,7 +101,9 @@ internal static class MprisPropertyMapper
     /// <see cref="IMprisBus.GetPlayerPropertiesAsync"/>.
     /// </param>
     /// <param name="observedAt">
-    /// Timestamp shared by every player in this polling sweep.
+    /// When this player's properties were read. Dated per player rather than
+    /// per sweep, since the reads run one after another and the position is
+    /// projected forward from this moment.
     /// </param>
     /// <returns>
     /// A fully populated snapshot; fields the player did not publish fall
