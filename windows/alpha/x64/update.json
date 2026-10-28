@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows",
+  "channel": "alpha",
+  "architecture": "x64",
+  "version": "2.0.0-alpha.1.20261029005000",
+  "buildNumber": "20261029005000",
+  "fileName": "Reprise-2.0.0-alpha.1.20261029005000-win-x64-20261029005000-Setup.exe",
+  "sha256": "492ce572efeeec987fd87654c7a1053df0b12e44f33e83a369b8a5cf29378ad8",
+  "size": 57279794,
+  "url": "https://aodjo.github.io/Reprise/windows/alpha/x64/packages/Reprise-2.0.0-alpha.1.20261029005000-win-x64-20261029005000-Setup.exe"
+}

@@ -8,6 +8,7 @@ on:
       - dists/**
       - pool/**
       - downloads/**
+      - windows/**
       - index.html
       - .nojekyll
       - .github/workflows/apt-pages.yml
@@ -23,7 +24,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy published Linux packages
+    name: Deploy published desktop packages
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     environment:
