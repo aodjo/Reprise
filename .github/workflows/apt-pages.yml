@@ -1,0 +1,46 @@
+name: Apt Pages
+
+on:
+  push:
+    branches:
+      - apt-repo
+    paths:
+      - dists/**
+      - pool/**
+      - downloads/**
+      - index.html
+      - .nojekyll
+      - .github/workflows/apt-pages.yml
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy published Linux packages
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Check out the package repository
+        uses: actions/checkout@v7
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload the package repository
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: .
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
