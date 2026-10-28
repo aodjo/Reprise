@@ -12,14 +12,19 @@
 <h1>Reprise for Linux</h1>
 <p>A menu bar music controller for MPRIS players. Add one channel, and every
    later build in it arrives with your usual updates.</p>
-<h2>Stable</h2>
-<p class="note">Built from the main branch.</p>
-<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
+<h2>Release</h2>
+<p class="note">Stable releases. Alpha and beta builds are excluded.</p>
+<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise release main" | sudo tee /etc/apt/sources.list.d/reprise.list
 sudo apt update
 sudo apt install reprise</pre>
-<h2>Development</h2>
-<p class="note">Built from the development branch, updated far more often.</p>
-<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise develop main" | sudo tee /etc/apt/sources.list.d/reprise-develop.list
+<h2>Beta</h2>
+<p class="note">Preview builds from the beta stage only.</p>
+<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise beta main" | sudo tee /etc/apt/sources.list.d/reprise-beta.list
+sudo apt update
+sudo apt install reprise</pre>
+<h2>Alpha</h2>
+<p class="note">Development builds from the alpha stage only.</p>
+<pre>echo "deb [trusted=yes] https://aodjo.github.io/Reprise alpha main" | sudo tee /etc/apt/sources.list.d/reprise-alpha.list
 sudo apt update
 sudo apt install reprise</pre>
 <h2>Update</h2>
