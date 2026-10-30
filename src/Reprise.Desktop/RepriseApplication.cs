@@ -36,6 +36,9 @@ public sealed class RepriseApplication : Application
     /// </summary>
     public static Func<IApplicationUpdater>? ApplicationUpdaterFactory { get; set; }
 
+    /// <summary>Supplies optional official player account authorization for remote-device controls.</summary>
+    public static Func<IPlayerAccountConnection>? PlayerAccountConnectionFactory { get; set; }
+
     /// <summary>
     /// Supplies the platform's per-user launch-at-login registration.
     /// </summary>
@@ -149,6 +152,10 @@ public sealed class RepriseApplication : Application
 
             desktop.ShutdownMode = ShutdownMode.OnExplicitShutdown;
             var preferences = new PreferencesStore(PreferencesStore.DefaultPath);
+            var updater = ApplicationUpdaterFactory?.Invoke() is { } platformUpdater
+                ? new AutomaticApplicationUpdater(platformUpdater, preferences) : null;
+            updater?.Start();
+            desktop.Exit += (_, _) => updater?.Dispose();
             var viewModel = new NowPlayingViewModel(
                 service,
                 lyricsService: new LyricsService(),
@@ -163,7 +170,7 @@ public sealed class RepriseApplication : Application
             {
                 if (_settings is null)
                 {
-                    _settings = new SettingsWindow(viewModel, preferences, ApplicationUpdaterFactory?.Invoke(), AutostartEntryFactory?.Invoke());
+                    _settings = new SettingsWindow(viewModel, preferences, updater, AutostartEntryFactory?.Invoke());
                     _settings.ExitRequested += (_, _) => Quit(desktop, window);
                 }
                 _settings.Present();

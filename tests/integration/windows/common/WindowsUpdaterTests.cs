@@ -55,6 +55,33 @@ public sealed class WindowsUpdaterTests : IDisposable
         Assert.Equal(1, _requests);
     }
 
+    /// <summary>Automatic download verifies and caches the installer without launching it; explicit installation reuses the verified bytes.</summary>
+    [Fact]
+    public async Task PreparedUpdateDoesNotInstallUntilRequested()
+    {
+        var update = (await _updater.CheckAsync())!;
+        await _updater.PrepareAsync(update, new Progress<UpdateProgress>());
+        Assert.False(_launched);
+        Assert.Equal(2, _requests);
+        await _updater.PrepareAsync(update, new Progress<UpdateProgress>());
+        Assert.Equal(2, _requests);
+        await _updater.InstallAsync(update, new Progress<UpdateProgress>());
+        Assert.True(_launched);
+        Assert.Equal(2, _requests);
+    }
+
+    /// <summary>A modified automatic download is reverified before installation and replaced through the validated download route.</summary>
+    [Fact]
+    public async Task CorruptPreparedUpdateIsNotExecuted()
+    {
+        var update = (await _updater.CheckAsync())!;
+        await _updater.PrepareAsync(update, new Progress<UpdateProgress>());
+        File.WriteAllText(Assert.Single(Directory.GetFiles(_cache, "package.exe", SearchOption.AllDirectories)), "tampered");
+        await _updater.InstallAsync(update, new Progress<UpdateProgress>());
+        Assert.True(_launched);
+        Assert.Equal(3, _requests);
+    }
+
     /// <summary>
     /// Handoff occurs only after digest and executable metadata both match.
     /// </summary>

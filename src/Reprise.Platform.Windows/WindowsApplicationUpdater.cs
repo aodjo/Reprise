@@ -68,6 +68,26 @@ internal sealed class WindowsApplicationUpdater : IApplicationUpdater
     public bool IsAvailable => _installation() is not null;
 
     /// <inheritdoc />
+    public bool SupportsPreparation => true;
+
+    /// <inheritdoc />
+    public async Task PrepareAsync(ApplicationUpdate update, IProgress<UpdateProgress> progress, CancellationToken cancellationToken = default)
+    {
+        Validate(update);
+        var installed = _installation();
+        if (installed is null || installed.Version != update.InstalledVersion || installed.BuildNumber != update.InstalledBuildNumber)
+            throw new InvalidOperationException("설치된 버전이 변경되었습니다. 업데이트를 다시 확인해 주세요.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(10));
+        var package = await UpdateDownload.PrepareAsync(_client, update, _cache, progress, timeout.Token);
+        if (_readPackageVersion(package) != update.Version)
+        {
+            File.Delete(package);
+            throw new InvalidDataException("설치 파일의 버전이 업데이트 정보와 다릅니다.");
+        }
+    }
+
+    /// <inheritdoc />
     public string UnavailableMessage => "설치 프로그램으로 설치한 Reprise에서 앱 내 업데이트를 사용할 수 있습니다.";
 
     /// <inheritdoc />
@@ -120,7 +140,7 @@ internal sealed class WindowsApplicationUpdater : IApplicationUpdater
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             timeout.CancelAfter(TimeSpan.FromMinutes(10));
-            await UpdateDownload.DownloadAsync(_client, update, package, progress, timeout.Token);
+            await UpdateDownload.DownloadOrUsePreparedAsync(_client, update, _cache, package, progress, timeout.Token);
             if (_readPackageVersion(package) != update.Version)
             {
                 throw new InvalidDataException("설치 파일의 버전이 업데이트 정보와 다릅니다.");

@@ -45,6 +45,30 @@ public sealed class DebianApplicationUpdaterTests : IDisposable
         _index = Stanza(Next);
     }
 
+    /// <summary>Preparing an update never invokes the authenticated installer and allows explicit installation to reuse verified bytes.</summary>
+    [Fact]
+    public async Task PreparationRequiresSeparateExplicitInstallation()
+    {
+        var update = (await _updater.CheckAsync())!;
+        await _updater.PrepareAsync(update, new Progress<UpdateProgress>());
+        Assert.Equal(2, _requests.Count);
+        Assert.DoesNotContain(_commands, command => command.Executable.EndsWith("/pkexec"));
+        await _updater.InstallAsync(update, new Progress<UpdateProgress>());
+        Assert.Equal(2, _requests.Count);
+        Assert.Contains(_commands, command => command.Executable.EndsWith("/pkexec"));
+    }
+
+    /// <summary>Changed cached bytes cannot reach dpkg; the installer obtains and verifies the original package again.</summary>
+    [Fact]
+    public async Task CorruptPreparedPackageIsDownloadedAgain()
+    {
+        var update = (await _updater.CheckAsync())!;
+        await _updater.PrepareAsync(update, new Progress<UpdateProgress>());
+        File.WriteAllText(Assert.Single(Directory.GetFiles(_cache, "package.deb", SearchOption.AllDirectories)), "tampered");
+        await _updater.InstallAsync(update, new Progress<UpdateProgress>());
+        Assert.Equal(3, _requests.Count);
+    }
+
     /// <summary>
     /// Discovery requests the native architecture index and chooses the newest eligible stanza.
     /// </summary>

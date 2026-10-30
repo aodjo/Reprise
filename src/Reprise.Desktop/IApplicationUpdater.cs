@@ -10,6 +10,13 @@ public interface IApplicationUpdater
     /// </summary>
     bool IsAvailable { get; }
 
+    /// <summary>Whether this updater can download verified packages separately from installation.</summary>
+    bool SupportsPreparation => false;
+
+    /// <summary>Downloads and verifies an update without installation or application exit.</summary>
+    Task PrepareAsync(ApplicationUpdate update, IProgress<UpdateProgress> progress, CancellationToken cancellationToken = default) =>
+        Task.FromException(new NotSupportedException("이 환경에서는 업데이트 자동 다운로드를 지원하지 않습니다."));
+
     /// <summary>Explains why this installation cannot use the platform updater.</summary>
     string UnavailableMessage => "이 설치 환경에서는 앱 내 업데이트를 사용할 수 없습니다.";
 
