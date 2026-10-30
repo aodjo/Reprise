@@ -23,7 +23,17 @@ without synced lyrics the strip shows the track title and artist. Click it to
 open the player. General settings provide a visibility toggle and width control.
 The strip follows taskbar DPI and system theme, and hides during fullscreen,
 taskbar autohide, or insufficient free space. The tray artwork setting also
-controls the leading cover. The first letters stay opaque while stationary or
+controls the leading cover. Start, Search, and trusted Windows shell flyouts
+do not count as fullscreen apps, even when their native surface covers the
+monitor. If the shell temporarily stops exposing tray accessibility geometry,
+the strip retains its last measured position only while that shell UI has focus
+and the taskbar HWND, bounds, monitor, and DPI still match. Explorer restarts,
+layout changes, and hidden taskbars invalidate this fallback.
+The lyric popup is owned by the taskbar so shell menus cannot paint over it;
+this changes only Reprise's native owner and never reparents or resizes Explorer.
+If the native strip is destroyed, it is recreated with the current lyric and
+artwork while retaining its nonactivating behavior.
+The first letters stay opaque while stationary or
 at the beginning of a new line; the leading fade grows only as text leaves the
 viewport. It reads shell/accessibility
 geometry and never resizes, reparents, or injects code into Explorer. Vertical

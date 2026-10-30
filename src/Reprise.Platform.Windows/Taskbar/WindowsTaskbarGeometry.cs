@@ -28,22 +28,39 @@ internal sealed record TaskbarFrame(TaskbarRect Bar, TaskbarRect Tray, TaskbarRe
 /// <summary>Reads shell geometry and positions only Reprise's own nonactivating window.</summary>
 internal static class WindowsTaskbarGeometry
 {
+    /// <summary>Last measured frame used only while trusted shell UI temporarily obscures accessibility geometry.</summary>
+    private static readonly TaskbarFrameCache FrameCache = new();
     /// <summary>Reads the current primary taskbar, resolving handles again after Explorer restarts.</summary>
     internal static TaskbarFrame? Read()
     {
         var bar = FindWindow("Shell_TrayWnd", null);
-        if (bar == 0 || !IsWindowVisible(bar) || !GetWindowRect(bar, out var barRect)) return null;
+        if (bar == 0 || !IsWindowVisible(bar) || !GetWindowRect(bar, out var barRect))
+        {
+            FrameCache.Clear();
+            return null;
+        }
         var tray = FindChild(bar, "TrayNotifyWnd");
         GetWindowRect(tray, out var trayRect);
         var monitorInfo = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
-        if (!GetMonitorInfo(MonitorFromWindow(bar, 2), ref monitorInfo)) return null;
+        if (!GetMonitorInfo(MonitorFromWindow(bar, 2), ref monitorInfo))
+        {
+            FrameCache.Clear();
+            return null;
+        }
         var list = FindChild(bar, "MSTaskListWClass");
         TaskbarRect? taskList = list != 0 && GetWindowRect(list, out var listRect) ? Convert(listRect) : null;
         var accessible = TaskbarAccessibility.Resolve(Convert(barRect), TaskbarAccessibility.Read(bar));
         var notification = accessible.Tray ?? (trayRect.Right > trayRect.Left ? Convert(trayRect) : (TaskbarRect?)null);
-        if (notification is null) return null;
-        return new(Convert(barRect), notification.Value, accessible.TaskList ?? taskList,
-            Convert(monitorInfo.Monitor), GetDpiForWindow(bar));
+        var dpi = GetDpiForWindow(bar);
+        if (notification is null)
+        {
+            GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
+            return FrameCache.DuringShell(bar, Convert(barRect), Convert(monitorInfo.Monitor), dpi, taskList,
+                TaskbarFullscreenPolicy.IsShellSurface(ProcessPath(foregroundProcess),
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
+        }
+        return FrameCache.Remember(bar, new(Convert(barRect), notification.Value, accessible.TaskList ?? taskList,
+            Convert(monitorInfo.Monitor), dpi));
     }
 
     /// <summary>Returns native child rectangles for the interactive platform diagnostic.</summary>
@@ -63,7 +80,7 @@ internal static class WindowsTaskbarGeometry
         return result.ToArray();
     }
 
-    /// <summary>Hides the strip while another foreground window covers its entire monitor.</summary>
+    /// <summary>Hides the strip for genuine fullscreen apps, excluding monitor-sized Start and other trusted Windows shell surfaces.</summary>
     /// <param name="monitor">Monitor containing the taskbar.</param>
     internal static bool IsFullscreen(TaskbarRect monitor)
     {
@@ -71,11 +88,26 @@ internal static class WindowsTaskbarGeometry
         if (foreground == 0) return false;
         var name = new StringBuilder(256);
         GetClassName(foreground, name, name.Capacity);
-        if (name.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd") return false;
         GetWindowThreadProcessId(foreground, out var process);
         if (process == Environment.ProcessId || !GetWindowRect(foreground, out var bounds)) return false;
-        return bounds.Left <= monitor.Left && bounds.Top <= monitor.Top &&
-            bounds.Right >= monitor.Right && bounds.Bottom >= monitor.Bottom;
+        if (bounds.Left > monitor.Left || bounds.Top > monitor.Top ||
+            bounds.Right < monitor.Right || bounds.Bottom < monitor.Bottom) return false;
+        return TaskbarFullscreenPolicy.ShouldHide(monitor, Convert(bounds), name.ToString(),
+            ProcessPath(process), Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+    }
+
+    /// <summary>Reads a foreground process image with limited query access, including across x86, x64, and ARM64 processes.</summary>
+    private static string? ProcessPath(uint processId)
+    {
+        var process = OpenProcess(0x1000, false, processId);
+        if (process == 0) return null;
+        try
+        {
+            var path = new StringBuilder(1024);
+            var length = path.Capacity;
+            return QueryFullProcessImageName(process, 0, path, ref length) ? path.ToString() : null;
+        }
+        finally { CloseHandle(process); }
     }
 
     /// <summary>Prevents focus stealing and keeps the strip out of Alt+Tab and the task list.</summary>
@@ -88,7 +120,20 @@ internal static class WindowsTaskbarGeometry
 
     /// <summary>Raises only Reprise's strip without taking keyboard focus.</summary>
     /// <param name="window">Reprise's own window handle.</param>
-    internal static void Raise(nint window) => SetWindowPos(window, new nint(-1), 0, 0, 0, 0, 0x0013);
+    internal static void Raise(nint window)
+    {
+        var taskbar = FindWindow("Shell_TrayWnd", null);
+        if (taskbar != 0)
+        {
+            var owner = IntPtr.Size == 8 ? GetWindowLongPtr(window, -8) : new nint(GetWindowLong(window, -8));
+            if (owner != taskbar)
+            {
+                if (IntPtr.Size == 8) SetWindowLongPtr(window, -8, taskbar);
+                else SetWindowLong(window, -8, taskbar.ToInt32());
+            }
+        }
+        SetWindowPos(window, new nint(-1), 0, 0, 0, 0, 0x0013);
+    }
 
     /// <summary>Finds a shell child by class without relying on localized captions.</summary>
     private static nint FindChild(nint parent, string className)
@@ -146,12 +191,27 @@ internal static class WindowsTaskbarGeometry
     /// <summary>Reads the foreground process identity.</summary>
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(nint window, out uint process);
+    /// <summary>Opens only a process metadata query handle.</summary>
+    [DllImport("kernel32.dll")]
+    private static extern nint OpenProcess(uint access, bool inherit, uint processId);
+    /// <summary>Reads the full image path without enumerating modules or requesting memory access.</summary>
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, EntryPoint = "QueryFullProcessImageNameW")]
+    private static extern bool QueryFullProcessImageName(nint process, uint flags, StringBuilder path, ref int length);
+    /// <summary>Releases the temporary metadata handle.</summary>
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(nint handle);
     /// <summary>Reads extended style bits.</summary>
     [DllImport("user32.dll", EntryPoint = "GetWindowLongW")]
     private static extern int GetWindowLong(nint window, int index);
     /// <summary>Changes extended styles on Reprise's own window.</summary>
     [DllImport("user32.dll", EntryPoint = "SetWindowLongW")]
     private static extern int SetWindowLong(nint window, int index, int value);
+    /// <summary>Reads Reprise's native top-level owner.</summary>
+    [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
+    private static extern nint GetWindowLongPtr(nint window, int index);
+    /// <summary>Changes only Reprise's top-level owner, without reparenting or resizing any shell window.</summary>
+    [DllImport("user32.dll", EntryPoint = "SetWindowLongPtrW")]
+    private static extern nint SetWindowLongPtr(nint window, int index, nint value);
     /// <summary>Changes only the strip's z-order.</summary>
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(nint window, nint after, int x, int y, int width, int height, uint flags);

@@ -20,7 +20,9 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
     private readonly Border _coverFrame;
     private Bitmap? _coverBitmap;
     private byte[] _coverPng = [];
-    private readonly Window _window;
+    private Window _window;
+    private readonly Border _content;
+    private bool _windowClosed;
     private readonly DispatcherTimer _positionTimer;
     private MenuBarState? _state;
     private bool _disposed;
@@ -36,7 +38,22 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
         };
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*"), Children = { _coverFrame, _text } };
         Grid.SetColumn(_text, 1);
-        _window = new Window
+        _content = new Border
+        {
+            Background = Brushes.Transparent,
+            Padding = new Thickness(6, 0),
+            Child = row,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        _window = CreateWindow();
+        _positionTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background,
+            (_, _) => Reposition());
+    }
+
+    /// <summary>Creates only Reprise's strip; a destroyed shell owner can be followed by a new native window without losing lyric state.</summary>
+    private Window CreateWindow()
+    {
+        var window = new Window
         {
             Title = "Reprise 작업 표시줄 가사",
             WindowDecorations = WindowDecorations.None,
@@ -53,25 +70,19 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
             Padding = new Thickness(0),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             VerticalContentAlignment = VerticalAlignment.Stretch,
-            Content = new Border
-            {
-                Background = Brushes.Transparent,
-                Padding = new Thickness(6, 0),
-                Child = row,
-                VerticalAlignment = VerticalAlignment.Stretch,
-            },
+            Content = _content,
         };
-        _window.Opened += (_, _) =>
+        window.Opened += (_, _) =>
         {
-            if (_window.TryGetPlatformHandle() is { } handle) WindowsTaskbarGeometry.Configure(handle.Handle);
+            if (window.TryGetPlatformHandle() is { } handle) WindowsTaskbarGeometry.Configure(handle.Handle);
         };
-        _window.PointerPressed += (_, args) =>
+        window.PointerPressed += (_, args) =>
         {
-            if (args.GetCurrentPoint(_window).Properties.IsLeftButtonPressed)
+            if (args.GetCurrentPoint(window).Properties.IsLeftButtonPressed)
                 Activated?.Invoke(this, EventArgs.Empty);
         };
-        _positionTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background,
-            (_, _) => Reposition());
+        window.Closed += (_, _) => _windowClosed = true;
+        return window;
     }
 
     /// <inheritdoc />
@@ -99,7 +110,14 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
     /// <summary>Follows the taskbar's DPI, theme, visibility, and notification-area position.</summary>
     private void Reposition()
     {
-        if (_disposed || _state is null || _text.Text.Length == 0 ||
+        if (_disposed) return;
+        if (_windowClosed)
+        {
+            _window.Content = null;
+            _window = CreateWindow();
+            _windowClosed = false;
+        }
+        if (_state is null || _text.Text.Length == 0 ||
             WindowsTaskbarGeometry.Read() is not { } frame ||
             TaskbarLyricsLayout.Place(frame, _state.MaxWidthChars, _state.ShowsArtwork,
                 _text.TextWidth, _state.ReservesTextWidth) is not { } rectangle ||
