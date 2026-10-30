@@ -42,6 +42,7 @@ internal static class Program
         RepriseApplication.MediaSessionServiceFactory = static () => new WindowsMediaSessionService();
         RepriseApplication.AutostartEntryFactory = static () => new WindowsAutostartEntry();
         RepriseApplication.ApplicationUpdaterFactory = static () => new WindowsApplicationUpdater();
+        RepriseApplication.PlayerAccountConnectionFactory = static () => SpotifyAccountConnection.Shared;
         RepriseApplication.MenuBarPublisherFactory = static () => new Taskbar.WindowsTaskbarLyricsPublisher();
         RepriseApplication.PanelBackdropFactory = static (window, preferences) => new Glass.WindowsGlassBackdrop(window, preferences);
         RepriseApplication.ShowPanelOnLaunch = !args.Contains("--startup", StringComparer.Ordinal);

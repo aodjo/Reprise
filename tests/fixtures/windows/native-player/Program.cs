@@ -33,6 +33,21 @@ internal static class Program
     internal static async Task RunAsync(string[] args)
     {
         var root = AppContext.BaseDirectory;
+        if (args.Contains("--observe-players"))
+        {
+            await PlayerControlVerification.ObserveAsync(root);
+            return;
+        }
+        if (args is ["--verify-player-control", var selectedPlayer])
+        {
+            await PlayerControlVerification.VerifyAsync(root, selectedPlayer, false);
+            return;
+        }
+        if (args is ["--verify-player-volume", var volumePlayer])
+        {
+            await PlayerControlVerification.VerifyAsync(root, volumePlayer, true);
+            return;
+        }
         if (args.Contains("--fullscreen-target"))
         {
             await TaskbarVisibilityVerification.RunFullscreenTargetAsync(root);

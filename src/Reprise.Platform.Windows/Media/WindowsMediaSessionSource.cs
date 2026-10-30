@@ -54,6 +54,7 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
     private GlobalSystemMediaTransportControlsSession _session;
     private string? _artworkKey;
     private Uri? _artwork;
+    private SpotifyDeviceVolume? _spotifyVolume;
 
     /// <summary>
     /// Wraps a native session with an identifier that remains stable across polls.
@@ -114,24 +115,27 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
             _artworkKey = _artwork is null ? null : artworkKey;
         }
 
-        return new MediaSessionSnapshot(Id, WindowsPlayerNames.DisplayName(_session.SourceAppUserModelId), status,
+        var snapshot = new MediaSessionSnapshot(Id, WindowsPlayerNames.DisplayName(_session.SourceAppUserModelId), status,
             properties.Title ?? string.Empty, properties.Artist ?? string.Empty, properties.AlbumTitle ?? string.Empty,
-            duration, position, null, _artwork, now);
+            duration, position, await Task.Run(ReadVolume, cancellationToken), _artwork, now);
+        _spotifyVolume = WindowsApplicationVolume.MatchesProcess(_session.SourceAppUserModelId, "Spotify")
+            ? SpotifyAccountConnection.Shared.ReadCachedVolume(snapshot) : null;
+        return _spotifyVolume is { } spotify ? snapshot with { Volume = spotify.Volume } : snapshot;
     }
 
     /// <inheritdoc />
     public async Task<bool> SendAsync(PlaybackCommand command, CancellationToken cancellationToken)
     {
-        var controls = _session.GetPlaybackInfo().Controls;
+        var playback = _session.GetPlaybackInfo();
+        var controls = playback.Controls;
         return command switch
         {
-            PlaybackCommand.PlayPause when controls.IsPlayPauseToggleEnabled =>
-                await _session.TryTogglePlayPauseAsync().AsTask(cancellationToken),
-            PlaybackCommand.PlayPause => _session.GetPlaybackInfo().PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-                ? controls.IsPauseEnabled && await _session.TryPauseAsync().AsTask(cancellationToken)
-                : controls.IsPlayEnabled && await _session.TryPlayAsync().AsTask(cancellationToken),
-            PlaybackCommand.Pause => _session.GetPlaybackInfo().PlaybackStatus != GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing
-                || controls.IsPauseEnabled && await _session.TryPauseAsync().AsTask(cancellationToken),
+            PlaybackCommand.PlayPause or PlaybackCommand.Pause => await WindowsPlaybackControl.SendAsync(command,
+                playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing,
+                controls.IsPlayEnabled, controls.IsPauseEnabled, controls.IsPlayPauseToggleEnabled,
+                () => _session.TryPlayAsync().AsTask(cancellationToken),
+                () => _session.TryPauseAsync().AsTask(cancellationToken),
+                () => _session.TryTogglePlayPauseAsync().AsTask(cancellationToken)),
             PlaybackCommand.Previous => controls.IsPreviousEnabled && await _session.TrySkipPreviousAsync().AsTask(cancellationToken),
             PlaybackCommand.Next => controls.IsNextEnabled && await _session.TrySkipNextAsync().AsTask(cancellationToken),
             _ => false,
@@ -158,6 +162,18 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
         return await _session.TryChangePlaybackPositionAsync(Math.Clamp(absolute.Ticks, minimum.Ticks, maximum.Ticks))
             .AsTask(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public Task<bool> SetVolumeAsync(double volume, CancellationToken cancellationToken)
+    {
+        if (_spotifyVolume is { } spotify)
+            return SpotifyAccountConnection.Shared.SetVolumeAsync(spotify, volume, cancellationToken);
+        var appId = _session.SourceAppUserModelId;
+        return Task.Run(() => WindowsApplicationVolume.Set(appId, volume), cancellationToken);
+    }
+
+    /// <summary>Reads the dedicated local player's own Core Audio sessions without affecting the output master level.</summary>
+    private double? ReadVolume() => WindowsApplicationVolume.Read(_session.SourceAppUserModelId);
 
     /// <summary>
     /// Stores the native thumbnail under its content hash without exceeding URI length limits.
