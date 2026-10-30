@@ -8,15 +8,12 @@
     <RootNamespace>Reprise.Platform.Windows</RootNamespace>
     <Description>Windows media-session controller and notification-area player.</Description>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <SpotifyClientId Condition="'$(SpotifyClientId)' == ''">$(REPRISE_SPOTIFY_CLIENT_ID)</SpotifyClientId>
   </PropertyGroup>
   <ItemGroup>
     <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" PrivateAssets="All" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="NuGet.Versioning" />
     <PackageReference Include="NAudio.Wasapi" />
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" />
-    <AssemblyMetadata Include="SpotifyClientId" Value="$(SpotifyClientId)" Condition="'$(SpotifyClientId)' != ''" />
     <ProjectReference Include="../Reprise.Core/Reprise.Core.csproj" />
     <ProjectReference Include="../Reprise.Desktop/Reprise.Desktop.csproj" />
   </ItemGroup>

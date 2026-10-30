@@ -335,60 +335,7 @@ public sealed class SettingsWindow : Window
                 "로그인하면 Reprise를 자동으로 실행합니다.",
                 autostartRow,
                 _autostartError);
-        var connection = RepriseApplication.PlayerAccountConnectionFactory?.Invoke();
-        return connection is null ? SettingsForm.Page(playback, lyricsSection, priority, startup)
-            : SettingsForm.Page(playback, lyricsSection, priority, BuildPlayerConnectionSection(connection), startup);
-    }
-
-    /// <summary>Connects Spotify through official browser consent and exposes clear disconnect and cancellation actions.</summary>
-    private Control BuildPlayerConnectionSection(IPlayerAccountConnection connection)
-    {
-        var status = SettingsForm.Footnote(string.Empty);
-        var connect = new Button { Content = "Spotify 연결" };
-        var disconnect = new Button { Content = "연결 해제" };
-        var cancel = new Button { Content = "취소", IsVisible = false };
-        CancellationTokenSource? authorization = null;
-        /// <summary>Reflects authorization state without creating a second connection for the media backend.</summary>
-        void Refresh()
-        {
-            connect.IsEnabled = connection.IsConfigured && authorization is null;
-            connect.Content = connection.IsConnected ? "다시 연결" : "Spotify 연결";
-            disconnect.IsVisible = connection.IsConnected;
-            disconnect.IsEnabled = authorization is null;
-            status.Text = !connection.IsConfigured ? "이 빌드에 Spotify 계정 연결 설정이 포함되지 않았습니다."
-                : connection.Status.Length > 0 ? connection.Status : connection.IsConnected ? "Spotify 계정이 연결되었습니다." : "계정을 연결하면 다른 기기의 Spotify 음량도 조절할 수 있습니다.";
-        }
-        _refreshers.Add(Refresh);
-        connection.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
-        connect.Click += async (_, _) =>
-        {
-            using var operation = new CancellationTokenSource();
-            authorization = operation;
-            cancel.IsVisible = true;
-            Refresh();
-            try
-            {
-                await connection.ConnectAsync(async uri =>
-                {
-                    if (!await Launcher.LaunchUriAsync(uri)) throw new InvalidOperationException("브라우저를 열 수 없습니다.");
-                }, operation.Token);
-            }
-            catch (OperationCanceledException) { status.Text = "Spotify 계정 연결이 취소되었거나 시간이 초과되었습니다."; }
-            catch (Exception error) { status.Text = error.Message; }
-            finally { authorization = null; cancel.IsVisible = false; connect.IsEnabled = connection.IsConfigured; disconnect.IsVisible = connection.IsConnected; }
-        };
-        cancel.Click += (_, _) => authorization?.Cancel();
-        disconnect.Click += async (_, _) =>
-        {
-            disconnect.IsEnabled = false;
-            try { await Task.Run(connection.Disconnect); }
-            catch (Exception error) { status.Text = error.Message; }
-            finally { Refresh(); }
-        };
-        Refresh();
-        return SettingsForm.Section("Spotify Connect", "다른 기기 음량 제어에는 Spotify Premium과 해당 기기의 음량 제어 지원이 필요합니다.",
-            SettingsForm.Fill(new StackPanel { Spacing = 8, Children =
-                { new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { connect, disconnect, cancel } }, status } }));
+        return SettingsForm.Page(playback, lyricsSection, priority, startup);
     }
 
     /// <summary>

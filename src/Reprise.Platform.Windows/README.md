@@ -8,9 +8,9 @@ to start before they appear. Dedicated Spotify and Melon audio streams support
 per-application Core Audio volume, including application-specific output devices.
 The system master volume and other applications are never changed. The control
 is unavailable before a local audio stream exists, for browser tabs sharing a
-process, and for Spotify Connect playback on another device before account connection. GSMTC exposes no
-remote-device volume API; an accessibility slider can advertise writes without
-actually applying them, so it is not treated as a supported remote control.
+process, and for Spotify Connect playback on another device. GSMTC exposes no
+remote-device volume API. Account connection and remote-device control are not
+included.
 
 Install the per-user `Setup.exe`; no administrator account or separate .NET
 installation is required. The application lives under LocalAppData/Programs,
@@ -92,23 +92,3 @@ Portable copies do not install updates. Alpha, beta, and release feeds and
 installation registrations are separate. Development installers are unsigned.
 
 See [packaging](../../packaging/windows/README.md) for building and publishing.
-
-Spotify Connect volume uses the official Spotify Web API after General → Spotify
-Connect → Connect. It requires Spotify Premium and a device that advertises volume
-support. The displayed Windows Spotify track must match the authorized account's
-playback; writes name that exact device and track, and fail if either changes.
-Cloud reads run separately from native playback polling, with caching and Spotify
-rate-limit backoff. No playback device is transferred by Reprise. Disconnect
-removes this app's local authorization. Tokens use Windows DPAPI CurrentUser
-protection in the release-stage preference directory.
-
-Maintainers register a public Spotify application with the redirect URI
-`http://127.0.0.1/reprise/spotify/callback` (loopback dynamic ports are supported),
-then build with `REPRISE_SPOTIFY_CLIENT_ID=<public-client-id>` or
-`-p:SpotifyClientId=<public-client-id>`. This public identifier can be bundled;
-never ship or request a Client Secret. PKCE opens Spotify's official consent page
-and listens only on a random IPv4 loopback port for three minutes. Required scopes
-are `user-read-playback-state` and `user-modify-playback-state`. Unconfigured builds
-show the connection requirement rather than offering a nonworking authorization
-button. Test accounts must be eligible under the registered application's Spotify
-development-mode access rules until production access is approved.

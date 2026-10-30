@@ -31,7 +31,7 @@ internal static class PlayerControlVerification
         var audio = await Task.Run(ObserveAudio);
         sessions = await service.GetSessionsAsync();
         File.WriteAllText(Path.Combine(root, "players-observation.json"), JsonSerializer.Serialize(new
-            { sessions, controls, audio, spotify = new { SpotifyAccountConnection.Shared.IsConfigured, SpotifyAccountConnection.Shared.IsConnected, SpotifyAccountConnection.Shared.Status },
+            { sessions, controls, audio,
                 frame, elements = WindowsTaskbarGeometry.DiagnoseAccessibility() }));
     }
 
