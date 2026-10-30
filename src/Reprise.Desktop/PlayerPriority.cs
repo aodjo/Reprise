@@ -20,6 +20,7 @@ public static class PlayerPriority
     [
         PanelPlayerLogo.Spotify,
         PanelPlayerLogo.YouTubeMusic,
+        PanelPlayerLogo.Melon,
         PanelPlayerLogo.Generic,
     ];
 
@@ -37,6 +38,7 @@ public static class PlayerPriority
     {
         PanelPlayerLogo.Spotify => "Spotify",
         PanelPlayerLogo.YouTubeMusic => "YouTube Music",
+        PanelPlayerLogo.Melon => "멜론",
         _ => "기타 플레이어",
     };
 

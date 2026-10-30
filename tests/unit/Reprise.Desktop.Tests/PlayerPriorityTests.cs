@@ -16,7 +16,7 @@ public sealed class PlayerPriorityTests
     public void ParseCompletesMissingKinds()
     {
         Assert.Equal(
-            [PanelPlayerLogo.YouTubeMusic, PanelPlayerLogo.Spotify, PanelPlayerLogo.Generic],
+            [PanelPlayerLogo.YouTubeMusic, PanelPlayerLogo.Spotify, PanelPlayerLogo.Melon, PanelPlayerLogo.Generic],
             PlayerPriority.Parse("youTubeMusic"));
         Assert.Equal(PlayerPriority.DefaultOrder, PlayerPriority.Parse(""));
         Assert.Equal(PlayerPriority.DefaultOrder, PlayerPriority.Parse("bogus,spotify"));
@@ -32,8 +32,8 @@ public sealed class PlayerPriorityTests
 
         var stored = PlayerPriority.Serialize(order);
 
-        Assert.Equal("generic,spotify,youTubeMusic", stored);
-        Assert.Equal([PanelPlayerLogo.Generic, PanelPlayerLogo.Spotify, PanelPlayerLogo.YouTubeMusic], PlayerPriority.Parse(stored));
+        Assert.Equal("generic,spotify,youTubeMusic,melon", stored);
+        Assert.Equal([PanelPlayerLogo.Generic, PanelPlayerLogo.Spotify, PanelPlayerLogo.YouTubeMusic, PanelPlayerLogo.Melon], PlayerPriority.Parse(stored));
     }
 
     /// <summary>
@@ -44,7 +44,7 @@ public sealed class PlayerPriorityTests
     {
         var moved = PlayerPriority.Move(PlayerPriority.DefaultOrder, PanelPlayerLogo.Generic, 0);
 
-        Assert.Equal([PanelPlayerLogo.Generic, PanelPlayerLogo.Spotify, PanelPlayerLogo.YouTubeMusic], moved);
+        Assert.Equal([PanelPlayerLogo.Generic, PanelPlayerLogo.Spotify, PanelPlayerLogo.YouTubeMusic, PanelPlayerLogo.Melon], moved);
         Assert.Equal(PlayerPriority.DefaultOrder, PlayerPriority.Move(PlayerPriority.DefaultOrder, PanelPlayerLogo.Generic, 9));
     }
 
@@ -54,10 +54,23 @@ public sealed class PlayerPriorityTests
     [Fact]
     public void PreferredIdsFollowKindOrder()
     {
-        var sessions = new[] { Session("vlc"), Session("spotify"), Session("chromium.instance2") };
+        var sessions = new[] { Session("vlc"), Session("spotify"), Session("chromium.instance2"), Session("windows:com.kakaoent.melon.player:1") };
         var order = PlayerPriority.Parse("generic,spotify");
 
-        Assert.Equal(["chromium.instance2", "vlc", "spotify"], PlayerPriority.PreferredIds(sessions, order));
+        Assert.Equal(["chromium.instance2", "vlc", "spotify", "windows:com.kakaoent.melon.player:1"], PlayerPriority.PreferredIds(sessions, order));
+    }
+
+    /// <summary>Old three-player preferences preserve their order while a separately movable Melon entry is appended.</summary>
+    [Fact]
+    public void OldPreferencesGainIndependentMelonPriority()
+    {
+        var old = PlayerPriority.Parse("youTubeMusic,generic,spotify");
+        Assert.Equal([PanelPlayerLogo.YouTubeMusic, PanelPlayerLogo.Generic, PanelPlayerLogo.Spotify, PanelPlayerLogo.Melon], old);
+        var changed = PlayerPriority.Move(old, PanelPlayerLogo.Melon, 0);
+        var sessions = new[] { Session("spotify"), Session("windows:com.kakaoent.melon.player:1"), Session("vlc") };
+        Assert.Equal("windows:com.kakaoent.melon.player:1", PlayerPriority.PreferredIds(sessions, changed)[0]);
+        Assert.Equal("멜론", PlayerPriority.DisplayName(PanelPlayerLogo.Melon));
+        Assert.Equal(changed, PlayerPriority.Parse(PlayerPriority.Serialize(changed)));
     }
 
     /// <summary>
