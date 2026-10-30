@@ -23,6 +23,13 @@ output_dir="${4:?output directory}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 
+for file in reprise gnome-extension/metadata.json gnome-extension/extension.js install-gnome-extension.sh; do
+    if [[ ! -f "$app_dir/$file" ]]; then
+        echo "Incomplete publish output: $app_dir/$file is missing. Run dotnet publish again." >&2
+        exit 1
+    fi
+done
+
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
 appdir="$staging/Reprise.AppDir"
@@ -32,7 +39,6 @@ install -d "$appdir/usr/bin" "$appdir/usr/share/applications" \
 
 cp -r "$app_dir" "$appdir/usr/bin/app"
 chmod +x "$appdir/usr/bin/app/reprise"
-cp -r "$here/gnome-extension" "$appdir/usr/bin/gnome-extension"
 
 cat > "$appdir/AppRun" <<'LAUNCHER'
 #!/bin/sh

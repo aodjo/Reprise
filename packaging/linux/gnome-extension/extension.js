@@ -13,10 +13,12 @@
  */
 
 import Clutter from 'gi://Clutter';
+import Cogl from 'gi://Cogl';
 import GObject from 'gi://GObject';
 import GLib from 'gi://GLib';
 import Pango from 'gi://Pango';
 import Gio from 'gi://Gio';
+import Shell from 'gi://Shell';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -34,6 +36,19 @@ const INTERFACE = 'dev.junx.Reprise.MenuBar';
 
 /** Gap drawn between the end of a scrolling title and its repeat, in pixels. */
 const SCROLL_GAP = 28;
+
+/** Width of each translucent title edge, in logical pixels. */
+const FADE_WIDTH = 12;
+
+/** Uniform shared by the two edges of the text viewport. */
+const FADE_DECLARATIONS = 'uniform float reprise_edge_width;';
+
+/** Fade premultiplied text toward transparency without covering the panel. */
+const FADE_CODE = `
+float reprise_edge_distance = min(cogl_tex_coord_in[0].x, 1.0 - cogl_tex_coord_in[0].x);
+float reprise_edge_opacity = smoothstep(0.0, reprise_edge_width, reprise_edge_distance);
+cogl_color_out *= reprise_edge_opacity;
+`;
 
 /** How long a title rests before it starts scrolling, in milliseconds. */
 const INITIAL_PAUSE = 1400;
@@ -79,6 +94,39 @@ export function scrollOffset(elapsed, distance, pointsPerSecond, pause = INITIAL
     return Math.min((phase / 1000) * pointsPerSecond, distance);
 }
 
+/** A stationary alpha mask over the moving text, independent of panel color. */
+const MarqueeFadeEffect = GObject.registerClass(
+class MarqueeFadeEffect extends Shell.GLSLEffect {
+    /**
+     * Creates the effect and looks up its edge-width uniform.
+     */
+    _init() {
+        super._init();
+        this._edgeWidthLocation = this.get_uniform_location('reprise_edge_width');
+    }
+
+    /**
+     * Appends a transparency ramp to the sampled viewport texture.
+     *
+     * @returns {void} Nothing; GNOME builds the pipeline once per effect type.
+     */
+    vfunc_build_pipeline() {
+        const hook = Cogl.SnippetHook?.FRAGMENT ?? Shell.SnippetHook.FRAGMENT;
+        this.add_glsl_snippet(hook, FADE_DECLARATIONS, FADE_CODE, false);
+    }
+
+    /**
+     * Keeps the fade narrow at every viewport width and display scale.
+     *
+     * @param {number} width - Viewport width in logical pixels.
+     * @returns {void} Nothing; only the shader uniform changes.
+     */
+    setWidth(width) {
+        const fraction = Math.min(FADE_WIDTH / Math.max(width, 1), 0.25);
+        this.set_uniform_float(this._edgeWidthLocation, 1, [fraction]);
+    }
+});
+
 /**
  * A panel button showing the album cover and a scrolling title.
  *
@@ -96,7 +144,6 @@ class RepriseButton extends PanelMenu.Button {
     _init(onClick) {
         super._init(0.0, 'Reprise', true);
         this._onClick = onClick;
-        this._offset = 0;
         this._textWidth = 0;
         this._viewportWidth = 0;
         this._scrolls = true;
@@ -107,9 +154,9 @@ class RepriseButton extends PanelMenu.Button {
         this._icon = new St.Icon({ icon_size: ICON_SIZE, style_class: 'system-status-icon' });
         this._first = this._createLabel();
         this._second = this._createLabel();
-        // The track keeps its natural width and sits at the start of the
-        // viewport: a child aligned to FILL would be squeezed into the
-        // viewport instead of overflowing it, leaving nothing to scroll.
+        // Keep the complete line outside the clipped viewport. BinLayout
+        // can constrain even a START-aligned actor to the viewport width;
+        // FixedLayout allocates the track at its own full width instead.
         this._track = new St.BoxLayout({
             x_align: Clutter.ActorAlign.START,
             y_align: Clutter.ActorAlign.CENTER,
@@ -119,12 +166,15 @@ class RepriseButton extends PanelMenu.Button {
         this._track.add_child(this._second);
 
         this._viewport = new St.Widget({
-            layout_manager: new Clutter.BinLayout(),
+            layout_manager: new Clutter.FixedLayout(),
             clip_to_allocation: true,
             y_align: Clutter.ActorAlign.CENTER,
             x_expand: false,
         });
         this._viewport.add_child(this._track);
+        this._fadeEffect = new MarqueeFadeEffect();
+        this._fadeEffect.enabled = false;
+        this._viewport.add_effect_with_name('edge-fade', this._fadeEffect);
 
         const box = new St.BoxLayout({ style_class: 'panel-status-menu-box' });
         box.add_child(this._icon);
@@ -181,6 +231,8 @@ class RepriseButton extends PanelMenu.Button {
      * @returns {void} Nothing; the button redraws in place.
      */
     update(state) {
+        const previousSpeed = this._pointsPerSecond;
+        const previousWidth = this._textWidth;
         this._scrolls = state.scrolls;
         this._pointsPerSecond = Math.max(state.pointsPerSecond, 1);
         this._setIcon(state.iconPng);
@@ -193,6 +245,7 @@ class RepriseButton extends PanelMenu.Button {
 
         this._viewport.visible = state.text.length > 0;
         if (!this._viewport.visible) {
+            this._fadeEffect.enabled = false;
             this._stopScrolling();
             return;
         }
@@ -204,9 +257,14 @@ class RepriseButton extends PanelMenu.Button {
             Math.min(this._textWidth, Math.max(state.maxWidthChars, 1) * perCharacter),
             1);
         this._viewport.set_width(this._viewportWidth);
-        this._viewport.set_height(-1);
+        this._viewport.set_height(this._first.get_preferred_height(-1)[1]);
+        this._fadeEffect.setWidth(this._viewportWidth);
+        this._fadeEffect.enabled = this._textWidth > this._viewportWidth;
         this._second.visible = this._scrolls && this._textWidth > this._viewportWidth;
         this._second.set_style(`margin-left: ${SCROLL_GAP}px;`);
+        this._track.set_width(this._second.visible
+            ? this._textWidth * 2 + SCROLL_GAP
+            : this._textWidth);
 
         if (!this._second.visible) {
             this._stopScrolling();
@@ -214,7 +272,8 @@ class RepriseButton extends PanelMenu.Button {
             return;
         }
 
-        if (changed || !this._timeline) {
+        if (changed || previousWidth !== this._textWidth
+            || previousSpeed !== this._pointsPerSecond || !this._timeline) {
             this._startScrolling();
         }
     }
@@ -252,6 +311,7 @@ class RepriseButton extends PanelMenu.Button {
      */
     _startScrolling() {
         this._stopScrolling();
+        this._track.set_translation(0, 0, 0);
         this._startedAt = GLib.get_monotonic_time() / 1000;
         this._timeline = new Clutter.Timeline({
             actor: this,

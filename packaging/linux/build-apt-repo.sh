@@ -5,44 +5,84 @@
 # Homebrew formula: from then on "apt upgrade" carries every new build, so
 # nobody has to download a file and remember which one they installed.
 #
-# There are two channels, and a machine follows whichever it subscribed to:
-# "stable" comes from the main branch, "develop" from the development one.
-# Each run rewrites only its own channel, so publishing a development build
-# cannot disturb what stable users are offered.
+# Release, alpha, and beta are independent channels. Historical stable and
+# develop directories remain aliases for release and alpha during migration.
 #
 # The repository is unsigned, and the sources line says so with
 # "[trusted=yes]". Signing would mean a key that has to live somewhere and
 # be rotated; for a personal alpha served over HTTPS from GitHub Pages, the
 # transport is already doing the work a signature would.
 #
-# Usage: build-apt-repo.sh <package-dir> <output-dir> <site-url> [suite]
+# Usage: build-apt-repo.sh <package-dir> <output-dir> <site-url> [suite] [--initialize]
 #   package-dir  Directory holding the .deb files, searched recursively
 #   output-dir   Repository tree to write into, kept if it already exists
 #   site-url     Public address of the repository, for the instructions page
-#   suite        Channel to update: stable or develop. Defaults to stable.
+#   suite        Canonical stage or a compatibility alias. Defaults to release.
 set -euo pipefail
 
 package_dir="${1:?directory of .deb files}"
 output_dir="${2:?output directory}"
 site_url="${3:?public site url}"
-suite="${4:-stable}"
+suite="${4:-release}"
+initialize="${5:-}"
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$initialize" != "" && "$initialize" != --initialize ]]; then
+    echo "Unknown option: $initialize" >&2
+    exit 1
+fi
 
 architectures="amd64 arm64"
 component=main
 
 case "$suite" in
-    stable | develop) ;;
+    release | alpha | beta | stable | develop) ;;
     *) echo "Unknown channel: $suite" >&2; exit 1 ;;
 esac
 
-# Only this channel is rebuilt; anything else already published stays.
-rm -rf "$output_dir/dists/$suite" "$output_dir/pool/$suite"
-install -d "$output_dir/pool/$suite/$component/r/reprise"
-find "$package_dir" -name '*.deb' -exec cp {} "$output_dir/pool/$suite/$component/r/reprise/" \;
+# Validate incoming files before changing the existing repository.
+incoming=()
+while IFS= read -r -d '' package; do
+    if [[ "$(dpkg-deb -f "$package" Package)" != reprise ]]; then
+        echo "Not a Reprise package: $package" >&2
+        exit 1
+    fi
+    case "$(dpkg-deb -f "$package" Architecture)" in
+        amd64 | arm64) incoming+=("$package") ;;
+        *) echo "Unsupported package architecture: $package" >&2; exit 1 ;;
+    esac
+done < <(find "$package_dir" -name '*.deb' -type f -print0)
 
-if ! ls "$output_dir/pool/$suite/$component/r/reprise/"*.deb >/dev/null 2>&1; then
+if [[ "${#incoming[@]}" -eq 0 && "$initialize" != --initialize ]]; then
     echo "No .deb files found under $package_dir" >&2
     exit 1
+fi
+
+if [[ "${#incoming[@]}" -gt 0 ]]; then
+    python3 "$here/update_channels.py" --expect "$suite" "${incoming[@]}" > /dev/null
+fi
+
+# Existing packages must also belong to this stage before they enter an index.
+for package in "$output_dir/pool/$suite/$component/r/reprise/"*.deb; do
+    if [[ -f "$package" ]]; then
+        python3 "$here/update_channels.py" --expect "$suite" "$package" > /dev/null
+    fi
+done
+
+# A published filename is immutable even if someone reuses a build number.
+for package in "${incoming[@]}"; do
+    target="$output_dir/pool/$suite/$component/r/reprise/$(basename "$package")"
+    if [[ -f "$target" ]] && ! cmp -s "$package" "$target"; then
+        echo "A different package is already published as $(basename "$package")" >&2
+        exit 1
+    fi
+done
+
+# Retain packages for other architectures and clients using a cached index.
+# dpkg-scanpackages selects the newest version of each architecture below.
+rm -rf "$output_dir/dists/$suite"
+install -d "$output_dir/pool/$suite/$component/r/reprise"
+if [[ "${#incoming[@]}" -gt 0 ]]; then
+    cp "${incoming[@]}" "$output_dir/pool/$suite/$component/r/reprise/"
 fi
 
 cd "$output_dir"
@@ -82,14 +122,19 @@ cat > index.html <<PAGE
 <h1>Reprise for Linux</h1>
 <p>A menu bar music controller for MPRIS players. Add one channel, and every
    later build in it arrives with your usual updates.</p>
-<h2>Stable</h2>
-<p class="note">Built from the main branch.</p>
-<pre>echo "deb [trusted=yes] $site_url stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
+<h2>Release</h2>
+<p class="note">Stable releases. Alpha and beta builds are excluded.</p>
+<pre>echo "deb [trusted=yes] $site_url release main" | sudo tee /etc/apt/sources.list.d/reprise.list
 sudo apt update
 sudo apt install reprise</pre>
-<h2>Development</h2>
-<p class="note">Built from the development branch, updated far more often.</p>
-<pre>echo "deb [trusted=yes] $site_url develop main" | sudo tee /etc/apt/sources.list.d/reprise-develop.list
+<h2>Beta</h2>
+<p class="note">Preview builds from the beta stage only.</p>
+<pre>echo "deb [trusted=yes] $site_url beta main" | sudo tee /etc/apt/sources.list.d/reprise-beta.list
+sudo apt update
+sudo apt install reprise</pre>
+<h2>Alpha</h2>
+<p class="note">Development builds from the alpha stage only.</p>
+<pre>echo "deb [trusted=yes] $site_url alpha main" | sudo tee /etc/apt/sources.list.d/reprise-alpha.list
 sudo apt update
 sudo apt install reprise</pre>
 <h2>Update</h2>

@@ -2,7 +2,7 @@
   "uuid": "reprise@junx.dev",
   "name": "Reprise",
   "description": "Shows the track Reprise is following in the top bar, with the title scrolling smoothly, and opens the Reprise panel when clicked.",
-  "shell-version": ["45", "46", "47", "48", "49"],
+  "shell-version": ["45", "46", "47", "48", "49", "50"],
   "url": "https://github.com/aodjo/Reprise",
-  "version": 1
+  "version": 3
 }

@@ -24,7 +24,16 @@ output_dir="${4:?output directory}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
 
-version="$version+$(date -u +%Y%m%d%H%M%S)"
+build_number="${REPRISE_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M%S)}"
+case "$build_number" in
+    '' | *[!0-9]*) echo "Build number must contain digits only." >&2; exit 1 ;;
+esac
+# Keep the build visible even in frontends that hide metadata after '+'.
+case "$version" in
+    *."$build_number") ;;
+    *) version="$version.$build_number" ;;
+esac
+version="$version+$build_number"
 
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
@@ -45,7 +54,7 @@ sed -e "s/@VERSION@/$version/" -e "s/@ARCH@/$arch/" "$here/deb/control.in" > "$s
 install -m 755 "$here/deb/postinst" "$staging/DEBIAN/postinst"
 install -m 755 "$here/deb/prerm" "$staging/DEBIAN/prerm"
 install -m 644 "$here/deb/reprise.desktop" "$staging/usr/share/applications/dev.junx.Reprise.desktop"
-install -m 644 "$here/gnome-extension/metadata.json" "$here/gnome-extension/extension.js" \
+install -m 644 "$app_dir/gnome-extension/metadata.json" "$app_dir/gnome-extension/extension.js" \
     "$staging/usr/share/gnome-shell/extensions/reprise@junx.dev/"
 install -m 644 "$root/BrowserExtension/Chromium/icons/icon128.png" \
     "$staging/usr/share/icons/hicolor/128x128/apps/dev.junx.Reprise.png"
