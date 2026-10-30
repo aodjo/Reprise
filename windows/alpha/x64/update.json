@@ -3,10 +3,10 @@
   "platform": "windows",
   "channel": "alpha",
   "architecture": "x64",
-  "version": "2.0.0-alpha.1.20261029222432",
-  "buildNumber": "20261029222432",
-  "fileName": "Reprise-2.0.0-alpha.1.20261029222432-win-x64-20261029222432-Setup.exe",
-  "sha256": "130d036138619d65880919f03b02cf77e6d2ee3bf630d55e9edd2417931ef1b2",
-  "size": 74735254,
-  "url": "https://aodjo.github.io/Reprise/windows/alpha/x64/packages/Reprise-2.0.0-alpha.1.20261029222432-win-x64-20261029222432-Setup.exe"
+  "version": "2.0.0-alpha.1.20261030033200",
+  "buildNumber": "20261030033200",
+  "fileName": "Reprise-2.0.0-alpha.1.20261030033200-win-x64-20261030033200-Setup.exe",
+  "sha256": "371184fb8b6ab47ec89d1ec630d7cfa84eabc9a508f061284f3a193bdfbce151",
+  "size": 74723198,
+  "url": "https://aodjo.github.io/Reprise/windows/alpha/x64/packages/Reprise-2.0.0-alpha.1.20261030033200-win-x64-20261030033200-Setup.exe"
 }
