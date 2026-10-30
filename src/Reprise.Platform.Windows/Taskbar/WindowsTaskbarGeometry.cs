@@ -48,19 +48,16 @@ internal static class WindowsTaskbarGeometry
             return null;
         }
         var list = FindChild(bar, "MSTaskListWClass");
-        TaskbarRect? taskList = list != 0 && GetWindowRect(list, out var listRect) ? Convert(listRect) : null;
+        // Hidden legacy task-list HWNDs can have stale bounds that omit Windows 11 XAML buttons.
+        TaskbarRect? taskList = list != 0 && IsWindowVisible(list) && GetWindowRect(list, out var listRect) ? Convert(listRect) : null;
         var accessible = TaskbarAccessibility.Resolve(Convert(barRect), TaskbarAccessibility.Read(bar));
         var notification = accessible.Tray ?? (trayRect.Right > trayRect.Left ? Convert(trayRect) : (TaskbarRect?)null);
         var dpi = GetDpiForWindow(bar);
-        if (notification is null)
-        {
-            GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
-            return FrameCache.DuringShell(bar, Convert(barRect), Convert(monitorInfo.Monitor), dpi, taskList,
-                TaskbarFullscreenPolicy.IsShellSurface(ProcessPath(foregroundProcess),
-                    Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
-        }
-        return FrameCache.Remember(bar, new(Convert(barRect), notification.Value, accessible.TaskList ?? taskList,
-            Convert(monitorInfo.Monitor), dpi));
+        GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
+        return FrameCache.Resolve(bar, Convert(barRect), Convert(monitorInfo.Monitor), dpi,
+            notification, accessible.TaskList ?? taskList,
+            TaskbarFullscreenPolicy.IsShellSurface(ProcessPath(foregroundProcess),
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
     }
 
     /// <summary>Returns native child rectangles for the interactive platform diagnostic.</summary>

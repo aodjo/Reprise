@@ -14,6 +14,23 @@ internal sealed class TaskbarFrameCache
         return frame;
     }
 
+    /// <summary>Accepts complete desktop measurements while conserving all known tray and button space during partial shell updates.</summary>
+    internal TaskbarFrame? Resolve(nint taskbar, TaskbarRect bar, TaskbarRect monitor, uint dpi,
+        TaskbarRect? tray, TaskbarRect? occupied, bool shellHasFocus)
+    {
+        if (shellHasFocus)
+        {
+            var retained = DuringShell(taskbar, bar, monitor, dpi, occupied, true);
+            if (retained is null) return null;
+            if (tray is { } current && current.Width > 0 && current.Left > bar.Left && current.Right <= bar.Right + 2)
+                retained = retained with { Tray = retained.Tray with { Left = Math.Min(retained.Tray.Left, current.Left) } };
+            return Remember(taskbar, retained);
+        }
+        if (tray is { } measuredTray && occupied is { } measuredButtons)
+            return Remember(taskbar, new(bar, measuredTray, measuredButtons, monitor, dpi));
+        return DuringShell(taskbar, bar, monitor, dpi, occupied, false);
+    }
+
     /// <summary>Reuses a frame only while a shell surface has focus and the native handle, bounds, monitor, and DPI remain unchanged.</summary>
     internal TaskbarFrame? DuringShell(nint taskbar, TaskbarRect bar, TaskbarRect monitor, uint dpi,
         TaskbarRect? currentTaskList, bool shellHasFocus)
