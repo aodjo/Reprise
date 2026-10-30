@@ -173,12 +173,11 @@ public sealed class PanelLyricsView : Control
     /// Called by the panel's progress timer. A change of line starts the
     /// slide; an unchanged line costs nothing.
     /// <para>
-    /// Two indices are tracked, and the distinction matters. The focused
-    /// line is what the rows are positioned around and always exists once
-    /// playback has begun; the current line is the one actually being sung,
-    /// and is absent through an instrumental gap. So the sheet holds its
-    /// place while the highlight fades away, rather than jumping whenever
-    /// a line runs out.
+    /// The sheet keeps the most recently started line highlighted until the
+    /// next line begins, matching the macOS panel and the taskbar lyric.
+    /// Provider end times often leave short gaps between adjacent lines;
+    /// those gaps must not dim every row. Before the first timed line, the
+    /// sheet is positioned at the first row but no line is highlighted.
     /// </para>
     /// </remarks>
     /// <param name="position">Current playback position.</param>
@@ -195,8 +194,8 @@ public sealed class PanelLyricsView : Control
         }
 
         var now = DateTimeOffset.UtcNow;
-        var focus = _lyrics.FocusedLineIndex(position) ?? 0;
-        var current = _lyrics.LineIndex(position);
+        var current = _lyrics.FocusedLineIndex(position);
+        var focus = current ?? 0;
 
         if (focus != _focus)
         {
