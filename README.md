@@ -76,6 +76,19 @@ open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 
 Build and run the `Reprise` scheme in Xcode 16 or later.
 
+### Windows alpha
+
+Download the [Windows installer](https://aodjo.github.io/Reprise/windows/):
+choose **x64** for Intel/AMD PCs or **ARM64** for Windows on Arm. Windows 10
+1809 or later is required. Installation is per-user and includes .NET.
+
+Windows players and browsers connect through the system media-session API.
+Use the tray icon to open the player or settings. Settings → System info →
+Check for updates downloads and installs the next build for the same release
+stage and CPU architecture. Development installers are unsigned.
+
+See [Windows packaging](packaging/windows/README.md) for source builds.
+
 ### Linux alpha
 
 The Linux implementation is under active development on `develop`. It uses

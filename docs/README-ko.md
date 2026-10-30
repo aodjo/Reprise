@@ -75,6 +75,19 @@ open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 
 Xcode 16 이상에서 `Reprise` 스킴을 빌드하고 실행하세요.
 
+### Windows 알파
+
+[Windows 다운로드](https://aodjo.github.io/Reprise/windows/)에서 Intel/AMD PC는
+**x64**, Windows on Arm은 **ARM64** 설치 파일을 선택하세요. Windows 10 버전
+1809 이상이 필요하며, .NET이 포함되어 별도 설치나 관리자 권한이 필요하지 않습니다.
+
+트레이 아이콘으로 플레이어와 설정을 엽니다. **설정 → 시스템 정보 → 업데이트 확인**에서
+같은 릴리스 단계와 CPU에 맞는 다음 빌드를 설치할 수 있습니다. 현재 개발 설치 파일은
+코드 서명되지 않았습니다. Windows 미디어 세션을 제공하는 앱·브라우저와 연결되며,
+플레이어별 음량 제어는 지원하지 않습니다.
+
+소스 빌드 방법은 [Windows 패키징](../packaging/windows/README.md)을 참고하세요.
+
 ## 사용 방법
 
 메뉴 막대의 Reprise 아이콘을 클릭하면 플레이어 패널이 열립니다.
