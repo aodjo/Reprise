@@ -293,6 +293,7 @@ public static class SettingsForm
 public sealed class SegmentedPicker : Border
 {
     private readonly List<(object Value, Border Cell)> _cells = [];
+    private readonly List<IDisposable> _selectionBindings = [];
     private object? _selected;
 
     /// <summary>
@@ -356,12 +357,14 @@ public sealed class SegmentedPicker : Border
     {
         var changed = !Equals(_selected, value);
         _selected = value;
+        foreach (var binding in _selectionBindings) binding.Dispose();
+        _selectionBindings.Clear();
         foreach (var (cellValue, cell) in _cells)
         {
             var chosen = Equals(cellValue, value);
             if (chosen)
             {
-                cell.Bind(BackgroundProperty, cell.GetResourceObservable("SettingsCardBrush"));
+                _selectionBindings.Add(cell.Bind(BackgroundProperty, cell.GetResourceObservable("SettingsCardBrush")));
                 cell.BoxShadow = new BoxShadows(new BoxShadow
                 {
                     Blur = 3,
@@ -396,6 +399,7 @@ public sealed class SegmentedPicker : Border
 public sealed class SettingsTabBar : Border
 {
     private readonly List<(Border Cell, PanelGlyph Glyph, TextBlock Label)> _tabs = [];
+    private readonly List<IDisposable> _selectionBindings = [];
     private int _selected = -1;
 
     /// <summary>
@@ -476,22 +480,24 @@ public sealed class SettingsTabBar : Border
         }
 
         _selected = index;
+        foreach (var binding in _selectionBindings) binding.Dispose();
+        _selectionBindings.Clear();
         for (var position = 0; position < _tabs.Count; position++)
         {
             var (cell, glyph, label) = _tabs[position];
             var chosen = position == index;
             if (chosen)
             {
-                cell.Bind(BackgroundProperty, cell.GetResourceObservable("SettingsWellBrush"));
-                glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsAccentBrush"));
-                label.Bind(TextBlock.ForegroundProperty, label.GetResourceObservable("SettingsAccentBrush"));
+                _selectionBindings.Add(cell.Bind(BackgroundProperty, cell.GetResourceObservable("SettingsWellBrush")));
+                _selectionBindings.Add(glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsAccentBrush")));
+                _selectionBindings.Add(label.Bind(TextBlock.ForegroundProperty, label.GetResourceObservable("SettingsAccentBrush")));
                 label.FontWeight = FontWeight.SemiBold;
             }
             else
             {
                 cell.Background = Brushes.Transparent;
-                glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsSecondaryBrush"));
-                label.Bind(TextBlock.ForegroundProperty, label.GetResourceObservable("SettingsSecondaryBrush"));
+                _selectionBindings.Add(glyph.Bind(PanelGlyph.ForegroundProperty, glyph.GetResourceObservable("SettingsSecondaryBrush")));
+                _selectionBindings.Add(label.Bind(TextBlock.ForegroundProperty, label.GetResourceObservable("SettingsSecondaryBrush")));
                 label.FontWeight = FontWeight.Normal;
             }
         }
