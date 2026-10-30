@@ -29,6 +29,8 @@ monitor. If the shell temporarily stops exposing tray accessibility geometry,
 the strip retains its last measured position only while that shell UI has focus
 and the taskbar HWND, bounds, monitor, and DPI still match. Explorer restarts,
 layout changes, and hidden taskbars invalidate this fallback.
+Narrow legacy task-list bounds never reduce the previously measured occupied
+button area, so wide lyric settings cannot overlap XAML app icons during a menu.
 The lyric popup is owned by the taskbar so shell menus cannot paint over it;
 this changes only Reprise's native owner and never reparents or resizes Explorer.
 If the native strip is destroyed, it is recreated with the current lyric and

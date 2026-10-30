@@ -56,4 +56,18 @@ public sealed class TaskbarFrameCacheTests
         cache.Clear();
         Assert.Null(cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, null, true));
     }
+
+    /// <summary>Legacy task-list HWNDs may omit XAML buttons; a shell fallback must not let wide lyrics cover previously measured app icons.</summary>
+    [Fact]
+    public void NarrowLegacyBoundsCannotExposeOccupiedButtonSpace()
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        cache.Remember(123, frame);
+        var recovered = cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi,
+            new(500, 936, 800, 984), true)!;
+        var wide = TaskbarLyricsLayout.Place(recovered, 60)!.Value;
+        Assert.True(wide.Left > frame.TaskList!.Value.Right,
+            "Wide lyrics overlap XAML buttons that were visible before the shell provider stopped reporting them.");
+    }
 }
