@@ -11,6 +11,23 @@ namespace Reprise.Platform.Linux;
 /// </summary>
 internal sealed class DebianApplicationUpdater : IApplicationUpdater
 {
+    /// <inheritdoc />
+    public bool SupportsPreparation => true;
+
+    /// <inheritdoc />
+    public async Task PrepareAsync(ApplicationUpdate update, IProgress<UpdateProgress> progress, CancellationToken cancellationToken = default)
+    {
+        ValidateDownload(update);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(10));
+        var path = await UpdateDownload.PrepareAsync(_client, update, _cacheRoot, progress, timeout.Token);
+        var package = await _installer.InspectAsync(path);
+        if (package.Version != update.Version || package.InstalledVersion != update.InstalledVersion)
+        {
+            File.Delete(path);
+            throw new InvalidOperationException("업데이트 정보 또는 설치된 버전이 변경되었습니다. 업데이트를 다시 확인해 주세요.");
+        }
+    }
     /// <summary>HTTP transport shared by manual update checks.</summary>
     private static readonly HttpClient Client = CreateClient();
 
@@ -129,7 +146,7 @@ internal sealed class DebianApplicationUpdater : IApplicationUpdater
             timeout.CancelAfter(TimeSpan.FromMinutes(10));
             try
             {
-                await UpdateDownload.DownloadAsync(_client, update, path, progress, timeout.Token);
+                await UpdateDownload.DownloadOrUsePreparedAsync(_client, update, _cacheRoot, path, progress, timeout.Token);
             }
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {

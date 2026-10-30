@@ -51,6 +51,9 @@ namespace Reprise.Desktop;
 /// </param>
 /// <param name="WindowsTaskbarShowsLyrics">Whether Windows displays a lyric strip beside the system tray.</param>
 /// <param name="WindowsTaskbarReservesLabelWidth">Whether Windows reserves the maximum lyric width even for short lines.</param>
+/// <param name="WindowsTaskbarOnLeft">Whether Windows prefers the free area before centered taskbar buttons.</param>
+/// <param name="AutomaticallyChecksForUpdates">Whether the app periodically checks its own release-stage feed.</param>
+/// <param name="AutomaticallyDownloadsUpdates">Whether eligible updates are downloaded and verified before the user chooses Install.</param>
 public sealed record DesktopPreferences(
     PanelTheme PanelTheme = PanelTheme.Liquid,
     PanelLeadingTimeStyle LeadingTimeStyle = PanelLeadingTimeStyle.Elapsed,
@@ -68,7 +71,10 @@ public sealed record DesktopPreferences(
     string LastPlayedPlayer = "",
     string PlayerDisplayPriority = "spotify,youTubeMusic,melon,generic",
     bool WindowsTaskbarShowsLyrics = true,
-    bool WindowsTaskbarReservesLabelWidth = false);
+    bool WindowsTaskbarReservesLabelWidth = false,
+    bool WindowsTaskbarOnLeft = false,
+    bool AutomaticallyChecksForUpdates = true,
+    bool AutomaticallyDownloadsUpdates = false);
 
 /// <summary>
 /// Loads, holds, and saves <see cref="DesktopPreferences"/>.

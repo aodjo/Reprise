@@ -102,7 +102,7 @@ public sealed class SettingsWindow : Window
             ("일반", PanelIcons.Gear),
             ("YouTube Music", PanelIcons.PlayCircle),
             ("테마", PanelIcons.Palette),
-            (OperatingSystem.IsWindows() ? "트레이" : "메뉴바", PanelIcons.MenuBarRectangle),
+            (OperatingSystem.IsWindows() ? "작업 표시줄" : "메뉴바", PanelIcons.MenuBarRectangle),
             ("패널", PanelIcons.PlayRectangle),
             ("시스템 정보", PanelIcons.InfoSquare),
         ]);
@@ -335,7 +335,60 @@ public sealed class SettingsWindow : Window
                 "로그인하면 Reprise를 자동으로 실행합니다.",
                 autostartRow,
                 _autostartError);
-        return SettingsForm.Page(playback, lyricsSection, priority, startup);
+        var connection = RepriseApplication.PlayerAccountConnectionFactory?.Invoke();
+        return connection is null ? SettingsForm.Page(playback, lyricsSection, priority, startup)
+            : SettingsForm.Page(playback, lyricsSection, priority, BuildPlayerConnectionSection(connection), startup);
+    }
+
+    /// <summary>Connects Spotify through official browser consent and exposes clear disconnect and cancellation actions.</summary>
+    private Control BuildPlayerConnectionSection(IPlayerAccountConnection connection)
+    {
+        var status = SettingsForm.Footnote(string.Empty);
+        var connect = new Button { Content = "Spotify 연결" };
+        var disconnect = new Button { Content = "연결 해제" };
+        var cancel = new Button { Content = "취소", IsVisible = false };
+        CancellationTokenSource? authorization = null;
+        /// <summary>Reflects authorization state without creating a second connection for the media backend.</summary>
+        void Refresh()
+        {
+            connect.IsEnabled = connection.IsConfigured && authorization is null;
+            connect.Content = connection.IsConnected ? "다시 연결" : "Spotify 연결";
+            disconnect.IsVisible = connection.IsConnected;
+            disconnect.IsEnabled = authorization is null;
+            status.Text = !connection.IsConfigured ? "이 빌드에 Spotify 계정 연결 설정이 포함되지 않았습니다."
+                : connection.Status.Length > 0 ? connection.Status : connection.IsConnected ? "Spotify 계정이 연결되었습니다." : "계정을 연결하면 다른 기기의 Spotify 음량도 조절할 수 있습니다.";
+        }
+        _refreshers.Add(Refresh);
+        connection.Changed += (_, _) => Dispatcher.UIThread.Post(Refresh);
+        connect.Click += async (_, _) =>
+        {
+            using var operation = new CancellationTokenSource();
+            authorization = operation;
+            cancel.IsVisible = true;
+            Refresh();
+            try
+            {
+                await connection.ConnectAsync(async uri =>
+                {
+                    if (!await Launcher.LaunchUriAsync(uri)) throw new InvalidOperationException("브라우저를 열 수 없습니다.");
+                }, operation.Token);
+            }
+            catch (OperationCanceledException) { status.Text = "Spotify 계정 연결이 취소되었거나 시간이 초과되었습니다."; }
+            catch (Exception error) { status.Text = error.Message; }
+            finally { authorization = null; cancel.IsVisible = false; connect.IsEnabled = connection.IsConfigured; disconnect.IsVisible = connection.IsConnected; }
+        };
+        cancel.Click += (_, _) => authorization?.Cancel();
+        disconnect.Click += async (_, _) =>
+        {
+            disconnect.IsEnabled = false;
+            try { await Task.Run(connection.Disconnect); }
+            catch (Exception error) { status.Text = error.Message; }
+            finally { Refresh(); }
+        };
+        Refresh();
+        return SettingsForm.Section("Spotify Connect", "다른 기기 음량 제어에는 Spotify Premium과 해당 기기의 음량 제어 지원이 필요합니다.",
+            SettingsForm.Fill(new StackPanel { Spacing = 8, Children =
+                { new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { connect, disconnect, cancel } }, status } }));
     }
 
     /// <summary>
@@ -467,7 +520,7 @@ public sealed class SettingsWindow : Window
         return SettingsForm.Page(
             SettingsForm.Section(
                 "YouTube Music 세션",
-                "브라우저에서 열린 각 YouTube Music 탭을 표시합니다. 재생 상태와 표시 우선순위를 기준으로 제어할 세션을 자동 선택합니다.",
+                "브라우저가 제공하는 미디어 세션을 표시합니다. 재생 상태와 표시 우선순위를 기준으로 제어할 세션을 자동 선택합니다.",
                 _sessionList),
             SettingsForm.Section(
                 "브라우저 확장",
@@ -681,13 +734,14 @@ public sealed class SettingsWindow : Window
         _refreshers.Add(() =>
         {
             var current = Current;
-            preview.Update(current);
+            preview.Update(OperatingSystem.IsWindows() ? current with
+                { MenuBarShowsLyrics = current.WindowsTaskbarShowsLyrics, MenuBarReservesLabelWidth = current.WindowsTaskbarReservesLabelWidth } : current);
             formatPicker.SelectedValue = current.MenuBarTitleFormat;
             artworkPicker.SelectedValue = current.MenuBarArtworkStyle;
             scroll.IsChecked = current.AutomaticallyScrollsTitles;
             speedPicker.SelectedValue = current.MarqueePointsPerSecond;
             reset.IsChecked = current.ResetsMenuTitleWhenPanelOpens;
-            var hidden = !OperatingSystem.IsWindows() && current.MenuBarTitleFormat == MenuBarTitleFormat.Hidden;
+            var hidden = current.MenuBarTitleFormat == MenuBarTitleFormat.Hidden;
             scrollRow.IsEnabled = !hidden;
             speedRow.IsEnabled = !hidden && current.AutomaticallyScrollsTitles;
             resetRow.IsEnabled = !hidden && current.AutomaticallyScrollsTitles;
@@ -695,9 +749,15 @@ public sealed class SettingsWindow : Window
 
         if (OperatingSystem.IsWindows())
         {
+            var placement = new SegmentedPicker(new[] { ("왼쪽", (object)true), ("오른쪽", (object)false) }, Current.WindowsTaskbarOnLeft);
+            placement.SelectionChanged += (_, value) => Update(p => p with { WindowsTaskbarOnLeft = (bool)value });
+            _refreshers.Add(() => placement.SelectedValue = Current.WindowsTaskbarOnLeft);
             return SettingsForm.Page(
-                SettingsForm.Section("트레이 아이콘", "아이콘을 누르면 플레이어 패널이 열립니다.",
-                    SettingsForm.Picker("아이콘", artworkPicker)),
+                SettingsForm.Section("미리보기", null, SettingsForm.Fill(preview)),
+                SettingsForm.Section("현재 재생 중인 곡", "작업 표시줄의 항목을 누르면 플레이어 패널이 열립니다.",
+                    SettingsForm.Picker("텍스트 내용", formatPicker), SettingsForm.Picker("제목 왼쪽 표시", artworkPicker)),
+                SettingsForm.Section("표시 위치", "왼쪽은 위젯과 가운데 앱 아이콘 사이의 빈 공간을 사용합니다. 공간이 부족하면 오른쪽에 표시합니다.",
+                    SettingsForm.Picker(null, placement)),
                 SettingsForm.Section("캐러셀", "플레이어 패널과 작업 표시줄의 긴 글자에 적용됩니다.",
                     scrollRow, speedRow, resetRow));
         }
@@ -843,6 +903,30 @@ public sealed class SettingsWindow : Window
         };
         ApplicationUpdate? available = null;
         var installing = false;
+        var (automaticRow, automatic) = SettingsForm.Toggle("업데이트 자동 확인", Current.AutomaticallyChecksForUpdates,
+            enabled => Update(p => p with { AutomaticallyChecksForUpdates = enabled }), _updater?.IsAvailable == true);
+        var (downloadRow, download) = SettingsForm.Toggle("업데이트 자동 다운로드", Current.AutomaticallyDownloadsUpdates,
+            enabled => Update(p => p with { AutomaticallyDownloadsUpdates = enabled }));
+        _refreshers.Add(() =>
+        {
+            automatic.IsChecked = Current.AutomaticallyChecksForUpdates;
+            download.IsChecked = Current.AutomaticallyDownloadsUpdates;
+            download.IsEnabled = _updater?.IsAvailable == true && _updater.SupportsPreparation && Current.AutomaticallyChecksForUpdates;
+        });
+        if (_updater is AutomaticApplicationUpdater background)
+        {
+            /// <summary>Reflects retained background results when settings opens without disturbing an explicit operation.</summary>
+            void RefreshUpdateState()
+            {
+                if (installing || !check.IsEnabled || background.Status.Length == 0) return;
+                available = background.AvailableUpdate;
+                install.IsVisible = available is not null;
+                status.Text = background.Status;
+                details.IsVisible = true;
+            }
+            _refreshers.Add(RefreshUpdateState);
+            background.Changed += (_, _) => Dispatcher.UIThread.Post(RefreshUpdateState);
+        }
         check.Click += async (_, _) =>
         {
             if (_updater is null)
@@ -950,8 +1034,8 @@ public sealed class SettingsWindow : Window
             status.Text = _updater?.UnavailableMessage ?? "이 환경에서는 앱 내 업데이트를 사용할 수 없습니다.";
         }
 
-        return SettingsForm.Section("업데이트", "새 버전이 있으면 여기에서 바로 설치할 수 있습니다.",
-            SettingsForm.Row("새 버전", buttons), SettingsForm.Fill(details));
+        return SettingsForm.Section("업데이트", "자동 다운로드한 업데이트도 설치 버튼을 누르면 적용됩니다.",
+            automaticRow, downloadRow, SettingsForm.Row("새 버전", buttons), SettingsForm.Fill(details));
     }
 
     /// <summary>
