@@ -23,6 +23,31 @@ public sealed class RepriseApplication : Application
     private SettingsWindow? _settings;
 
     /// <summary>
+    /// Runs platform setup and returns any instructions the user needs to see.
+    /// </summary>
+    /// <remarks>
+    /// Invoked after the panel exists, so a background setup result cannot
+    /// arrive before the UI is ready or delay the first window.
+    /// </remarks>
+    public static Func<Task<StartupNotice?>>? StartupNoticeFactory { get; set; }
+
+    /// <summary>
+    /// Supplies the platform service for manual update checks and installation.
+    /// </summary>
+    public static Func<IApplicationUpdater>? ApplicationUpdaterFactory { get; set; }
+
+    /// <summary>
+    /// Supplies the platform's per-user launch-at-login registration.
+    /// </summary>
+    public static Func<IAutostartEntry>? AutostartEntryFactory { get; set; }
+
+    /// <summary>Attaches a platform-owned live optical background to the player panel.</summary>
+    public static Func<NowPlayingWindow, PreferencesStore, IDisposable>? PanelBackdropFactory { get; set; }
+
+    /// <summary>Whether launch should open the panel rather than remain in the tray.</summary>
+    public static bool ShowPanelOnLaunch { get; set; } = true;
+
+    /// <summary>
     /// Supplies the platform's media session backend.
     /// </summary>
     /// <remarks>
@@ -48,7 +73,7 @@ public sealed class RepriseApplication : Application
     /// </summary>
     /// <remarks>
     /// Optional: when unset, Avalonia's own tray icon is used, which shows
-    /// an icon and menu but no label. Linux sets this to its D-Bus
+    /// an icon and tooltip but no label. Linux sets this to its D-Bus
     /// implementation so the track title can appear in the top bar.
     /// </remarks>
     /// <example>
@@ -131,10 +156,16 @@ public sealed class RepriseApplication : Application
             viewModel.LastPlayedPlayerChanged += (_, kind) => Dispatcher.UIThread.Post(() =>
                 preferences.Update(p => p with { LastPlayedPlayer = kind.ToString() }));
             var window = new NowPlayingWindow(viewModel, preferences);
+            var backdrop = PanelBackdropFactory?.Invoke(window, preferences);
+            desktop.Exit += (_, _) => backdrop?.Dispose();
             window.ExitRequested += (_, _) => Quit(desktop, window);
             window.SettingsRequested += (_, _) =>
             {
-                _settings ??= new SettingsWindow(viewModel, preferences);
+                if (_settings is null)
+                {
+                    _settings = new SettingsWindow(viewModel, preferences, ApplicationUpdaterFactory?.Invoke(), AutostartEntryFactory?.Invoke());
+                    _settings.ExitRequested += (_, _) => Quit(desktop, window);
+                }
                 _settings.Present();
             };
             desktop.MainWindow = window;
@@ -149,10 +180,39 @@ public sealed class RepriseApplication : Application
             desktop.Exit += (_, _) => _statusItem?.Dispose();
             _ = StartStatusItemAsync(_statusItem);
 
-            window.ShowPanel();
+            if (ShowPanelOnLaunch)
+            {
+                window.ShowPanel();
+            }
+            _ = ShowStartupNoticeAsync(window);
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Presents platform setup guidance on the UI thread when setup finishes.
+    /// </summary>
+    /// <param name="window">Player panel receiving the notice.</param>
+    /// <returns>A task that completes after setup and any notice presentation.</returns>
+    private static async Task ShowStartupNoticeAsync(NowPlayingWindow window)
+    {
+        if (StartupNoticeFactory is not { } factory)
+        {
+            return;
+        }
+
+        try
+        {
+            if (await factory() is { } notice)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => window.ShowStartupNotice(notice));
+            }
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine($"Reprise: platform setup unavailable: {exception.Message}");
+        }
     }
 
     /// <summary>

@@ -80,6 +80,25 @@ public sealed class PreferencesStoreTests : IDisposable
         Assert.Equal(new DesktopPreferences(), store.Current);
     }
 
+    /// <summary>Existing preference files enable the new Windows surface without changing the Linux setting.</summary>
+    [Fact]
+    public void WindowsLyricsMigrateIndependentlyAndPersistOptOut()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        File.WriteAllText(FilePath, "{\"menuBarShowsLyrics\":false}");
+        var store = new PreferencesStore(FilePath);
+        Assert.True(store.Current.WindowsTaskbarShowsLyrics);
+        Assert.False(store.Current.MenuBarShowsLyrics);
+        Assert.True(store.Current.MenuBarReservesLabelWidth);
+        Assert.False(store.Current.WindowsTaskbarReservesLabelWidth);
+        store.Update(current => current with { WindowsTaskbarShowsLyrics = false, MenuBarShowsLyrics = true,
+            WindowsTaskbarReservesLabelWidth = true });
+        var reloaded = new PreferencesStore(FilePath);
+        Assert.False(reloaded.Current.WindowsTaskbarShowsLyrics);
+        Assert.True(reloaded.Current.MenuBarShowsLyrics);
+        Assert.True(reloaded.Current.WindowsTaskbarReservesLabelWidth);
+    }
+
     /// <summary>
     /// Removes the temporary directory.
     /// </summary>

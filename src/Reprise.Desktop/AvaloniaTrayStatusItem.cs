@@ -1,6 +1,8 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Platform;
+using Avalonia.Media.Imaging;
+using System.Runtime.InteropServices;
 
 namespace Reprise.Desktop;
 
@@ -19,6 +21,7 @@ public sealed class AvaloniaTrayStatusItem : IStatusItem
     private readonly TrayIcon _trayIcon;
     private readonly Application _application;
     private bool _disposed;
+    private StatusItemIcon? _lastIcon;
 
     /// <summary>
     /// Creates the tray icon.
@@ -54,13 +57,39 @@ public sealed class AvaloniaTrayStatusItem : IStatusItem
     }
 
     /// <summary>
-    /// Applies the tooltip; the label and icon are not supported here.
+    /// Applies the tooltip and native icon; text beside the icon is desktop-specific.
     /// </summary>
     /// <param name="state">Content to show.</param>
     public void Update(StatusItemState state)
     {
         ArgumentNullException.ThrowIfNull(state);
         _trayIcon.ToolTipText = state.ToolTip;
+        var icon = state.Icons.OrderByDescending(value => value.Width).FirstOrDefault();
+        if (icon is not null && !ReferenceEquals(icon, _lastIcon))
+        {
+            using var bitmap = new WriteableBitmap(new PixelSize(icon.Width, icon.Height), new Vector(96, 96),
+                PixelFormat.Bgra8888, AlphaFormat.Unpremul);
+            using (var pixels = bitmap.Lock())
+            {
+                var row = new byte[icon.Width * 4];
+                for (var y = 0; y < icon.Height; y++)
+                {
+                    for (var x = 0; x < icon.Width; x++)
+                    {
+                        var offset = (y * icon.Width + x) * 4;
+                        row[x * 4] = icon.Argb[offset + 3];
+                        row[x * 4 + 1] = icon.Argb[offset + 2];
+                        row[x * 4 + 2] = icon.Argb[offset + 1];
+                        row[x * 4 + 3] = icon.Argb[offset];
+                    }
+
+                    Marshal.Copy(row, 0, pixels.Address + y * pixels.RowBytes, row.Length);
+                }
+            }
+
+            _trayIcon.Icon = new WindowIcon(bitmap);
+            _lastIcon = icon;
+        }
     }
 
     /// <summary>

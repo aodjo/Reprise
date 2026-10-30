@@ -222,7 +222,14 @@ public sealed class StatusItemController : IDisposable
             _viewModel.IsPlaying,
             preferences.AutomaticallyScrollsTitles,
             preferences.MarqueePointsPerSecond,
-            preferences.MenuBarLabelLength);
+            preferences.MenuBarLabelLength,
+            OperatingSystem.IsWindows() ? _viewModel.CurrentLyricLine(DateTimeOffset.UtcNow)?.Text : null,
+            OperatingSystem.IsWindows() ? preferences.WindowsTaskbarShowsLyrics : preferences.MenuBarShowsLyrics,
+            !OperatingSystem.IsWindows() || preferences.MenuBarArtworkStyle != MenuBarArtworkStyle.Hidden,
+            OperatingSystem.IsWindows() && session is not null
+                ? string.Join("\u001f", session.PlayerId, session.Title, session.Artist, session.Album)
+                : null,
+            OperatingSystem.IsWindows() && preferences.WindowsTaskbarReservesLabelWidth);
         if (state == _lastPublished)
         {
             return;
