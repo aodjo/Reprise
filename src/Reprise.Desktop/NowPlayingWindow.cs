@@ -133,7 +133,6 @@ public sealed class NowPlayingWindow : Window
     private byte[]? _artworkBytes;
     private bool _wasActivated;
     private bool _positioned;
-    private bool _userPositioned;
     private DateTimeOffset _shownAt;
     private bool _reclaimedFocus;
 
@@ -450,7 +449,6 @@ public sealed class NowPlayingWindow : Window
                 },
             },
         };
-        _root.PointerPressed += HandleRootPointerPressed;
         Content = _root;
 
         _refreshTimer = new DispatcherTimer(
@@ -472,7 +470,7 @@ public sealed class NowPlayingWindow : Window
         Closed += HandleClosed;
         SizeChanged += (_, _) =>
         {
-            if (OperatingSystem.IsWindows() && !_userPositioned && IsVisible)
+            if (IsVisible)
             {
                 PositionByTray();
             }
@@ -488,10 +486,8 @@ public sealed class NowPlayingWindow : Window
     /// Shows the panel, placing it by the tray corner the first time.
     /// </summary>
     /// <remarks>
-    /// Linux offers no way to learn where the tray icon is, so the first
-    /// placement is the top-right of the primary screen, where most desktops
-    /// keep their status area. The user can drag the panel anywhere and it
-    /// keeps that position for later shows.
+    /// Uses a stable status-area anchor and recomputes its height after layout.
+    /// The transient player panel cannot be dragged by its content.
     /// </remarks>
     /// <example>
     /// <code>
@@ -740,7 +736,8 @@ public sealed class NowPlayingWindow : Window
         _root.Measure(new Size(PanelWidth, double.PositiveInfinity));
         var panelHeight = Math.Max(Bounds.Height, _root.DesiredSize.Height);
         Position = new PixelPoint(
-            Math.Max(area.X, area.Right - width - margin),
+            OperatingSystem.IsWindows() && _preferences.Current.WindowsTaskbarOnLeft
+                ? area.X + margin : Math.Max(area.X, area.Right - width - margin),
             OperatingSystem.IsWindows()
                 ? Math.Max(area.Y, area.Bottom - (int)Math.Round(panelHeight * scale) - margin)
                 : area.Y + margin);
@@ -838,26 +835,6 @@ public sealed class NowPlayingWindow : Window
     }
 
     /// <summary>
-    /// Lets the user drag the borderless panel by any empty area.
-    /// </summary>
-    /// <remarks>
-    /// Buttons and sliders mark their presses handled, so a press that
-    /// reaches here landed on inert content.
-    /// </remarks>
-    /// <param name="sender">The root border.</param>
-    /// <param name="e">Pointer event.</param>
-    private void HandleRootPointerPressed(object? sender, PointerPressedEventArgs e)
-    {
-        if (e.Handled || !e.GetCurrentPoint(_root).Properties.IsLeftButtonPressed)
-        {
-            return;
-        }
-
-        _userPositioned = true;
-        BeginMoveDrag(e);
-    }
-
-    /// <summary>
     /// Marshals a view model change onto the UI thread and redraws.
     /// </summary>
     /// <remarks>
@@ -883,6 +860,8 @@ public sealed class NowPlayingWindow : Window
     {
         ApplyPalette();
         UpdateView();
+        if (IsVisible) PositionByTray();
+        else _positioned = false;
     }
 
     /// <summary>

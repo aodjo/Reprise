@@ -94,18 +94,33 @@ internal static class TaskbarAccessibility
     /// <summary>Finds the real XAML tray group and the rightmost visible taskbar button.</summary>
     /// <param name="bar">Physical taskbar bounds.</param>
     /// <param name="elements">Cached public accessibility geometry.</param>
-    internal static (TaskbarRect? Tray, TaskbarRect? TaskList) Resolve(TaskbarRect bar, TaskbarElement[] elements)
+    internal static (TaskbarRect? Tray, TaskbarRect? TaskList, TaskbarRect? LeadingSpace) Resolve(TaskbarRect bar, TaskbarElement[] elements, uint dpi = 96)
     {
         var trayItems = elements.Where(item =>
             (item.Id.Contains("SystemTray", StringComparison.OrdinalIgnoreCase) ||
              item.Class.Contains("SystemTray", StringComparison.OrdinalIgnoreCase)) &&
             item.Bounds.Width < bar.Width / 2 && item.Bounds.Top >= bar.Top && item.Bounds.Bottom <= bar.Bottom + 2).ToArray();
-        if (trayItems.Length == 0) return (null, null);
+        if (trayItems.Length == 0) return (null, null, null);
         var tray = new TaskbarRect(trayItems.Min(item => item.Bounds.Left), bar.Top, bar.Right, bar.Bottom);
         var buttons = elements.Where(item => item.Button && item.Bounds.Right <= tray.Left &&
             item.Bounds.Top >= bar.Top && item.Bounds.Bottom <= bar.Bottom + 2).ToArray();
-        TaskbarRect? list = buttons.Length == 0 ? null : new TaskbarRect(bar.Left, bar.Top,
+        var centered = buttons.Where(item => !item.Id.Equals("WidgetsButton", StringComparison.OrdinalIgnoreCase) &&
+            !item.Id.StartsWith("DynamicContent", StringComparison.OrdinalIgnoreCase)).ToArray();
+        TaskbarRect? list = centered.Length == 0 ? null : new TaskbarRect(centered.Min(item => item.Bounds.Left), bar.Top,
             buttons.Max(item => item.Bounds.Right), bar.Bottom);
-        return (tray, list);
+        TaskbarRect? leading = null;
+        if (list is { } taskList && elements.Any(item => item.Id == "StartButton"))
+        {
+            var leftItems = elements.Where(item => item.Bounds.Left >= bar.Left && item.Bounds.Right <= taskList.Left &&
+                item.Bounds.Top >= bar.Top && item.Bounds.Bottom <= bar.Bottom + 2).ToArray();
+            var occupied = leftItems.Length == 0 ? bar.Left : leftItems.Max(item => item.Bounds.Right);
+            // Some widget providers expose only the glyph, omitting the adjacent weather caption.
+            if (!leftItems.Any(item => item.Id == "WidgetsButton") &&
+                leftItems.Any(item => item.Id.Contains("DynamicContent", StringComparison.OrdinalIgnoreCase) ||
+                    item.Id.Contains("Widget", StringComparison.OrdinalIgnoreCase)))
+                occupied = Math.Max(occupied, bar.Left + (int)Math.Ceiling(256 * (dpi == 0 ? 96 : dpi) / 96d));
+            if (occupied < taskList.Left) leading = new(occupied, bar.Top, taskList.Left, bar.Bottom);
+        }
+        return (tray, list, leading);
     }
 }

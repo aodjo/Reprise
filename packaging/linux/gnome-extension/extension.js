@@ -53,6 +53,9 @@ cogl_color_out *= reprise_edge_opacity;
 /** How long a title rests before it starts scrolling, in milliseconds. */
 const INITIAL_PAUSE = 1400;
 
+/** Duration of the upward lyric push and changing text width, matching macOS. */
+const LYRIC_TRANSITION_MS = 280;
+
 /** Edge length of the album cover in the panel, in pixels. */
 const ICON_SIZE = 18;
 
@@ -150,6 +153,10 @@ class RepriseButton extends PanelMenu.Button {
         this._pointsPerSecond = 30;
         this._timeline = null;
         this._startedAt = 0;
+        this._trackKey = null;
+        this._showsLyrics = false;
+        this._hasLyric = false;
+        this._outgoing = null;
 
         this._icon = new St.Icon({ icon_size: ICON_SIZE, style_class: 'system-status-icon' });
         this._first = this._createLabel();
@@ -180,7 +187,10 @@ class RepriseButton extends PanelMenu.Button {
         box.add_child(this._icon);
         box.add_child(this._viewport);
         this.add_child(box);
-        this.connect('destroy', () => this._stopScrolling());
+        this.connect('destroy', () => {
+            this._stopScrolling();
+            this._stopTransition();
+        });
     }
 
     /**
@@ -233,11 +243,24 @@ class RepriseButton extends PanelMenu.Button {
     update(state) {
         const previousSpeed = this._pointsPerSecond;
         const previousWidth = this._textWidth;
+        const previousTargetWidth = this._viewportWidth;
         this._scrolls = state.scrolls;
         this._pointsPerSecond = Math.max(state.pointsPerSecond, 1);
         this._setIcon(state.iconPng);
+        this._icon.visible = state.showsArtwork !== false;
 
         const changed = this._first.text !== state.text;
+        const sameTrack = Boolean(state.trackKey) && this._trackKey === state.trackKey;
+        const hasLyric = state.lyricText === undefined ? state.showsLyrics : Boolean(state.lyricText?.trim());
+        const push = changed && sameTrack && this._showsLyrics && state.showsLyrics && this._hasLyric && hasLyric
+            && this._first.text.length > 0 && state.text.length > 0;
+        if (changed || !sameTrack) {
+            this._stopTransition();
+            if (push) this._captureOutgoing();
+        }
+        this._trackKey = state.trackKey;
+        this._showsLyrics = state.showsLyrics;
+        this._hasLyric = hasLyric;
         if (changed) {
             this._first.text = state.text;
             this._second.text = state.text;
@@ -246,18 +269,24 @@ class RepriseButton extends PanelMenu.Button {
         this._viewport.visible = state.text.length > 0;
         if (!this._viewport.visible) {
             this._fadeEffect.enabled = false;
+            this._stopTransition();
             this._stopScrolling();
             return;
         }
 
         this._textWidth = this._first.get_preferred_width(-1)[1];
-        const characters = Math.max([...state.text].length, 1);
-        const perCharacter = this._textWidth / characters;
-        this._viewportWidth = Math.max(
-            Math.min(this._textWidth, Math.max(state.maxWidthChars, 1) * perCharacter),
-            1);
-        this._viewport.set_width(this._viewportWidth);
-        this._viewport.set_height(this._first.get_preferred_height(-1)[1]);
+        const maximum = Math.max(state.maxWidthChars, 1) * 12;
+        this._viewportWidth = Math.max(state.showsLyrics && state.reservesTextWidth
+            ? maximum : Math.min(this._textWidth, maximum), 1);
+        const height = this._first.get_preferred_height(-1)[1];
+        this._viewport.set_height(height);
+        if (changed && sameTrack && previousWidth > 0) {
+            this._viewport.ease({ width: this._viewportWidth, duration: LYRIC_TRANSITION_MS,
+                mode: Clutter.AnimationMode.EASE_IN_OUT_CUBIC });
+        } else if (changed || !sameTrack || previousTargetWidth !== this._viewportWidth
+            || !this._viewport.get_transition('width')) {
+            this._viewport.set_width(this._viewportWidth);
+        }
         this._fadeEffect.setWidth(this._viewportWidth);
         this._fadeEffect.enabled = this._textWidth > this._viewportWidth;
         this._second.visible = this._scrolls && this._textWidth > this._viewportWidth;
@@ -265,17 +294,63 @@ class RepriseButton extends PanelMenu.Button {
         this._track.set_width(this._second.visible
             ? this._textWidth * 2 + SCROLL_GAP
             : this._textWidth);
+        if (push) this._pushLine(height);
 
         if (!this._second.visible) {
             this._stopScrolling();
-            this._track.set_translation(0, 0, 0);
+            this._track.translation_x = 0;
             return;
         }
 
-        if (changed || previousWidth !== this._textWidth
+        if (changed || !sameTrack || previousWidth !== this._textWidth
             || previousSpeed !== this._pointsPerSecond || !this._timeline) {
             this._startScrolling();
         }
+    }
+
+    /** Retains the outgoing words and horizontal offset without cloning a mutable text source. */
+    _captureOutgoing() {
+        const outgoing = new St.BoxLayout({ x_align: Clutter.ActorAlign.START,
+            y_align: Clutter.ActorAlign.CENTER, x_expand: false });
+        const first = this._createLabel();
+        first.text = this._first.text;
+        outgoing.add_child(first);
+        if (this._second.visible) {
+            const second = this._createLabel();
+            second.text = this._second.text;
+            second.set_style(`margin-left: ${SCROLL_GAP}px;`);
+            outgoing.add_child(second);
+        }
+        outgoing.set_width(this._track.width);
+        outgoing.translation_x = this._track.translation_x;
+        this._viewport.add_child(outgoing);
+        this._outgoing = outgoing;
+    }
+
+    /** Pushes both clipped rows upward while the viewport independently grows or shrinks. */
+    _pushLine(height) {
+        const outgoing = this._outgoing;
+        this._track.translation_y = height;
+        this._track.ease({ translation_y: 0, duration: LYRIC_TRANSITION_MS,
+            mode: Clutter.AnimationMode.EASE_IN_OUT_CUBIC });
+        outgoing?.ease({ translation_y: -height, duration: LYRIC_TRANSITION_MS,
+            mode: Clutter.AnimationMode.EASE_IN_OUT_CUBIC,
+            onComplete: () => {
+                if (this._outgoing === outgoing) {
+                    this._outgoing = null;
+                    outgoing.destroy();
+                }
+            } });
+    }
+
+    /** Cancels obsolete rows and restores the current line before a rapid update or teardown. */
+    _stopTransition() {
+        this._viewport.remove_all_transitions();
+        this._track.remove_all_transitions();
+        this._track.translation_y = 0;
+        const outgoing = this._outgoing;
+        this._outgoing = null;
+        outgoing?.destroy();
     }
 
     /**
@@ -311,7 +386,7 @@ class RepriseButton extends PanelMenu.Button {
      */
     _startScrolling() {
         this._stopScrolling();
-        this._track.set_translation(0, 0, 0);
+        this._track.translation_x = 0;
         this._startedAt = GLib.get_monotonic_time() / 1000;
         this._timeline = new Clutter.Timeline({
             actor: this,
@@ -333,7 +408,7 @@ class RepriseButton extends PanelMenu.Button {
             elapsed,
             this._textWidth + SCROLL_GAP,
             this._pointsPerSecond);
-        this._track.set_translation(-offset, 0, 0);
+        this._track.translation_x = -offset;
     }
 
     /**
@@ -467,6 +542,11 @@ export default class RepriseExtension extends Extension {
             scrolls: read('ScrollsText', true),
             pointsPerSecond: read('PointsPerSecond', 30),
             maxWidthChars: read('MaxWidthChars', 20),
+            trackKey: read('TrackKey', ''),
+            showsLyrics: read('ShowsLyrics', false),
+            lyricText: read('LyricText', ''),
+            showsArtwork: read('ShowsArtwork', true),
+            reservesTextWidth: read('ReservesTextWidth', false),
         });
     }
 

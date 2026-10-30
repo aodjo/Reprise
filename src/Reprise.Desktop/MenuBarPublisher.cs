@@ -26,6 +26,8 @@ namespace Reprise.Desktop;
 /// <param name="ShowsArtwork">Whether the Windows strip shows the leading cover.</param>
 /// <param name="TrackKey">Stable track identity for distinguishing lyric advances from track changes.</param>
 /// <param name="ReservesTextWidth">Whether the Windows strip retains its maximum width for short lines.</param>
+/// <param name="PrefersLeft">Whether the Windows strip prefers free space before centered taskbar buttons.</param>
+/// <param name="HidesText">Whether the title format hides both lyric and metadata text while retaining artwork.</param>
 public sealed record MenuBarState(
     string Text,
     string ToolTip,
@@ -39,7 +41,9 @@ public sealed record MenuBarState(
     bool ShowsLyrics = false,
     bool ShowsArtwork = true,
     string? TrackKey = null,
-    bool ReservesTextWidth = false);
+    bool ReservesTextWidth = false,
+    bool PrefersLeft = false,
+    bool HidesText = false);
 
 /// <summary>
 /// Publishes <see cref="MenuBarState"/> to whatever draws the top bar.

@@ -22,14 +22,19 @@ internal readonly record struct TaskbarRect(int Left, int Top, int Right, int Bo
 /// <param name="TaskList">Task-list bounds when the shell exposes them.</param>
 /// <param name="Monitor">Monitor bounds for visibility and fullscreen detection.</param>
 /// <param name="Dpi">Taskbar DPI.</param>
+/// <param name="LeadingSpace">Measured free space between widgets and the centered task list.</param>
 internal sealed record TaskbarFrame(TaskbarRect Bar, TaskbarRect Tray, TaskbarRect? TaskList,
-    TaskbarRect Monitor, uint Dpi);
+    TaskbarRect Monitor, uint Dpi, TaskbarRect? LeadingSpace = null);
 
 /// <summary>Reads shell geometry and positions only Reprise's own nonactivating window.</summary>
 internal static class WindowsTaskbarGeometry
 {
     /// <summary>Last measured frame used only while trusted shell UI temporarily obscures accessibility geometry.</summary>
     private static readonly TaskbarFrameCache FrameCache = new();
+
+    /// <summary>Returns cached public accessibility bounds for the native placement diagnostic.</summary>
+    internal static TaskbarElement[] DiagnoseAccessibility() => TaskbarAccessibility.Read(FindWindow("Shell_TrayWnd", null));
+
     /// <summary>Reads the current primary taskbar, resolving handles again after Explorer restarts.</summary>
     internal static TaskbarFrame? Read()
     {
@@ -50,14 +55,14 @@ internal static class WindowsTaskbarGeometry
         var list = FindChild(bar, "MSTaskListWClass");
         // Hidden legacy task-list HWNDs can have stale bounds that omit Windows 11 XAML buttons.
         TaskbarRect? taskList = list != 0 && IsWindowVisible(list) && GetWindowRect(list, out var listRect) ? Convert(listRect) : null;
-        var accessible = TaskbarAccessibility.Resolve(Convert(barRect), TaskbarAccessibility.Read(bar));
-        var notification = accessible.Tray ?? (trayRect.Right > trayRect.Left ? Convert(trayRect) : (TaskbarRect?)null);
         var dpi = GetDpiForWindow(bar);
+        var accessible = TaskbarAccessibility.Resolve(Convert(barRect), TaskbarAccessibility.Read(bar), dpi);
+        var notification = accessible.Tray ?? (trayRect.Right > trayRect.Left ? Convert(trayRect) : (TaskbarRect?)null);
         GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
         return FrameCache.Resolve(bar, Convert(barRect), Convert(monitorInfo.Monitor), dpi,
             notification, accessible.TaskList ?? taskList,
             TaskbarFullscreenPolicy.IsShellSurface(ProcessPath(foregroundProcess),
-                Environment.GetFolderPath(Environment.SpecialFolder.Windows)));
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows)), accessible.LeadingSpace);
     }
 
     /// <summary>Returns native child rectangles for the interactive platform diagnostic.</summary>
