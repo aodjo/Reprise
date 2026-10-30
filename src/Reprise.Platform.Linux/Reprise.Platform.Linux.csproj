@@ -13,4 +13,14 @@
     <ProjectReference Include="../Reprise.Core/Reprise.Core.csproj" />
     <ProjectReference Include="../Reprise.Desktop/Reprise.Desktop.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../packaging/linux/gnome-extension/*"
+             Link="gnome-extension/%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../packaging/linux/install-gnome-extension.sh"
+             Link="install-gnome-extension.sh"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

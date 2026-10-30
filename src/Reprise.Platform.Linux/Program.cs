@@ -47,10 +47,16 @@ internal static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        if (args.Contains("--version", StringComparer.Ordinal))
+        {
+            Console.WriteLine(AppVersion.Current);
+            return 0;
+        }
+
         if (args.Contains("--health-check", StringComparer.Ordinal))
         {
             Console.WriteLine(
-                $"Reprise Linux 2.0.0-alpha.1 ({RuntimeInformation.RuntimeIdentifier})");
+                $"Reprise Linux {AppVersion.Current} ({RuntimeInformation.RuntimeIdentifier})");
             return OperatingSystem.IsLinux() ? 0 : 1;
         }
 
@@ -67,7 +73,8 @@ internal static class Program
         RepriseApplication.MenuBarPublisherFactory = static () =>
             new RepriseMenuBarService();
 
-        _ = EnableShellExtensionAsync();
+        RepriseApplication.StartupNoticeFactory = EnableShellExtensionAsync;
+        RepriseApplication.ApplicationUpdaterFactory = static () => new DebianApplicationUpdater();
 
         return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
@@ -76,13 +83,12 @@ internal static class Program
     /// Turns the GNOME Shell extension on, in the background.
     /// </summary>
     /// <remarks>
-    /// Runs unawaited: the panel must not wait on the shell, and every
-    /// outcome is one line on stderr rather than anything the user has to
-    /// answer. On any other desktop the shell is simply absent and this
-    /// says nothing at all.
+    /// Runs after the panel exists without blocking its first appearance.
+    /// A required session reload is explained in the panel as well as stderr.
+    /// On other desktops the shell is absent and no message is shown.
     /// </remarks>
-    /// <returns>A task that completes once the shell has answered.</returns>
-    private static async Task EnableShellExtensionAsync()
+    /// <returns>Setup guidance when a session reload is needed, otherwise null.</returns>
+    private static async Task<StartupNotice?> EnableShellExtensionAsync()
     {
         var result = await GnomeShellExtension.EnsureEnabledAsync();
         switch (result)
@@ -92,13 +98,17 @@ internal static class Program
                 break;
             case GnomeShellExtensionResult.NeedsReload:
                 Console.Error.WriteLine(
-                    "Reprise: installed the GNOME top bar extension. Log out and back in, or press Alt+F2 and type r on Xorg, to load it.");
-                break;
+                    "Reprise: installed or updated the GNOME top bar extension. Log out and back in to load the new code.");
+                return new StartupNotice(
+                    "로그아웃 후 다시 로그인해 주세요",
+                    "상단바 업데이트를 적용하려면 작업을 저장한 뒤 Ubuntu에서 로그아웃하고 다시 로그인해 주세요. 로그인 후 Reprise를 실행하면 부드러운 제목 스크롤이 적용됩니다.");
             case GnomeShellExtensionResult.Failed:
                 Console.Error.WriteLine(
                     $"Reprise: could not enable the GNOME top bar extension. Try: gnome-extensions enable {GnomeShellExtension.Uuid}");
                 break;
         }
+
+        return null;
     }
 
     /// <summary>

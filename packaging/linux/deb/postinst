@@ -7,7 +7,7 @@
 # the two the user never has to run a command themselves.
 set -e
 
-# Turns the extension on for one logged-in user.
+# Refreshes a stale per-user override and enables the packaged extension.
 #
 # $1 - the user's login name.
 # $2 - the user's numeric id, used to find their session bus.
@@ -17,7 +17,8 @@ enable_for_user() {
     [ -S "/run/user/$_uid/bus" ] || return 0
     runuser -u "$_user" -- env \
         "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$_uid/bus" \
-        gnome-extensions enable reprise@junx.dev >/dev/null 2>&1 || true
+        "XDG_RUNTIME_DIR=/run/user/$_uid" \
+        /bin/bash /opt/reprise/app/install-gnome-extension.sh --system || true
 }
 
 if [ "$1" = "configure" ]; then
@@ -46,8 +47,8 @@ if [ "$1" = "configure" ]; then
 
 Reprise is installed. Start it from your applications menu, or run "reprise".
 
-The GNOME top bar entry is switched on for you; if the shell was already
-running, log out and back in, or press Alt+F2 and type r on Xorg.
+The GNOME top bar extension is included and installed or updated with Reprise.
+If the shell was already running, log out and back in to load the new code.
 
 MESSAGE
 fi

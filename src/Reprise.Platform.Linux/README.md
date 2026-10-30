@@ -31,6 +31,15 @@ itself Passive so the two never show at once. The Debian package installs and en
 enable it on every start, so it needs no command from the user; the archive
 build carries `install-gnome-extension.sh` for the same purpose.
 
+Updates also refresh an older per-user extension, including copies that
+would otherwise override the Debian package's system installation. If
+Reprise reports that the extension was updated and needs a reload, log out
+and back in once to load the new code. Restarting Reprise alone cannot
+replace JavaScript already loaded by GNOME Shell.
+When this is necessary, the player panel also shows Korean logout/login
+instructions with an acknowledgement button; the notice does not log the
+user out automatically.
+
 The interface is set in Pretendard, bundled with the application, so the panel
 looks the same on every distribution and covers Hangul without depending on
 which fonts are installed.

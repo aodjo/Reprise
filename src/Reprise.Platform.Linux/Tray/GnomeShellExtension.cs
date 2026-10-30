@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Tmds.DBus.Protocol;
 
 namespace Reprise.Platform.Linux.Tray;
@@ -91,11 +92,10 @@ public static class GnomeShellExtension
     /// Makes sure the extension is installed for this user and enabled.
     /// </summary>
     /// <remarks>
-    /// Installing is only needed for the archive build, where the extension
-    /// travels beside the application rather than in a system directory the
-    /// shell already searches. A shell that has not rescanned since the
-    /// files appeared cannot enable them yet, which is reported rather than
-    /// treated as a failure: logging out once is all it takes.
+    /// Refreshes bundled files even when the extension is already enabled.
+    /// Otherwise an older per-user copy can shadow the packaged extension
+    /// indefinitely. GNOME keeps loaded JavaScript until the next session,
+    /// so replacing it reports NeedsReload instead of claiming it is active.
     /// </remarks>
     /// <param name="cancellationToken">Cancels the attempt.</param>
     /// <returns>What happened, for the caller to log.</returns>
@@ -112,19 +112,34 @@ public static class GnomeShellExtension
             var connection = DBusConnection.Session;
             await connection.ConnectAsync();
 
-            var state = await GetStateAsync(connection, cancellationToken);
-            if (state is null)
+            var info = await GetStateAsync(connection, cancellationToken);
+            if (info is null)
             {
                 return GnomeShellExtensionResult.NoShell;
             }
 
-            if (state == EnabledState)
+            var state = info.Value.State;
+            var bundledVersion = ReadBundledVersion();
+
+            bool installed;
+            bool updated;
+            try
             {
-                return GnomeShellExtensionResult.AlreadyEnabled;
+                installed = Install(out updated);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return GnomeShellExtensionResult.Failed;
             }
 
-            var installed = state > 0 || Install();
-            if (!installed)
+            if (state == EnabledState)
+            {
+                return updated || (bundledVersion > 0 && info.Value.Version != bundledVersion)
+                    ? GnomeShellExtensionResult.NeedsReload
+                    : GnomeShellExtensionResult.AlreadyEnabled;
+            }
+
+            if (state <= 0 && !installed)
             {
                 return GnomeShellExtensionResult.Failed;
             }
@@ -132,11 +147,14 @@ public static class GnomeShellExtension
             var enabled = await EnableAsync(connection, cancellationToken);
             if (!enabled)
             {
-                return GnomeShellExtensionResult.Failed;
+                return installed && state == 0
+                    ? GnomeShellExtensionResult.NeedsReload
+                    : GnomeShellExtensionResult.Failed;
             }
 
             var confirmed = await GetStateAsync(connection, cancellationToken);
-            return confirmed == EnabledState
+            return confirmed?.State == EnabledState && (!updated || state == 0)
+                && (bundledVersion == 0 || confirmed.Value.Version == bundledVersion)
                 ? GnomeShellExtensionResult.Enabled
                 : GnomeShellExtensionResult.NeedsReload;
         }
@@ -150,44 +168,81 @@ public static class GnomeShellExtension
     /// Copies the bundled extension into the user's extension directory.
     /// </summary>
     /// <remarks>
-    /// Looks beside the application, which is where the archive puts it. The
-    /// Debian package installs the same files system-wide, so nothing is
-    /// found and nothing is copied.
+    /// Archive builds install a per-user copy. Debian builds use the system
+    /// copy unless an older per-user installation shadows it; that override
+    /// is refreshed from the package too.
     /// </remarks>
+    /// <param name="updated">True when files were replaced or installed.</param>
     /// <returns>True when the extension is now in place for this user.</returns>
-    private static bool Install()
+    private static bool Install(out bool updated)
     {
+        updated = false;
         var source = FindBundle();
         if (source is null)
         {
             return false;
         }
 
-        try
+        var dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (string.IsNullOrWhiteSpace(dataHome))
         {
-            var dataHome = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-            if (string.IsNullOrWhiteSpace(dataHome))
-            {
-                dataHome = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    ".local",
-                    "share");
-            }
-
-            var target = Path.Combine(dataHome, "gnome-shell", "extensions", Uuid);
-            Directory.CreateDirectory(target);
-            foreach (var file in ExtensionFiles)
-            {
-                File.Copy(Path.Combine(source, file), Path.Combine(target, file), overwrite: true);
-            }
-
-            return true;
+            dataHome = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".local",
+                "share");
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+
+        var target = Path.Combine(dataHome, "gnome-shell", "extensions", Uuid);
+        updated = SynchronizeBundle(source, target, SystemBundlePath);
+        return true;
+    }
+
+    /// <summary>
+    /// Refreshes an installed extension by content, including same-version fixes.
+    /// </summary>
+    /// <param name="source">Complete extension shipped with the application.</param>
+    /// <param name="target">Per-user extension directory to refresh.</param>
+    /// <param name="systemBundle">
+    /// System installation to use when identical and no user override exists.
+    /// </param>
+    /// <returns>True when at least one file changed.</returns>
+    /// <exception cref="IOException">The bundle is incomplete or a write fails.</exception>
+    internal static bool SynchronizeBundle(string source, string target, string? systemBundle = null)
+    {
+        // Read the complete bundle before touching the installed copy.
+        var contents = ExtensionFiles.ToDictionary(
+            file => file,
+            file => File.ReadAllBytes(Path.Combine(source, file)));
+        if (!Directory.Exists(target) && systemBundle is not null
+            && contents.All(entry =>
+                File.Exists(Path.Combine(systemBundle, entry.Key))
+                && File.ReadAllBytes(Path.Combine(systemBundle, entry.Key)).AsSpan().SequenceEqual(entry.Value)))
         {
             return false;
         }
+
+        var changed = false;
+        foreach (var (file, bytes) in contents)
+        {
+            var path = Path.Combine(target, file);
+            if (File.Exists(path) && File.ReadAllBytes(path).AsSpan().SequenceEqual(bytes))
+            {
+                continue;
+            }
+
+            Directory.CreateDirectory(target);
+            File.WriteAllBytes(path, bytes);
+            changed = true;
+        }
+
+        return changed;
     }
+
+    /// <summary>
+    /// System-wide installation used by the Debian package.
+    /// </summary>
+    private static readonly string SystemBundlePath =
+        Path.Combine("/usr/share/gnome-shell/extensions", Uuid);
 
     /// <summary>
     /// Finds the extension shipped alongside the application.
@@ -199,6 +254,7 @@ public static class GnomeShellExtension
         {
             Path.Combine(AppContext.BaseDirectory, "gnome-extension"),
             Path.Combine(AppContext.BaseDirectory, "..", "gnome-extension"),
+            SystemBundlePath,
         };
 
         return candidates.FirstOrDefault(candidate =>
@@ -206,15 +262,45 @@ public static class GnomeShellExtension
     }
 
     /// <summary>
+    /// Reads the shipped version to detect old code still loaded by GNOME.
+    /// </summary>
+    /// <returns>The packaged version, or zero when metadata is unavailable.</returns>
+    private static double ReadBundledVersion()
+    {
+        var bundle = FindBundle();
+        if (bundle is null)
+        {
+            return 0;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(Path.Combine(bundle, "metadata.json")));
+            return document.RootElement.TryGetProperty("version", out var version)
+                && version.TryGetDouble(out var number) ? number : 0;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// State and metadata version currently known to the running shell.
+    /// </summary>
+    /// <param name="State">GNOME extension lifecycle state.</param>
+    /// <param name="Version">Version loaded by the current shell session.</param>
+    private readonly record struct ShellExtensionState(double State, double Version);
+
+    /// <summary>
     /// Asks the shell what state the extension is in.
     /// </summary>
     /// <param name="connection">Session bus connection.</param>
     /// <param name="cancellationToken">Cancels the call.</param>
     /// <returns>
-    /// The state, zero when the shell does not know the extension, or null
-    /// when no shell answered.
+    /// The state and loaded version, or null when no shell answered.
     /// </returns>
-    private static async Task<double?> GetStateAsync(
+    private static async Task<ShellExtensionState?> GetStateAsync(
         DBusConnection connection,
         CancellationToken cancellationToken)
     {
@@ -230,23 +316,27 @@ public static class GnomeShellExtension
                     })
                 .WaitAsync(CallTimeout, cancellationToken);
 
-            if (!info.TryGetValue("state", out var value))
-            {
-                return 0;
-            }
-
-            return value.Type switch
-            {
-                VariantValueType.Double => value.GetDouble(),
-                VariantValueType.Int32 => value.GetInt32(),
-                _ => 0,
-            };
+            return new ShellExtensionState(ReadNumber(info, "state"), ReadNumber(info, "version"));
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             return null;
         }
     }
+
+    /// <summary>
+    /// Reads numeric GNOME metadata regardless of its D-Bus integer encoding.
+    /// </summary>
+    /// <param name="info">Metadata returned by GNOME.</param>
+    /// <param name="name">Numeric field to read.</param>
+    /// <returns>The field value, or zero if absent.</returns>
+    private static double ReadNumber(Dictionary<string, VariantValue> info, string name) =>
+        info.TryGetValue(name, out var value) ? value.Type switch
+        {
+            VariantValueType.Double => value.GetDouble(),
+            VariantValueType.Int32 => value.GetInt32(),
+            _ => 0,
+        } : 0;
 
     /// <summary>
     /// Asks the shell to enable the extension.
