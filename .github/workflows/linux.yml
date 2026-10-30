@@ -14,6 +14,7 @@ on:
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
+      - tests/packaging/linux/**
       - tests/fixtures/**
       - tests/matrix/targets.json
       - packaging/linux/**
@@ -33,6 +34,7 @@ on:
       - tests/unit/**
       - tests/contracts/**
       - tests/integration/linux/**
+      - tests/packaging/linux/**
       - tests/fixtures/**
       - tests/matrix/targets.json
       - packaging/linux/**
@@ -139,6 +141,12 @@ jobs:
           echo 'Execution: ${{ matrix.execution }}'
           uname -a
 
+      - name: Check package upgrades and update-channel isolation
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends dpkg-dev apt-utils
+          python3 -m unittest discover -s tests/packaging/linux/common -v
+
       - name: Discover Linux tests
         id: discover
         shell: bash
@@ -190,12 +198,15 @@ jobs:
         if: steps.discover.outputs.ready == 'true'
         shell: bash
         run: |
+          build_number="$(date -u +%Y%m%d%H%M%S)"
+          echo "REPRISE_BUILD_NUMBER=$build_number" >> "$GITHUB_ENV"
           publish_directory="$GITHUB_WORKSPACE/Artifacts/${{ matrix.target }}/app"
           dotnet publish \
             src/Reprise.Platform.Linux/Reprise.Platform.Linux.csproj \
             --configuration Release \
             --runtime '${{ matrix.runtime }}' \
             --self-contained true \
+            -p:RepriseBuildNumber="$build_number" \
             --no-restore \
             --output "$publish_directory"
 
@@ -204,6 +215,12 @@ jobs:
         shell: bash
         run: |
           'Artifacts/${{ matrix.target }}/app/reprise' --health-check
+          cmp packaging/linux/gnome-extension/metadata.json \
+            'Artifacts/${{ matrix.target }}/app/gnome-extension/metadata.json'
+          cmp packaging/linux/gnome-extension/extension.js \
+            'Artifacts/${{ matrix.target }}/app/gnome-extension/extension.js'
+          cmp packaging/linux/install-gnome-extension.sh \
+            'Artifacts/${{ matrix.target }}/app/install-gnome-extension.sh'
 
       - name: Run applicable tests
         if: steps.discover.outputs.ready == 'true'
@@ -244,8 +261,7 @@ jobs:
           artifact_directory="Artifacts/${{ matrix.target }}"
           cp packaging/linux/dev.junx.Reprise.desktop "$artifact_directory/"
           cp packaging/linux/README.md "$artifact_directory/"
-          cp packaging/linux/install-gnome-extension.sh "$artifact_directory/"
-          cp -r packaging/linux/gnome-extension "$artifact_directory/"
+          cp "$artifact_directory/app/install-gnome-extension.sh" "$artifact_directory/"
           tar \
             -C Artifacts \
             -czf "Artifacts/reprise-${{ matrix.runtime }}.tar.gz" \
@@ -360,7 +376,7 @@ jobs:
       - name: Fetch the published site
         shell: bash
         run: |
-          # The site holds both channels, and each branch rewrites only its
+          # The site holds independent release stages, and each run rewrites only its
           # own, so the run has to start from what is already published
           # rather than from an empty directory.
           if ! git clone --branch apt-repo --depth 1 \
@@ -374,14 +390,11 @@ jobs:
       - name: Update this channel
         shell: bash
         run: |
-          if [[ '${{ github.ref }}' == 'refs/heads/main' ]]; then
-            suite=stable
-          else
-            suite=develop
-          fi
+          mapfile -d '' packages < <(find Downloads -name '*.deb' -print0)
+          suite="$(python3 packaging/linux/update_channels.py "${packages[@]}")"
           echo "Publishing to the $suite channel."
 
-          packaging/linux/build-apt-repo.sh \
+          python3 packaging/linux/prepare-update-repo.py \
             Downloads \
             Site \
             "${{ steps.pages.outputs.base_url }}" \
