@@ -15,6 +15,8 @@ on:
       - tests/fixtures/**
       - tests/matrix/targets.json
       - packaging/windows/**
+      - packaging/linux/update_channels.py
+      - tests/packaging/windows/**
       - Reprise.sln
       - Reprise.slnx
       - global.json
@@ -32,6 +34,8 @@ on:
       - tests/fixtures/**
       - tests/matrix/targets.json
       - packaging/windows/**
+      - packaging/linux/update_channels.py
+      - tests/packaging/windows/**
       - Reprise.sln
       - Reprise.slnx
       - global.json
@@ -96,7 +100,7 @@ jobs:
               names.add(name)
               if target["platform"] not in {"windows", "linux"}:
                   raise SystemExit(
-                      f"unsupported placeholder platform: {target['platform']}"
+                      f"unsupported platform: {target['platform']}"
                   )
               if target["platform"] == expected_platform:
                   selected.append(target)
@@ -203,9 +207,66 @@ jobs:
             dotnet test "$project" \
               --configuration Release \
               --runtime '${{ matrix.runtime }}' \
+              -p:SelfContained=true \
               --results-directory "$result_directory" \
               --logger "trx;LogFileName=${project_name}.trx"
           done
+
+      - name: Verify native Windows settings lifecycle
+        if: steps.discover.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'Artifacts/settings-${{ matrix.architecture }}'
+          dotnet publish tests/fixtures/windows/native-player/NativePlayer.csproj --configuration Release --runtime '${{ matrix.runtime }}' --self-contained true --output $fixture
+          if ($LASTEXITCODE -ne 0) { throw 'Settings diagnostic build failed.' }
+          $process = Start-Process (Join-Path $fixture 'Reprise.Platform.Windows.Tests.exe') -ArgumentList '--verify-settings' -WorkingDirectory $fixture -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Settings lifecycle verification timed out.'
+          }
+          $results = Join-Path $env:GITHUB_WORKSPACE 'TestResults/${{ matrix.target }}/settings'
+          New-Item -ItemType Directory $results -Force | Out-Null
+          Copy-Item "$fixture/settings-*.json", "$fixture/settings-tab-*.png" $results -ErrorAction SilentlyContinue
+          $result = Get-Content (Join-Path $fixture 'settings-result.json') | ConvertFrom-Json
+          if ($process.ExitCode -ne 0 -or -not $result.ok -or $result.visited.Count -ne 18 -or -not $result.preferencePersisted -or -not $result.reservationPersisted) {
+            throw ('Settings lifecycle verification failed: ' + ($result | ConvertTo-Json -Depth 5))
+          }
+
+      - name: Verify first-letter fade on the native renderer
+        if: steps.discover.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'Artifacts/settings-${{ matrix.architecture }}'
+          $process = Start-Process (Join-Path $fixture 'Reprise.Platform.Windows.Tests.exe') -ArgumentList '--verify-fade' -WorkingDirectory $fixture -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'First-letter fade verification timed out.'
+          }
+          $results = Join-Path $env:GITHUB_WORKSPACE 'TestResults/${{ matrix.target }}/fade'
+          New-Item -ItemType Directory $results -Force | Out-Null
+          Copy-Item "$fixture/fade-*.json", "$fixture/fade-*.png" $results -ErrorAction SilentlyContinue
+          $result = Get-Content (Join-Path $fixture 'fade-result.json') | ConvertFrom-Json
+          if ($process.ExitCode -ne 0 -or -not $result.ok) {
+            throw ('First-letter fade verification failed: ' + ($result | ConvertTo-Json -Depth 5))
+          }
+
+      - name: Verify player lyric highlighting through provider gaps and reopen
+        if: steps.discover.outputs.ready == 'true'
+        shell: pwsh
+        run: |
+          $fixture = Join-Path $env:GITHUB_WORKSPACE 'Artifacts/settings-${{ matrix.architecture }}'
+          $process = Start-Process (Join-Path $fixture 'Reprise.Platform.Windows.Tests.exe') -ArgumentList '--verify-lyrics-highlight' -WorkingDirectory $fixture -PassThru
+          if (-not $process.WaitForExit(60000)) {
+            $process.Kill()
+            throw 'Player lyric highlighting verification timed out.'
+          }
+          $results = Join-Path $env:GITHUB_WORKSPACE 'TestResults/${{ matrix.target }}/lyrics'
+          New-Item -ItemType Directory $results -Force | Out-Null
+          Copy-Item "$fixture/lyrics-*.json", "$fixture/lyrics-*.png" $results -ErrorAction SilentlyContinue
+          $result = Get-Content (Join-Path $fixture 'lyrics-result.json') | ConvertFrom-Json
+          if ($process.ExitCode -ne 0 -or -not $result.ok) {
+            throw ('Player lyric highlighting verification failed: ' + ($result | ConvertTo-Json -Depth 5))
+          }
 
       - name: Upload Windows test results
         if: ${{ always() && steps.discover.outputs.ready == 'true' }}
@@ -215,3 +276,38 @@ jobs:
           path: TestResults/${{ matrix.target }}
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Run Windows publication tests
+        shell: pwsh
+        run: python -m unittest discover -s tests/packaging/windows/common -v
+
+      - name: Install NSIS
+        shell: pwsh
+        run: choco install nsis --no-progress --yes
+
+      - name: Build self-contained Windows installer
+        shell: pwsh
+        run: python packaging/windows/build.py --architecture '${{ matrix.architecture }}'
+
+      - name: Check Windows executable
+        shell: pwsh
+        run: |
+          $app = Get-ChildItem 'Artifacts/windows-${{ matrix.architecture }}/*/app/Reprise.exe' | Select-Object -Last 1
+          $process = Start-Process $app.FullName -ArgumentList '--health-check' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Windows health check failed: $($process.ExitCode)" }
+
+      - name: Upload installer and portable application
+        uses: actions/upload-artifact@v7
+        with:
+          name: reprise-${{ matrix.runtime }}
+          path: |
+            Artifacts/windows-${{ matrix.architecture }}/*/*-Setup.exe
+            Artifacts/windows-${{ matrix.architecture }}/*/*.zip
+            Artifacts/windows-${{ matrix.architecture }}/*/update.json
+          if-no-files-found: error
+          retention-days: 14
