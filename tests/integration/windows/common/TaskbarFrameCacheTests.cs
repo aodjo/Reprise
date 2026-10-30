@@ -70,4 +70,42 @@ public sealed class TaskbarFrameCacheTests
         Assert.True(wide.Left > frame.TaskList!.Value.Right,
             "Wide lyrics overlap XAML buttons that were visible before the shell provider stopped reporting them.");
     }
+
+    /// <summary>A usable tray alone must not replace measured XAML buttons with missing or smaller partial geometry.</summary>
+    [Fact]
+    public void PartialShellUpdatesCannotShrinkKnownOccupiedSpace()
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, frame.TaskList, false);
+        Assert.Equal(frame.TaskList, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, null, true)!.TaskList);
+        Assert.Equal(frame.TaskList, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, new(500, 936, 800, 984), true)!.TaskList);
+        var expanded = new TaskbarRect(500, 936, 1200, 984);
+        cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, expanded, true);
+        Assert.Equal(expanded, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, null, null, true)!.TaskList);
+        Assert.Equal(frame.TaskList, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, frame.TaskList, false)!.TaskList);
+    }
+
+    /// <summary>Expanding notification icons remain protected until normal complete measurements resume.</summary>
+    [Fact]
+    public void ShellTrayGrowthRemainsReservedAcrossLaterPartialUpdates()
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        cache.Remember(123, frame);
+        var expanded = frame.Tray with { Left = 1350 };
+        Assert.Equal(expanded, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, expanded, null, true)!.Tray);
+        Assert.Equal(expanded, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, null, null, true)!.Tray);
+    }
+
+    /// <summary>Partial cold-start data cannot invent safe positions before any complete desktop frame has been measured.</summary>
+    [Fact]
+    public void WaitsForCompleteGeometryBeforeFirstPlacement()
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        Assert.Null(cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, null, false));
+        Assert.Null(cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, null, true));
+        Assert.Equal(frame, cache.Resolve(123, frame.Bar, frame.Monitor, frame.Dpi, frame.Tray, frame.TaskList, false));
+    }
 }
