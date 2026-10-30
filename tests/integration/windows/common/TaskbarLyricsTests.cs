@@ -24,6 +24,46 @@ public sealed class TaskbarLyricsTests
         Assert.Equal(frame.Bar.Top, slot.Top);
     }
 
+    /// <summary>The left preference uses only a measured gap, falling back to the right when widgets or buttons leave no room.</summary>
+    [Fact]
+    public void LeftPlacementProtectsWidgetsAndCenteredButtons()
+    {
+        var frame = Frame() with { LeadingSpace = new(256, 936, 500, 984) };
+        var left = TaskbarLyricsLayout.Place(frame, 20, true, 100, false, true)!.Value;
+        Assert.Equal(264, left.Left);
+        Assert.True(left.Right <= 492);
+        var blocked = frame with { LeadingSpace = new(480, 936, 500, 984) };
+        Assert.True(TaskbarLyricsLayout.Place(blocked, 20, true, 100, false, true)!.Value.Left > frame.TaskList!.Value.Right);
+        var element = new TaskbarElement("DynamicContent1", "TextBlock", false, new(0, 936, 41, 957));
+        var geometry = TaskbarAccessibility.Resolve(frame.Bar, [element,
+            new("StartButton", "Button", true, new(500, 936, 550, 984)),
+            new("SystemTrayFrame", "Grid", false, frame.Tray)]);
+        Assert.Equal(256, geometry.LeadingSpace!.Value.Left);
+        Assert.Equal(500, geometry.LeadingSpace.Value.Right);
+        var complete = TaskbarAccessibility.Resolve(frame.Bar, [
+            new("WidgetsButton", "ToggleButton", true, new(6, 936, 158, 984)),
+            new("StartButton", "ToggleButton", true, new(500, 936, 550, 984)),
+            new("SystemTrayFrame", "Grid", false, frame.Tray)]);
+        Assert.Equal(500, complete.TaskList!.Value.Left);
+        Assert.Equal(158, complete.LeadingSpace!.Value.Left);
+    }
+
+    /// <summary>Horizontal edges pass through intermediate widths and finish without overshoot in either direction.</summary>
+    [Fact]
+    public void WidthChangesInterpolateInsteadOfJumping()
+    {
+        var narrow = new TaskbarRect(1300, 936, 1442, 984);
+        var wide = new TaskbarRect(1100, 936, 1442, 984);
+        foreach (var (from, target) in new[] { (narrow, wide), (wide, narrow) })
+        {
+            Assert.Equal(from, TaskbarLyricMotion.Rectangle(from, target, TimeSpan.Zero));
+            var middle = TaskbarLyricMotion.Rectangle(from, target, TimeSpan.FromMilliseconds(140));
+            Assert.InRange(middle.Width, narrow.Width + 20, wide.Width - 20);
+            Assert.Equal(1442, middle.Right);
+            Assert.Equal(target, TaskbarLyricMotion.Rectangle(from, target, TimeSpan.FromSeconds(1)));
+        }
+    }
+
     /// <summary>Insufficient free space and an autohidden bar never cover other shell UI.</summary>
     [Fact]
     public void HidesWhenOccupiedOrAutohidden()
@@ -70,7 +110,9 @@ public sealed class TaskbarLyricsTests
         var state = new MenuBarState("Song", "Song — Artist", [], true, true, true, 30, 20, "첫 번째 가사", true);
         Assert.Equal("첫 번째 가사", TaskbarLyricsLayout.Text(state));
         Assert.Equal("다음 가사", TaskbarLyricsLayout.Text(state with { LyricText = "다음 가사" }));
-        Assert.Equal("Song — Artist", TaskbarLyricsLayout.Text(state with { LyricText = null }));
+        Assert.Equal("Song", TaskbarLyricsLayout.Text(state with { LyricText = null }));
+        Assert.Equal("Artist - Song", TaskbarLyricsLayout.Text(state with { LyricText = null, Text = "Artist - Song" }));
+        Assert.Empty(TaskbarLyricsLayout.Text(state with { HidesText = true }));
         Assert.Empty(TaskbarLyricsLayout.Text(state with { ShowsLyrics = false }));
         Assert.Empty(TaskbarLyricsLayout.Text(state with { IsRunning = false }));
     }

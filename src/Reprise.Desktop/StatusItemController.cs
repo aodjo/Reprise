@@ -223,13 +223,15 @@ public sealed class StatusItemController : IDisposable
             preferences.AutomaticallyScrollsTitles,
             preferences.MarqueePointsPerSecond,
             preferences.MenuBarLabelLength,
-            OperatingSystem.IsWindows() ? _viewModel.CurrentLyricLine(DateTimeOffset.UtcNow)?.Text : null,
+            _viewModel.CurrentLyricLine(DateTimeOffset.UtcNow)?.Text,
             OperatingSystem.IsWindows() ? preferences.WindowsTaskbarShowsLyrics : preferences.MenuBarShowsLyrics,
-            !OperatingSystem.IsWindows() || preferences.MenuBarArtworkStyle != MenuBarArtworkStyle.Hidden,
-            OperatingSystem.IsWindows() && session is not null
+            preferences.MenuBarArtworkStyle != MenuBarArtworkStyle.Hidden,
+            session is not null
                 ? string.Join("\u001f", session.PlayerId, session.Title, session.Artist, session.Album)
                 : null,
-            OperatingSystem.IsWindows() && preferences.WindowsTaskbarReservesLabelWidth);
+            OperatingSystem.IsWindows() ? preferences.WindowsTaskbarReservesLabelWidth : preferences.MenuBarReservesLabelWidth,
+            preferences.WindowsTaskbarOnLeft,
+            preferences.MenuBarTitleFormat == MenuBarTitleFormat.Hidden);
         if (state == _lastPublished)
         {
             return;

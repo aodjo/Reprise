@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -24,6 +25,14 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
     private readonly Border _content;
     private bool _windowClosed;
     private readonly DispatcherTimer _positionTimer;
+    private readonly DispatcherTimer _widthTimer;
+    private TaskbarRect? _targetRectangle;
+    private TaskbarRect? _displayedRectangle;
+    private TaskbarRect _fromRectangle;
+    private TaskbarRect _safeRectangle;
+    private long _resizeStarted;
+    private double _scale = 1;
+    private bool _animateNextWidth;
     private MenuBarState? _state;
     private bool _disposed;
 
@@ -48,6 +57,8 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
         _window = CreateWindow();
         _positionTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(250), DispatcherPriority.Background,
             (_, _) => Reposition());
+        _widthTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(16), DispatcherPriority.Render, (_, _) => ResizeFrame());
+        _widthTimer.Stop();
     }
 
     /// <summary>Creates only Reprise's strip; a destroyed shell owner can be followed by a new native window without losing lyric state.</summary>
@@ -100,7 +111,10 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
     public void Publish(MenuBarState state)
     {
         if (_disposed) return;
+        var previousText = _text.Text;
         _text.Present(state, _window.IsVisible && TaskbarLyricMotion.ShouldPush(_state, state));
+        _animateNextWidth = _window.IsVisible && previousText != _text.Text && !state.ReservesTextWidth &&
+            _state?.TrackKey == state.TrackKey && _state?.PrefersLeft == state.PrefersLeft;
         _state = state;
         UpdateCover(state);
         ToolTip.SetTip(_text, state.ToolTip);
@@ -113,29 +127,74 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
         if (_disposed) return;
         if (_windowClosed)
         {
+            _widthTimer.Stop();
+            _targetRectangle = null;
+            _displayedRectangle = null;
             _window.Content = null;
             _window = CreateWindow();
             _windowClosed = false;
         }
-        if (_state is null || _text.Text.Length == 0 ||
+        if (_state is null || !_state.IsRunning || !_state.ShowsLyrics || _text.Text.Length == 0 && !_state.ShowsArtwork ||
             WindowsTaskbarGeometry.Read() is not { } frame ||
             TaskbarLyricsLayout.Place(frame, _state.MaxWidthChars, _state.ShowsArtwork,
-                _text.TextWidth, _state.ReservesTextWidth) is not { } rectangle ||
+                _text.TextWidth, _state.ReservesTextWidth && !_state.HidesText, _state.PrefersLeft) is not { } rectangle ||
             WindowsTaskbarGeometry.IsFullscreen(frame.Monitor))
         {
+            _widthTimer.Stop();
+            _targetRectangle = null;
+            _displayedRectangle = null;
             if (_window.IsVisible) _window.Hide();
             return;
         }
         var scale = (frame.Dpi == 0 ? 96 : frame.Dpi) / 96d;
-        _window.Width = rectangle.Width / scale;
-        _window.Height = rectangle.Height / scale;
-        _window.Position = new PixelPoint(rectangle.Left, rectangle.Top);
+        var margin = (int)Math.Round(8 * scale);
+        _safeRectangle = _state.PrefersLeft && frame.LeadingSpace is { } gap && rectangle.Right <= gap.Right
+            ? new(gap.Left + margin, frame.Bar.Top, gap.Right - margin, frame.Bar.Bottom)
+            : TaskbarLyricsLayout.Place(frame, 60, _state.ShowsArtwork, null, true) ?? rectangle;
+        if (_targetRectangle != rectangle || _scale != scale)
+        {
+            _widthTimer.Stop();
+            var previous = _displayedRectangle;
+            var sameScale = _scale == scale;
+            _scale = scale;
+            _targetRectangle = rectangle;
+            if (_animateNextWidth && sameScale && previous is { } from && from.Top == rectangle.Top && from.Bottom == rectangle.Bottom &&
+                (from.Left == rectangle.Left || from.Right == rectangle.Right))
+            {
+                _fromRectangle = from;
+                _resizeStarted = Stopwatch.GetTimestamp();
+                ResizeFrame();
+                _widthTimer.Start();
+            }
+            else ApplyRectangle(rectangle);
+        }
+        _animateNextWidth = false;
         var foreground = TaskbarForeground();
         _text.SetForeground(foreground);
         _fallback.Foreground = foreground;
         if (_window.WindowState == WindowState.Minimized) _window.WindowState = WindowState.Normal;
         if (!_window.IsVisible) _window.Show();
         if (_window.TryGetPlatformHandle() is { } handle) WindowsTaskbarGeometry.Raise(handle.Handle);
+    }
+
+    /// <summary>Animates only Reprise's native strip and clips each frame to the latest safe shell slot.</summary>
+    private void ResizeFrame()
+    {
+        if (_targetRectangle is not { } target) { _widthTimer.Stop(); return; }
+        var elapsed = Stopwatch.GetElapsedTime(_resizeStarted);
+        var rectangle = TaskbarLyricMotion.Rectangle(_fromRectangle, target, elapsed);
+        ApplyRectangle(rectangle with { Left = Math.Max(rectangle.Left, _safeRectangle.Left),
+            Right = Math.Min(rectangle.Right, _safeRectangle.Right) });
+        if (elapsed >= TaskbarLyricMotion.Duration) _widthTimer.Stop();
+    }
+
+    /// <summary>Applies physical bounds while keeping text layout in device-independent pixels.</summary>
+    private void ApplyRectangle(TaskbarRect rectangle)
+    {
+        _displayedRectangle = rectangle;
+        _window.Width = Math.Max(1, rectangle.Width / _scale);
+        _window.Height = rectangle.Height / _scale;
+        _window.Position = new PixelPoint(rectangle.Left, rectangle.Top);
     }
 
     /// <summary>Decodes each new cover once and honors the tray artwork visibility preference.</summary>
@@ -186,6 +245,7 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
         if (_disposed) return;
         _disposed = true;
         _positionTimer.Stop();
+        _widthTimer.Stop();
         _text.Dispose();
         _window.Close();
         _cover.Source = null;

@@ -115,6 +115,11 @@ public sealed class RepriseMenuBarService : IMenuBarPublisher
         if (previous.ScrollsText != state.ScrollsText) changed.Add("ScrollsText");
         if (Math.Abs(previous.PointsPerSecond - state.PointsPerSecond) > 0.01) changed.Add("PointsPerSecond");
         if (previous.MaxWidthChars != state.MaxWidthChars) changed.Add("MaxWidthChars");
+        if (previous.TrackKey != state.TrackKey) changed.Add("TrackKey");
+        if (previous.ShowsLyrics != state.ShowsLyrics) changed.Add("ShowsLyrics");
+        if (previous.LyricText != state.LyricText) changed.Add("LyricText");
+        if (previous.ShowsArtwork != state.ShowsArtwork) changed.Add("ShowsArtwork");
+        if (previous.ReservesTextWidth != state.ReservesTextWidth) changed.Add("ReservesTextWidth");
         if (changed.Count == 0)
         {
             return;
@@ -160,7 +165,7 @@ public sealed class RepriseMenuBarService : IMenuBarPublisher
         private static readonly string[] PropertyNames =
         [
             "Text", "ToolTip", "IconPng", "IsRunning", "IsPlaying",
-            "ScrollsText", "PointsPerSecond", "MaxWidthChars",
+            "ScrollsText", "PointsPerSecond", "MaxWidthChars", "TrackKey", "ShowsLyrics", "ReservesTextWidth", "LyricText", "ShowsArtwork",
         ];
 
         private static readonly ReadOnlyMemory<byte> IntrospectionXml = Encoding.UTF8.GetBytes("""
@@ -173,6 +178,11 @@ public sealed class RepriseMenuBarService : IMenuBarPublisher
               <property name="ScrollsText" type="b" access="read"/>
               <property name="PointsPerSecond" type="d" access="read"/>
               <property name="MaxWidthChars" type="i" access="read"/>
+              <property name="TrackKey" type="s" access="read"/>
+              <property name="ShowsLyrics" type="b" access="read"/>
+              <property name="LyricText" type="s" access="read"/>
+              <property name="ShowsArtwork" type="b" access="read"/>
+              <property name="ReservesTextWidth" type="b" access="read"/>
               <method name="Activate"/>
             </interface>
             """);
@@ -263,6 +273,21 @@ public sealed class RepriseMenuBarService : IMenuBarPublisher
                     break;
                 case "MaxWidthChars":
                     writer.WriteVariantInt32(state.MaxWidthChars);
+                    break;
+                case "TrackKey":
+                    writer.WriteVariantString(state.TrackKey ?? string.Empty);
+                    break;
+                case "ShowsLyrics":
+                    writer.WriteVariantBool(state.ShowsLyrics);
+                    break;
+                case "LyricText":
+                    writer.WriteVariantString(state.LyricText ?? string.Empty);
+                    break;
+                case "ShowsArtwork":
+                    writer.WriteVariantBool(state.ShowsArtwork);
+                    break;
+                case "ReservesTextWidth":
+                    writer.WriteVariantBool(state.ReservesTextWidth);
                     break;
             }
         }

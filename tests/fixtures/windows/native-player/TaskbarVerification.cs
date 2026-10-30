@@ -123,12 +123,33 @@ internal static class TaskbarVerification
             if (compactOuter.GetProperty("Right").GetInt32() != expectedCompact.Right ||
                 compactOuter.GetProperty("Right").GetInt32() - compactOuter.GetProperty("Left").GetInt32() != expectedCompact.Width)
                 throw new InvalidOperationException("Native compact width did not match shaped text: " + compact);
+            stage = "native animated width";
+            publisher.Publish(shortLine with { LyricText = state.LyricText });
+            await Task.Delay(100);
+            var growing = JsonSerializer.SerializeToElement(WindowMetrics.Read(window));
+            await Task.Delay(300);
+            var grown = JsonSerializer.SerializeToElement(WindowMetrics.Read(window));
+            var growingWidth = growing.GetProperty("Outer").GetProperty("Right").GetInt32()
+                - growing.GetProperty("Outer").GetProperty("Left").GetInt32();
+            var grownWidth = grown.GetProperty("Outer").GetProperty("Right").GetInt32()
+                - grown.GetProperty("Outer").GetProperty("Left").GetInt32();
+            if (growingWidth <= expectedCompact.Width || growingWidth >= grownWidth)
+                throw new InvalidOperationException("Native width jumped instead of animating: " + growing + "; final: " + grown);
             publisher.Publish(shortLine with { ReservesTextWidth = true });
             await Task.Delay(350);
             var reserved = JsonSerializer.SerializeToElement(WindowMetrics.Read(window));
             var reservedOuter = reserved.GetProperty("Outer");
             if (reservedOuter.GetProperty("Right").GetInt32() - reservedOuter.GetProperty("Left").GetInt32() <= expectedCompact.Width)
                 throw new InvalidOperationException("Reservation did not retain the maximum width.");
+            stage = "left taskbar placement";
+            publisher.Publish(shortLine with { PrefersLeft = true });
+            await Task.Delay(350);
+            frame = WindowsTaskbarGeometry.Read() ?? throw new InvalidOperationException("No taskbar geometry for left placement.");
+            var left = JsonSerializer.SerializeToElement(WindowMetrics.Read(window));
+            var expectedLeft = TaskbarLyricsLayout.Place(frame, 20, true, viewport.TextWidth, false, true)!.Value;
+            if (left.GetProperty("Outer").GetProperty("Left").GetInt32() != expectedLeft.Left ||
+                left.GetProperty("Outer").GetProperty("Right").GetInt32() != expectedLeft.Right)
+                throw new InvalidOperationException("The left placement setting did not reach the native window: " + left);
             publisher.Publish(state);
             stage = "native strip recreation";
             window.Close();
@@ -144,7 +165,8 @@ internal static class TaskbarVerification
                 ok = true, Frame = frame, Native = metrics, Layers = layers, pushStarted, coverHidden, realArtwork,
                 sentenceStartMatchesUnfadedReference = true,
                 nativeStripRecreated = true,
-                Compact = compact, Reserved = reserved,
+                Compact = compact, Reserved = reserved, Growing = growing, Grown = grown, Left = left,
+                leftGapUsed = frame.LeadingSpace is { } gap && expectedLeft.Left >= gap.Left && expectedLeft.Right <= gap.Right,
                 hiddenWhenDisabled, hiddenWithoutPlayer, Placement = TaskbarLyricsLayout.Place(frame, 20, true),
                 Children = WindowsTaskbarGeometry.Diagnose(),
             }));

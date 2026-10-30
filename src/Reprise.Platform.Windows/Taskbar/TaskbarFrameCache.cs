@@ -16,7 +16,7 @@ internal sealed class TaskbarFrameCache
 
     /// <summary>Accepts complete desktop measurements while conserving all known tray and button space during partial shell updates.</summary>
     internal TaskbarFrame? Resolve(nint taskbar, TaskbarRect bar, TaskbarRect monitor, uint dpi,
-        TaskbarRect? tray, TaskbarRect? occupied, bool shellHasFocus)
+        TaskbarRect? tray, TaskbarRect? occupied, bool shellHasFocus, TaskbarRect? leadingSpace = null)
     {
         if (shellHasFocus)
         {
@@ -24,10 +24,13 @@ internal sealed class TaskbarFrameCache
             if (retained is null) return null;
             if (tray is { } current && current.Width > 0 && current.Left > bar.Left && current.Right <= bar.Right + 2)
                 retained = retained with { Tray = retained.Tray with { Left = Math.Min(retained.Tray.Left, current.Left) } };
+            if (leadingSpace is { } currentLeading && retained.LeadingSpace is { } measuredLeading)
+                retained = retained with { LeadingSpace = measuredLeading with
+                    { Left = Math.Max(measuredLeading.Left, currentLeading.Left), Right = Math.Min(measuredLeading.Right, currentLeading.Right) } };
             return Remember(taskbar, retained);
         }
         if (tray is { } measuredTray && occupied is { } measuredButtons)
-            return Remember(taskbar, new(bar, measuredTray, measuredButtons, monitor, dpi));
+            return Remember(taskbar, new(bar, measuredTray, measuredButtons, monitor, dpi, leadingSpace));
         return DuringShell(taskbar, bar, monitor, dpi, occupied, false);
     }
 
@@ -47,7 +50,8 @@ internal sealed class TaskbarFrameCache
             // Legacy HWND bounds can omit XAML buttons; retain all known occupied space until accessibility recovers.
             occupied = current with { Left = Math.Min(current.Left, measured.Left), Right = Math.Max(current.Right, measured.Right) };
         }
-        return frame with { TaskList = occupied };
+        return frame with { TaskList = occupied, LeadingSpace = frame.LeadingSpace is { } gap && occupied is { } list
+            ? gap with { Right = Math.Min(gap.Right, list.Left) } : frame.LeadingSpace };
     }
 
     /// <summary>Discards geometry when Explorer, monitor layout, or taskbar visibility changes.</summary>
