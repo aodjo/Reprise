@@ -23,7 +23,14 @@ internal sealed class TaskbarFrameCache
             Clear();
             return null;
         }
-        return shellHasFocus ? frame with { TaskList = currentTaskList ?? frame.TaskList } : null;
+        if (!shellHasFocus) return null;
+        var occupied = currentTaskList ?? frame.TaskList;
+        if (currentTaskList is { } current && frame.TaskList is { } measured)
+        {
+            // Legacy HWND bounds can omit XAML buttons; retain all known occupied space until accessibility recovers.
+            occupied = current with { Left = Math.Min(current.Left, measured.Left), Right = Math.Max(current.Right, measured.Right) };
+        }
+        return frame with { TaskList = occupied };
     }
 
     /// <summary>Discards geometry when Explorer, monitor layout, or taskbar visibility changes.</summary>
