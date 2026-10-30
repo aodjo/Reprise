@@ -132,7 +132,7 @@ public sealed class NowPlayingWindow : Window
     private Bitmap? _artworkBitmap;
     private byte[]? _artworkBytes;
     private bool _wasActivated;
-    private bool _positioned;
+    private PixelRect? _widgetAnchor;
     private DateTimeOffset _shownAt;
     private bool _reclaimedFocus;
 
@@ -483,7 +483,7 @@ public sealed class NowPlayingWindow : Window
     }
 
     /// <summary>
-    /// Shows the panel, placing it by the tray corner the first time.
+    /// Shows the panel at the clicked widget's start, or the platform's status-area corner.
     /// </summary>
     /// <remarks>
     /// Uses a stable status-area anchor and recomputes its height after layout.
@@ -494,12 +494,11 @@ public sealed class NowPlayingWindow : Window
     /// trayIcon.Clicked += (_, _) => window.ShowPanel();
     /// </code>
     /// </example>
-    public void ShowPanel()
+    /// <param name="widgetAnchor">Clicked widget bounds in physical screen pixels, or null for tray placement.</param>
+    public void ShowPanel(PixelRect? widgetAnchor = null)
     {
-        if (!_positioned)
-        {
-            PositionByTray();
-        }
+        _widgetAnchor = widgetAnchor;
+        PositionByTray();
 
         _shownAt = DateTimeOffset.UtcNow;
         _reclaimedFocus = false;
@@ -544,7 +543,8 @@ public sealed class NowPlayingWindow : Window
     /// trayIcon.Clicked += (_, _) => window.TogglePanel();
     /// </code>
     /// </example>
-    public void TogglePanel()
+    /// <param name="widgetAnchor">Clicked widget bounds in physical screen pixels, or null for tray placement.</param>
+    public void TogglePanel(PixelRect? widgetAnchor = null)
     {
         if (IsVisible)
         {
@@ -552,7 +552,7 @@ public sealed class NowPlayingWindow : Window
         }
         else
         {
-            ShowPanel();
+            ShowPanel(widgetAnchor);
         }
     }
 
@@ -723,7 +723,9 @@ public sealed class NowPlayingWindow : Window
     /// </summary>
     private void PositionByTray()
     {
-        var screen = Screens.Primary ?? Screens.All.FirstOrDefault();
+        var screen = _widgetAnchor is { } anchor
+            ? Screens.ScreenFromPoint(new PixelPoint(anchor.X, anchor.Y)) ?? Screens.Primary ?? Screens.All.FirstOrDefault()
+            : Screens.Primary ?? Screens.All.FirstOrDefault();
         if (screen is null)
         {
             return;
@@ -735,13 +737,15 @@ public sealed class NowPlayingWindow : Window
         var margin = (int)Math.Round(ScreenMargin * scale);
         _root.Measure(new Size(PanelWidth, double.PositiveInfinity));
         var panelHeight = Math.Max(Bounds.Height, _root.DesiredSize.Height);
+        var fallbackX = OperatingSystem.IsWindows() && _preferences.Current.WindowsTaskbarOnLeft
+            ? area.X + margin : Math.Max(area.X, area.Right - width - margin);
         Position = new PixelPoint(
-            OperatingSystem.IsWindows() && _preferences.Current.WindowsTaskbarOnLeft
-                ? area.X + margin : Math.Max(area.X, area.Right - width - margin),
+            _widgetAnchor is { } widget
+                ? Math.Clamp(widget.X, area.X, Math.Max(area.X, area.Right - width))
+                : fallbackX,
             OperatingSystem.IsWindows()
                 ? Math.Max(area.Y, area.Bottom - (int)Math.Round(panelHeight * scale) - margin)
                 : area.Y + margin);
-        _positioned = true;
     }
 
     /// <summary>
@@ -861,7 +865,6 @@ public sealed class NowPlayingWindow : Window
         ApplyPalette();
         UpdateView();
         if (IsVisible) PositionByTray();
-        else _positioned = false;
     }
 
     /// <summary>

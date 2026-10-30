@@ -33,6 +33,11 @@ internal static class Program
     internal static async Task RunAsync(string[] args)
     {
         var root = AppContext.BaseDirectory;
+        if (args.Contains("--verify-popup-anchor"))
+        {
+            await PopupAnchorVerification.RunAsync(root);
+            return;
+        }
         if (args.Contains("--observe-players"))
         {
             await PlayerControlVerification.ObserveAsync(root);

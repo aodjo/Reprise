@@ -180,7 +180,7 @@ public sealed class RepriseApplication : Application
                 viewModel,
                 preferences,
                 MenuBarPublisherFactory?.Invoke());
-            _statusItem.Activated += (_, _) => window.TogglePanel();
+            _statusItem.Activated += (_, args) => window.TogglePanel((args as MenuBarActivatedEventArgs)?.Bounds);
             desktop.Exit += (_, _) => _statusItem?.Dispose();
             _ = StartStatusItemAsync(_statusItem);
 

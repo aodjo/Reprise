@@ -39,6 +39,12 @@ own-surface PNG render per tab, then exits nonzero on failure. Windows CI runs
 this regression check for each architecture. It never changes login startup or
 the installed application's preferences.
 
+`--verify-popup-anchor` presses the diagnostic's own taskbar widget through the
+production activation controller and compares native popup bounds with the
+clicked widget's physical start. It covers both placements, a width transition,
+popup height changes, reopening, and work-area clamping. Results are written to
+`popup-result.json`; it does not change the user's preferences or playback.
+
 `--verify-fade` compares the real initial sentence render with a fully opaque
 leading edge, including disabled scrolling. It writes `fade-result.json` and
 own-surface PNGs; Windows CI runs it for both architectures.
