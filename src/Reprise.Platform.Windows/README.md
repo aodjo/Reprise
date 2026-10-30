@@ -4,8 +4,13 @@ The Windows host uses Global System Media Transport Controls (GSMTC), available
 on Windows 10 1809 and later, to discover players and control playback. It hosts
 the shared Avalonia panel, preferences, artwork tray icon, and smooth marquee.
 Players must expose a Windows media session; browser players may require media
-to start before they appear. Windows does not expose per-player volume through
-GSMTC, so that control is disabled rather than changing the system volume.
+to start before they appear. Dedicated Spotify and Melon audio streams support
+per-application Core Audio volume, including application-specific output devices.
+The system master volume and other applications are never changed. The control
+is unavailable before a local audio stream exists, for browser tabs sharing a
+process, and for Spotify Connect playback on another device before account connection. GSMTC exposes no
+remote-device volume API; an accessibility slider can advertise writes without
+actually applying them, so it is not treated as a supported remote control.
 
 Install the per-user `Setup.exe`; no administrator account or separate .NET
 installation is required. The application lives under LocalAppData/Programs,
@@ -20,7 +25,7 @@ Lyric advances push upward over 280 ms with macOS's ease-in/ease-out timing;
 first appearance and track changes are immediate. The cover stays still while
 lyrics move. Long lines scroll smoothly with fades at both ends;
 without synced lyrics the strip shows the track title and artist. Click it to
-open the player. General settings provide a visibility toggle and width control.
+open the player. General settings provide visibility and width controls. Taskbar settings include title format, cover style, and left/right placement. Left placement uses the measured gap between Widgets and centered application buttons and falls back to the right when there is no safe gap. Unreserved lyric widths ease over the same 280 ms as the upward line push.
 The strip follows taskbar DPI and system theme, and hides during fullscreen,
 taskbar autohide, or insufficient free space. The tray artwork setting also
 controls the leading cover. Start, Search, and trusted Windows shell flyouts
@@ -87,3 +92,23 @@ Portable copies do not install updates. Alpha, beta, and release feeds and
 installation registrations are separate. Development installers are unsigned.
 
 See [packaging](../../packaging/windows/README.md) for building and publishing.
+
+Spotify Connect volume uses the official Spotify Web API after General → Spotify
+Connect → Connect. It requires Spotify Premium and a device that advertises volume
+support. The displayed Windows Spotify track must match the authorized account's
+playback; writes name that exact device and track, and fail if either changes.
+Cloud reads run separately from native playback polling, with caching and Spotify
+rate-limit backoff. No playback device is transferred by Reprise. Disconnect
+removes this app's local authorization. Tokens use Windows DPAPI CurrentUser
+protection in the release-stage preference directory.
+
+Maintainers register a public Spotify application with the redirect URI
+`http://127.0.0.1/reprise/spotify/callback` (loopback dynamic ports are supported),
+then build with `REPRISE_SPOTIFY_CLIENT_ID=<public-client-id>` or
+`-p:SpotifyClientId=<public-client-id>`. This public identifier can be bundled;
+never ship or request a Client Secret. PKCE opens Spotify's official consent page
+and listens only on a random IPv4 loopback port for three minutes. Required scopes
+are `user-read-playback-state` and `user-modify-playback-state`. Unconfigured builds
+show the connection requirement rather than offering a nonworking authorization
+button. Test accounts must be eligible under the registered application's Spotify
+development-mode access rules until production access is approved.

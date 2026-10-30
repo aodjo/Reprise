@@ -50,6 +50,32 @@ public sealed class WindowsMediaSessionTests
         Assert.Null(session.Command);
     }
 
+    /// <summary>Volume changes target the selected player and reject invalid values before reaching native audio.</summary>
+    [Fact]
+    public async Task RoutesAndValidatesApplicationVolume()
+    {
+        var first = new Session("first");
+        var second = new Session("second");
+        var service = new WindowsMediaSessionService(new Source(first, second));
+        await service.SetVolumeAsync(second.Id, 0.4);
+        Assert.Null(first.Volume);
+        Assert.Equal(0.4, second.Volume);
+        foreach (var invalid in new[] { double.NaN, double.PositiveInfinity, -0.1, 1.1 })
+            await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => service.SetVolumeAsync(second.Id, invalid));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetVolumeAsync("gone", 0.5));
+    }
+
+    /// <summary>Spotify mixer matching never selects another app or grants all browser tabs a shared volume control.</summary>
+    [Theory]
+    [InlineData("Spotify.exe", "Spotify", true)]
+    [InlineData("SpotifyAB.SpotifyMusic_zpdnekdrzrea0!Spotify", "Spotify", true)]
+    [InlineData("Spotify.exe", "Chrome", false)]
+    [InlineData("chrome.exe", "Chrome", false)]
+    [InlineData("fake-spotify.exe", "Spotify", false)]
+    [InlineData("com.kakaoent.melon.player", "Melon Player", true)]
+    public void MatchesOnlyDedicatedPlayerProcesses(string appId, string process, bool expected) =>
+        Assert.Equal(expected, WindowsApplicationVolume.MatchesProcess(appId, process));
+
     /// <summary>
     /// Unsupported controls report failure and negative seeks are rejected before reaching Windows.
     /// </summary>
@@ -121,6 +147,14 @@ public sealed class WindowsMediaSessionTests
         public bool Accepted { get; init; } = true;
         public PlaybackCommand? Command { get; private set; }
         public TimeSpan? Position { get; private set; }
+        public double? Volume { get; private set; }
+
+        /// <inheritdoc />
+        public Task<bool> SetVolumeAsync(double volume, CancellationToken cancellationToken)
+        {
+            Volume = volume;
+            return Task.FromResult(Accepted);
+        }
 
         /// <inheritdoc />
         public Task<MediaSessionSnapshot> ReadAsync(CancellationToken cancellationToken) => Error is not null

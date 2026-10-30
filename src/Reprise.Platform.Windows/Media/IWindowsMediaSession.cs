@@ -32,6 +32,9 @@ internal interface IWindowsMediaSession
     /// <param name="cancellationToken">Cancels the native request.</param>
     /// <returns>Whether the player accepted the seek.</returns>
     Task<bool> SeekAsync(TimeSpan position, CancellationToken cancellationToken);
+
+    /// <summary>Changes only this player's application audio sessions, never the system master volume.</summary>
+    Task<bool> SetVolumeAsync(double volume, CancellationToken cancellationToken) => Task.FromResult(false);
 }
 
 /// <summary>

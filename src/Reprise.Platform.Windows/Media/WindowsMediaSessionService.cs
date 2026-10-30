@@ -57,8 +57,13 @@ internal sealed class WindowsMediaSessionService : IMediaSessionService
     }
 
     /// <inheritdoc />
-    public Task SetVolumeAsync(string playerId, double volume, CancellationToken cancellationToken = default) =>
-        Task.FromException(new NotSupportedException("Windows 미디어 세션은 개별 플레이어의 음량 제어를 제공하지 않습니다."));
+    public async Task SetVolumeAsync(string playerId, double volume, CancellationToken cancellationToken = default)
+    {
+        if (!double.IsFinite(volume) || volume < 0 || volume > 1) throw new ArgumentOutOfRangeException(nameof(volume));
+        var session = await FindAsync(playerId, cancellationToken);
+        if (!await session.SetVolumeAsync(volume, cancellationToken))
+            throw new NotSupportedException("이 플레이어의 앱 음량을 찾을 수 없습니다. 플레이어에서 재생을 시작해 주세요.");
+    }
 
     /// <summary>
     /// Finds a session by its exact identifier rather than controlling the system's current session.

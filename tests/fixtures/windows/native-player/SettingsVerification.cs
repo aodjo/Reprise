@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using Reprise.Desktop;
@@ -15,8 +17,10 @@ internal static class SettingsVerification
     {
         var stage = "construct";
         SettingsWindow? settings = null;
+        var previousConnection = RepriseApplication.PlayerAccountConnectionFactory;
         try
         {
+            RepriseApplication.PlayerAccountConnectionFactory = () => SpotifyAccountConnection.Shared;
             var preferences = new PreferencesStore(Path.Combine(root, "settings-preferences.json"));
             using var model = new NowPlayingViewModel(new WindowsMediaSessionService(), preferences: () => preferences.Current);
             settings = new SettingsWindow(model, preferences, new WindowsApplicationUpdater(), new WindowsAutostartEntry());
@@ -24,6 +28,10 @@ internal static class SettingsVerification
             settings.Present();
             await Task.Delay(150);
             var tabs = settings.GetVisualDescendants().OfType<SettingsTabBar>().Single();
+            if (!settings.GetVisualDescendants().OfType<TextBlock>().Any(item => item.Text == "멜론"))
+                throw new InvalidOperationException("Melon is absent from the Windows display priority list.");
+            if (!settings.GetVisualDescendants().OfType<TextBlock>().Any(item => item.Text == "Spotify Connect"))
+                throw new InvalidOperationException("Spotify account connection controls are absent.");
             var visited = new List<int>();
             for (var round = 0; round < 3; round++)
             {
@@ -36,6 +44,17 @@ internal static class SettingsVerification
                     await Task.Delay(150);
                     if (!settings.IsVisible || tabs.SelectedIndex != index)
                         throw new InvalidOperationException("The settings window or selected tab disappeared.");
+                    if (index == 3)
+                    {
+                        var placement = settings.GetVisualDescendants().OfType<SegmentedPicker>()
+                            .Single(item => item.GetVisualDescendants().OfType<TextBlock>().Any(text => text.Text == "왼쪽"));
+                        PressSegment(placement, "왼쪽");
+                        if (!preferences.Current.WindowsTaskbarOnLeft) throw new InvalidOperationException("Left placement did not persist.");
+                        PressSegment(placement, "오른쪽");
+                        if (preferences.Current.WindowsTaskbarOnLeft) throw new InvalidOperationException("Right placement did not persist.");
+                    }
+                    if (index == 5 && !settings.GetVisualDescendants().OfType<TextBlock>().Any(item => item.Text == "업데이트 자동 다운로드"))
+                        throw new InvalidOperationException("Automatic update controls are absent.");
                     visited.Add(index);
                     if (round == 0)
                     {
@@ -82,11 +101,21 @@ internal static class SettingsVerification
         }
         finally
         {
+            RepriseApplication.PlayerAccountConnectionFactory = previousConnection;
             if (settings is not null)
             {
                 settings.AllowClose = true;
                 settings.Close();
             }
         }
+    }
+
+    /// <summary>Raises a press on the fixture's own segment so the same handler as a user click persists the preference.</summary>
+    private static void PressSegment(SegmentedPicker picker, string label)
+    {
+        var text = picker.GetVisualDescendants().OfType<TextBlock>().Single(item => item.Text == label);
+        var cell = (Border)text.Parent!;
+        cell.RaiseEvent(new PointerPressedEventArgs(cell, new Pointer(1, PointerType.Mouse, true), cell, new Point(1, 1), 0,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
     }
 }
