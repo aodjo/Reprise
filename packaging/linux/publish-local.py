@@ -19,6 +19,9 @@ SITE_URL = "https://aodjo.github.io/Reprise"
 # Source checkout containing the packaging scripts and ignored staging directory.
 ROOT = Path(__file__).resolve().parents[2]
 
+# Keep every Linux package and Windows feed while leaving archived Windows installers in Git's index.
+SPARSE_PATHS = ["/*", "!/windows/*/*/packages/"]
+
 
 def run(arguments, *, cwd=ROOT, capture=False):
     """Run one command with literal arguments and stop on any failure."""
@@ -78,8 +81,9 @@ def publish(packages, channel, dry_run):
         site = staging / "site"
         incoming = staging / "incoming"
         incoming.mkdir()
-        run(["git", "clone", "--depth", "1", "--single-branch", "--branch", "apt-repo",
+        run(["git", "clone", "--depth", "1", "--single-branch", "--filter=blob:none", "--sparse", "--branch", "apt-repo",
              f"https://github.com/{REPOSITORY}.git", str(site)])
+        run(["git", "sparse-checkout", "set", "--no-cone", *SPARSE_PATHS], cwd=site)
         for package in packages:
             shutil.copy2(package, incoming / package.name)
 
