@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <OutputType>Library</OutputType>
+    <AssemblyName>Reprise</AssemblyName>
+    <RootNamespace>Reprise.Platform.Windows</RootNamespace>
+    <Description>Windows media-session controller and notification-area player.</Description>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" PrivateAssets="All" />
+    <PackageReference Include="Avalonia.Desktop" />
+    <PackageReference Include="NuGet.Versioning" />
+    <ProjectReference Include="../Reprise.Core/Reprise.Core.csproj" />
+    <ProjectReference Include="../Reprise.Desktop/Reprise.Desktop.csproj" />
+  </ItemGroup>
+</Project>
