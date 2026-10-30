@@ -28,6 +28,10 @@ xcuserdata/
 TestResults/
 Artifacts/
 
+# Python packaging tools
+__pycache__/
+*.py[cod]
+
 # Local editor and tool state
 .idea/
 .vscode/
