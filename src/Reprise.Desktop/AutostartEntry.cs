@@ -11,7 +11,7 @@ namespace Reprise.Desktop;
 /// without a system install. Failures are reported rather than thrown, as
 /// the settings toggle needs a message, not a crash.
 /// </remarks>
-public sealed class AutostartEntry
+public sealed class AutostartEntry : IAutostartEntry
 {
     private const string FileName = "dev.junx.Reprise.desktop";
 

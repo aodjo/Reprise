@@ -49,6 +49,8 @@ namespace Reprise.Desktop;
 /// Comma-separated player kinds, most preferred first; see
 /// <see cref="PlayerPriority"/>.
 /// </param>
+/// <param name="WindowsTaskbarShowsLyrics">Whether Windows displays a lyric strip beside the system tray.</param>
+/// <param name="WindowsTaskbarReservesLabelWidth">Whether Windows reserves the maximum lyric width even for short lines.</param>
 public sealed record DesktopPreferences(
     PanelTheme PanelTheme = PanelTheme.Liquid,
     PanelLeadingTimeStyle LeadingTimeStyle = PanelLeadingTimeStyle.Elapsed,
@@ -64,7 +66,9 @@ public sealed record DesktopPreferences(
     bool AutomaticallyPausesOtherPlayer = false,
     bool RemembersLastPlayedPlayer = false,
     string LastPlayedPlayer = "",
-    string PlayerDisplayPriority = "spotify,youTubeMusic,generic");
+    string PlayerDisplayPriority = "spotify,youTubeMusic,generic",
+    bool WindowsTaskbarShowsLyrics = true,
+    bool WindowsTaskbarReservesLabelWidth = false);
 
 /// <summary>
 /// Loads, holds, and saves <see cref="DesktopPreferences"/>.
@@ -123,6 +127,12 @@ public sealed class PreferencesStore
     {
         get
         {
+            if (OperatingSystem.IsWindows())
+            {
+                return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Reprise",
+                    Reprise.Core.ReleaseChannels.ForVersion(AppVersion.Current), "preferences.json");
+            }
+
             var configHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
             if (string.IsNullOrWhiteSpace(configHome))
             {

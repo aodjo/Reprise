@@ -21,6 +21,11 @@ namespace Reprise.Desktop;
 /// Width the text should be held to, in characters; the extension converts
 /// it to pixels with its own font.
 /// </param>
+/// <param name="LyricText">The actual synchronized lyric, without a title fallback.</param>
+/// <param name="ShowsLyrics">Whether the platform's lyric surface is enabled.</param>
+/// <param name="ShowsArtwork">Whether the Windows strip shows the leading cover.</param>
+/// <param name="TrackKey">Stable track identity for distinguishing lyric advances from track changes.</param>
+/// <param name="ReservesTextWidth">Whether the Windows strip retains its maximum width for short lines.</param>
 public sealed record MenuBarState(
     string Text,
     string ToolTip,
@@ -29,7 +34,12 @@ public sealed record MenuBarState(
     bool IsPlaying,
     bool ScrollsText,
     double PointsPerSecond,
-    int MaxWidthChars);
+    int MaxWidthChars,
+    string? LyricText = null,
+    bool ShowsLyrics = false,
+    bool ShowsArtwork = true,
+    string? TrackKey = null,
+    bool ReservesTextWidth = false);
 
 /// <summary>
 /// Publishes <see cref="MenuBarState"/> to whatever draws the top bar.

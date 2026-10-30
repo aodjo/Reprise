@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
@@ -114,6 +113,9 @@ public sealed class NowPlayingWindow : Window
     private readonly Border _errorBanner;
     private readonly PanelGlyph _errorIcon;
     private readonly TextBlock _errorText;
+    private readonly Border _startupBanner;
+    private readonly TextBlock _startupTitle;
+    private readonly TextBlock _startupMessage;
     private readonly Border _footerRule;
     private readonly Grid _footer;
     private readonly TextBlock _versionText;
@@ -126,10 +128,12 @@ public sealed class NowPlayingWindow : Window
     private readonly CompactSlider _volumeSlider;
     private readonly TextBlock _volumeValue;
     private PanelPalette _palette;
+    private readonly GlassSurface _glassSurface;
     private Bitmap? _artworkBitmap;
     private byte[]? _artworkBytes;
     private bool _wasActivated;
     private bool _positioned;
+    private bool _userPositioned;
     private DateTimeOffset _shownAt;
     private bool _reclaimedFocus;
 
@@ -142,6 +146,17 @@ public sealed class NowPlayingWindow : Window
     /// the window is allowed to close for real.
     /// </remarks>
     public bool AllowClose { get; set; }
+
+    /// <summary>Whether the platform is supplying an actual live refractive background.</summary>
+    public bool RefractiveBackdropActive { get; private set; }
+
+    /// <summary>Enables the optical surface only after the platform's backdrop renderer is ready.</summary>
+    public void SetRefractiveBackdropActive(bool active)
+    {
+        if (RefractiveBackdropActive == active) return;
+        RefractiveBackdropActive = active;
+        ApplyPalette();
+    }
 
     /// <summary>
     /// Raised when the user presses the footer's exit button.
@@ -311,6 +326,38 @@ public sealed class NowPlayingWindow : Window
         };
         Grid.SetColumn(_errorText, 1);
 
+        _startupTitle = new TextBlock
+        {
+            FontSize = PanelTypography.Title,
+            FontWeight = FontWeight.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        _startupMessage = new TextBlock
+        {
+            FontSize = PanelTypography.Body,
+            LineHeight = 18,
+            TextWrapping = TextWrapping.Wrap,
+        };
+        var dismissNotice = new Button
+        {
+            Content = "확인",
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Padding = new Thickness(12, 4),
+        };
+        _startupBanner = new Border
+        {
+            Margin = new Thickness(14, 0, 14, 14),
+            Padding = new Thickness(12),
+            CornerRadius = new CornerRadius(9),
+            IsVisible = false,
+            Child = new StackPanel
+            {
+                Spacing = 8,
+                Children = { _startupTitle, _startupMessage, dismissNotice },
+            },
+        };
+        dismissNotice.Click += (_, _) => _startupBanner.IsVisible = false;
+
         _versionText = new TextBlock
         {
             FontSize = PanelTypography.Caption,
@@ -385,6 +432,7 @@ public sealed class NowPlayingWindow : Window
         };
         _volumePopup.Closed += (_, _) => _viewModel.IsVolumeEditing = false;
 
+        _glassSurface = new GlassSurface { IsVisible = false, IsHitTestVisible = false };
         _root = new Border
         {
             CornerRadius = new CornerRadius(PanelCornerRadius),
@@ -393,9 +441,10 @@ public sealed class NowPlayingWindow : Window
             {
                 Children =
                 {
+                    _glassSurface,
                     new StackPanel
                     {
-                        Children = { _body, _lyricsView, _errorBanner, _footerRule, _footer },
+                        Children = { _body, _lyricsView, _startupBanner, _errorBanner, _footerRule, _footer },
                     },
                     _volumePopup,
                 },
@@ -421,6 +470,13 @@ public sealed class NowPlayingWindow : Window
         KeyDown += HandleKeyDown;
         Closing += HandleClosing;
         Closed += HandleClosed;
+        SizeChanged += (_, _) =>
+        {
+            if (OperatingSystem.IsWindows() && !_userPositioned && IsVisible)
+            {
+                PositionByTray();
+            }
+        };
 
         ApplyPalette();
         UpdateView();
@@ -459,6 +515,19 @@ public sealed class NowPlayingWindow : Window
         }
 
         _ = _viewModel.RefreshAsync();
+    }
+
+    /// <summary>
+    /// Shows setup instructions without requiring an immediate system action.
+    /// </summary>
+    /// <param name="notice">Heading and instructions to show until acknowledged.</param>
+    public void ShowStartupNotice(StartupNotice notice)
+    {
+        ArgumentNullException.ThrowIfNull(notice);
+        _startupTitle.Text = notice.Title;
+        _startupMessage.Text = notice.Message;
+        _startupBanner.IsVisible = true;
+        ShowPanel();
     }
 
     /// <summary>
@@ -502,7 +571,7 @@ public sealed class NowPlayingWindow : Window
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
     {
         base.OnPropertyChanged(change);
-        if (change.Property == ActualTransparencyLevelProperty)
+        if (change.Property == ActualTransparencyLevelProperty && _root is not null)
         {
             ApplyPalette();
         }
@@ -651,19 +720,10 @@ public sealed class NowPlayingWindow : Window
     /// drops the build metadata the SDK appends after a plus sign.
     /// </remarks>
     /// <returns>Text such as <c>Reprise v2.0.0-alpha.1</c>.</returns>
-    private static string VersionText()
-    {
-        var informational = typeof(NowPlayingWindow).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-        var version = string.IsNullOrWhiteSpace(informational)
-            ? typeof(NowPlayingWindow).Assembly.GetName().Version?.ToString(3) ?? "-"
-            : informational.Split('+', 2)[0];
-        return $"Reprise v{version}";
-    }
+    private static string VersionText() => $"Reprise v{AppVersion.Current}";
 
     /// <summary>
-    /// Places the panel at the top-right of the primary screen.
+    /// Places the panel beside the usual status area for the platform.
     /// </summary>
     private void PositionByTray()
     {
@@ -677,9 +737,13 @@ public sealed class NowPlayingWindow : Window
         var scale = screen.Scaling;
         var width = (int)Math.Round(PanelWidth * scale);
         var margin = (int)Math.Round(ScreenMargin * scale);
+        _root.Measure(new Size(PanelWidth, double.PositiveInfinity));
+        var panelHeight = Math.Max(Bounds.Height, _root.DesiredSize.Height);
         Position = new PixelPoint(
             Math.Max(area.X, area.Right - width - margin),
-            area.Y + margin);
+            OperatingSystem.IsWindows()
+                ? Math.Max(area.Y, area.Bottom - (int)Math.Round(panelHeight * scale) - margin)
+                : area.Y + margin);
         _positioned = true;
     }
 
@@ -789,6 +853,7 @@ public sealed class NowPlayingWindow : Window
             return;
         }
 
+        _userPositioned = true;
         BeginMoveDrag(e);
     }
 
@@ -854,6 +919,16 @@ public sealed class NowPlayingWindow : Window
             systemIsDark,
             accent,
             translucency);
+        if (OperatingSystem.IsWindows() && _preferences.Current.PanelTheme == PanelTheme.Liquid)
+        {
+            // White foregrounds use a dark frosted ground regardless of the desktop theme; unsupported renderers stay opaque.
+            _palette = PanelPalette.Resolve(PanelTheme.Liquid, true, accent, translucency) with
+            {
+                Background = PanelPalette.WithAlpha(PanelPalette.LiquidBackground(true, translucency),
+                    RefractiveBackdropActive ? 0.78 : 1),
+                Secondary = PanelPalette.WithAlpha(Colors.White, 0.82),
+            };
+        }
         RequestedThemeVariant = _palette.IsDark ? ThemeVariant.Dark : ThemeVariant.Light;
 
         var primary = new SolidColorBrush(_palette.Primary);
@@ -865,6 +940,8 @@ public sealed class NowPlayingWindow : Window
         var accentBrush = new SolidColorBrush(_palette.Accent);
 
         _root.Background = new SolidColorBrush(_palette.Background);
+        _glassSurface.IsVisible = RefractiveBackdropActive && _preferences.Current.PanelTheme == PanelTheme.Liquid;
+        _glassSurface.SetAppearance(_palette.IsDark);
         _root.BorderThickness = new Thickness(_preferences.Current.PanelTheme == PanelTheme.Liquid ? 1 : 0);
         _root.BorderBrush = new SolidColorBrush(PanelPalette.WithAlpha(_palette.Primary, 0.08));
         _root.CornerRadius = new CornerRadius(translucency == PanelTranslucency.None ? 0 : PanelCornerRadius);
@@ -903,6 +980,9 @@ public sealed class NowPlayingWindow : Window
         _emptyTitle.Foreground = primary;
         _emptyDescription.Foreground = secondary;
         _errorText.Foreground = primary;
+        _startupTitle.Foreground = primary;
+        _startupMessage.Foreground = primary;
+        _startupBanner.Background = new SolidColorBrush(PanelPalette.WithAlpha(_palette.Accent, 0.12));
         _lyricsView.Foreground = primary;
         _lyricsView.SeparatorBrush = separator;
 
@@ -961,7 +1041,9 @@ public sealed class NowPlayingWindow : Window
         }
 
         _volumeValue.Text = volume.ToString();
-        ToolTip.SetTip(_volumeButton, $"{session?.PlayerName ?? "플레이어"} 음량 {volume}%");
+        ToolTip.SetTip(_volumeButton, _viewModel.HasVolume
+            ? $"{session?.PlayerName ?? "플레이어"} 음량 {volume}%"
+            : "이 플레이어에서는 음량을 제어할 수 없습니다.");
         ToolTip.SetTip(_muteButton, volume > 0 ? "음소거" : "음소거 해제");
         if (!_viewModel.HasVolume)
         {
@@ -1029,7 +1111,9 @@ public sealed class NowPlayingWindow : Window
         {
             _emptyIcon.Icon = PanelIcons.Power;
             _emptyTitle.Text = "실행 중인 플레이어 없음";
-            _emptyDescription.Text = "MPRIS를 지원하는 앱을 실행하고 음악을 재생하면 여기에 표시됩니다.";
+            _emptyDescription.Text = OperatingSystem.IsWindows()
+                ? "음악 앱이나 브라우저에서 재생을 시작하면 여기에 표시됩니다."
+                : "MPRIS를 지원하는 앱을 실행하고 음악을 재생하면 여기에 표시됩니다.";
         }
     }
 

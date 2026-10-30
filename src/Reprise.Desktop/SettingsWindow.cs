@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Reflection;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
@@ -34,7 +33,8 @@ public sealed class SettingsWindow : Window
 
     private readonly NowPlayingViewModel _viewModel;
     private readonly PreferencesStore _preferences;
-    private readonly AutostartEntry _autostart = new();
+    private readonly IApplicationUpdater? _updater;
+    private readonly IAutostartEntry _autostart;
     private readonly DispatcherTimer _sessionTimer;
     private readonly List<Action> _refreshers = [];
     private StackPanel? _sessionList;
@@ -47,21 +47,32 @@ public sealed class SettingsWindow : Window
     /// </summary>
     public bool AllowClose { get; set; }
 
+    /// <summary>Requests a clean exit when a platform installer must replace the running application.</summary>
+    public event EventHandler? ExitRequested;
+
     /// <summary>
     /// Builds the window and its tabs.
     /// </summary>
     /// <param name="viewModel">Playback state for the sessions list.</param>
     /// <param name="preferences">Settings to show and edit.</param>
+    /// <param name="updater">Optional service for checking and installing platform updates.</param>
+    /// <param name="autostart">Platform-specific launch-at-login registration.</param>
     /// <example>
     /// <code>
     /// var settings = new SettingsWindow(viewModel, preferences);
     /// settings.Present();
     /// </code>
     /// </example>
-    public SettingsWindow(NowPlayingViewModel viewModel, PreferencesStore preferences)
+    public SettingsWindow(
+        NowPlayingViewModel viewModel,
+        PreferencesStore preferences,
+        IApplicationUpdater? updater = null,
+        IAutostartEntry? autostart = null)
     {
         _viewModel = viewModel;
         _preferences = preferences;
+        _updater = updater;
+        _autostart = autostart ?? new AutostartEntry();
 
         Title = "Reprise 설정";
         Width = 500;
@@ -91,7 +102,7 @@ public sealed class SettingsWindow : Window
             ("일반", PanelIcons.Gear),
             ("YouTube Music", PanelIcons.PlayCircle),
             ("테마", PanelIcons.Palette),
-            ("메뉴바", PanelIcons.MenuBarRectangle),
+            (OperatingSystem.IsWindows() ? "트레이" : "메뉴바", PanelIcons.MenuBarRectangle),
             ("패널", PanelIcons.PlayRectangle),
             ("시스템 정보", PanelIcons.InfoSquare),
         ]);
@@ -218,9 +229,11 @@ public sealed class SettingsWindow : Window
             on => Update(p => p with { AutomaticallyPausesOtherPlayer = on }));
 
         var (lyricsRow, lyrics) = SettingsForm.Toggle(
-            "가사 표시",
-            Current.MenuBarShowsLyrics,
-            on => Update(p => p with { MenuBarShowsLyrics = on }));
+            OperatingSystem.IsWindows() ? "작업 표시줄에 가사 표시" : "가사 표시",
+            OperatingSystem.IsWindows() ? Current.WindowsTaskbarShowsLyrics : Current.MenuBarShowsLyrics,
+            on => Update(p => OperatingSystem.IsWindows()
+                ? p with { WindowsTaskbarShowsLyrics = on }
+                : p with { MenuBarShowsLyrics = on }));
         var widthSlider = new Slider
         {
             Minimum = 10,
@@ -241,7 +254,7 @@ public sealed class SettingsWindow : Window
                 Update(p => p with { MenuBarLabelLength = length });
             }
         };
-        widthSlider.IsEnabled = Current.MenuBarShowsLyrics;
+        widthSlider.IsEnabled = OperatingSystem.IsWindows() ? Current.WindowsTaskbarShowsLyrics : Current.MenuBarShowsLyrics;
         var widthRow = SettingsForm.Row("가사 영역 너비", new StackPanel
         {
             Orientation = Orientation.Horizontal,
@@ -250,8 +263,10 @@ public sealed class SettingsWindow : Window
         });
         var (reserveRow, reserve) = SettingsForm.Toggle(
             "가사 공간 확보",
-            Current.MenuBarReservesLabelWidth,
-            on => Update(p => p with { MenuBarReservesLabelWidth = on }));
+            OperatingSystem.IsWindows() ? Current.WindowsTaskbarReservesLabelWidth : Current.MenuBarReservesLabelWidth,
+            on => Update(p => OperatingSystem.IsWindows()
+                ? p with { WindowsTaskbarReservesLabelWidth = on }
+                : p with { MenuBarReservesLabelWidth = on }));
 
         var (rememberRow, remember) = SettingsForm.Toggle(
             "마지막에 재생한 플레이어 기억",
@@ -286,37 +301,41 @@ public sealed class SettingsWindow : Window
         {
             var current = Current;
             autoPause.IsChecked = current.AutomaticallyPausesOtherPlayer;
-            lyrics.IsChecked = current.MenuBarShowsLyrics;
+            lyrics.IsChecked = OperatingSystem.IsWindows() ? current.WindowsTaskbarShowsLyrics : current.MenuBarShowsLyrics;
             widthSlider.Value = current.MenuBarLabelLength;
             widthValue.Text = $"{current.MenuBarLabelLength}자";
-            widthSlider.IsEnabled = current.MenuBarShowsLyrics;
-            reserve.IsChecked = current.MenuBarReservesLabelWidth;
-            reserve.IsEnabled = current.MenuBarShowsLyrics;
+            widthSlider.IsEnabled = OperatingSystem.IsWindows() ? current.WindowsTaskbarShowsLyrics : current.MenuBarShowsLyrics;
+            reserve.IsChecked = OperatingSystem.IsWindows() ? current.WindowsTaskbarReservesLabelWidth : current.MenuBarReservesLabelWidth;
+            reserve.IsEnabled = OperatingSystem.IsWindows() ? current.WindowsTaskbarShowsLyrics : current.MenuBarShowsLyrics;
             remember.IsChecked = current.RemembersLastPlayedPlayer;
             RebuildPriorityList();
         });
 
-        return SettingsForm.Page(
-            SettingsForm.Section(
+        var playback = SettingsForm.Section(
                 "재생",
                 "한 플레이어가 재생을 시작하면 기존에 재생 중이던 다른 플레이어를 일시 정지합니다.",
-                autoPauseRow),
-            SettingsForm.Section(
+                autoPauseRow);
+        var lyricsSection = OperatingSystem.IsWindows()
+            ? SettingsForm.Section("작업 표시줄 가사",
+                "트레이 왼쪽에 현재 가사를 표시합니다. 공간 확보를 끄면 짧은 줄은 글자 길이에 맞춰 줄어들고, 긴 줄은 최대 너비 안에서 흐릅니다.",
+                lyricsRow, widthRow, reserveRow)
+            : SettingsForm.Section(
                 "제어 목록",
                 "GNOME 확장이 상단 바에서 가사를 이 너비만큼 보여 주며 흐르게 합니다. 공간 확보는 짧은 줄을 이 너비까지 늘려 주변 항목이 움직이지 않게 합니다.",
                 lyricsRow,
                 widthRow,
-                reserveRow),
-            SettingsForm.Section(
+                reserveRow);
+        var priority = SettingsForm.Section(
                 "표시 우선순위",
                 "기억을 켜면 마지막으로 재생을 시작한 플레이어를 우선 표시합니다. 그 외에는 아래 순서를 사용하며, 항목을 드래그하여 변경할 수 있습니다.",
                 rememberRow,
-                _priorityList),
-            SettingsForm.Section(
+                _priorityList);
+        var startup = SettingsForm.Section(
                 "자동 실행",
-                "로그인하면 Reprise를 자동으로 실행합니다. 항목은 ~/.config/autostart에 저장됩니다.",
+                "로그인하면 Reprise를 자동으로 실행합니다.",
                 autostartRow,
-                _autostartError));
+                _autostartError);
+        return SettingsForm.Page(playback, lyricsSection, priority, startup);
     }
 
     /// <summary>
@@ -452,7 +471,9 @@ public sealed class SettingsWindow : Window
                 _sessionList),
             SettingsForm.Section(
                 "브라우저 확장",
-                "Linux에서는 Chromium과 Firefox가 재생 중인 탭을 MPRIS로 직접 노출하므로 별도의 확장 프로그램이 필요하지 않습니다. YouTube Music 탭에서 재생을 시작하면 자동으로 연결됩니다.",
+                OperatingSystem.IsWindows()
+                    ? "브라우저의 Windows 미디어 연동을 사용합니다. YouTube Music 탭에서 재생을 시작하면 자동으로 연결됩니다."
+                    : "Linux에서는 Chromium과 Firefox가 재생 중인 탭을 MPRIS로 직접 노출하므로 별도의 확장 프로그램이 필요하지 않습니다. YouTube Music 탭에서 재생을 시작하면 자동으로 연결됩니다.",
                 SettingsForm.Value("확장 프로그램", "필요 없음")));
     }
 
@@ -666,11 +687,20 @@ public sealed class SettingsWindow : Window
             scroll.IsChecked = current.AutomaticallyScrollsTitles;
             speedPicker.SelectedValue = current.MarqueePointsPerSecond;
             reset.IsChecked = current.ResetsMenuTitleWhenPanelOpens;
-            var hidden = current.MenuBarTitleFormat == MenuBarTitleFormat.Hidden;
+            var hidden = !OperatingSystem.IsWindows() && current.MenuBarTitleFormat == MenuBarTitleFormat.Hidden;
             scrollRow.IsEnabled = !hidden;
             speedRow.IsEnabled = !hidden && current.AutomaticallyScrollsTitles;
             resetRow.IsEnabled = !hidden && current.AutomaticallyScrollsTitles;
         });
+
+        if (OperatingSystem.IsWindows())
+        {
+            return SettingsForm.Page(
+                SettingsForm.Section("트레이 아이콘", "아이콘을 누르면 플레이어 패널이 열립니다.",
+                    SettingsForm.Picker("아이콘", artworkPicker)),
+                SettingsForm.Section("캐러셀", "플레이어 패널과 작업 표시줄의 긴 글자에 적용됩니다.",
+                    scrollRow, speedRow, resetRow));
+        }
 
         return SettingsForm.Page(
             SettingsForm.Section("미리보기", null, SettingsForm.Fill(preview)),
@@ -772,10 +802,7 @@ public sealed class SettingsWindow : Window
         var page = new Grid { RowDefinitions = new RowDefinitions("*,Auto") };
         var form = SettingsForm.Page(
             SettingsForm.Section("앱", null, SettingsForm.Value("버전", VersionText())),
-            SettingsForm.Section(
-                "업데이트",
-                "Linux 빌드는 GitHub 릴리스로 배포됩니다. 확인을 누르면 최신 릴리스 페이지를 엽니다.",
-                SettingsForm.Row("업데이트 확인…", SettingsForm.Link("릴리스 열기", new Uri("https://github.com/aodjo/Reprise/releases/latest")))),
+            BuildUpdateSection(),
             SettingsForm.Section("시스템", null, SettingsForm.Value("운영체제", OperatingSystemText())),
             SettingsForm.Section("연결된 디스플레이", null, displays));
         page.Children.Add(form);
@@ -785,18 +812,153 @@ public sealed class SettingsWindow : Window
     }
 
     /// <summary>
+    /// Shows an explicit update check and reveals Install only for a newer package.
+    /// </summary>
+    /// <returns>The update controls with download progress and inline errors.</returns>
+    private Control BuildUpdateSection()
+    {
+        var check = new Button
+        {
+            Name = "CheckForUpdates",
+            Content = "업데이트 확인",
+            IsEnabled = _updater?.IsAvailable == true,
+        };
+        var install = new Button { Name = "InstallUpdate", Content = "설치", IsVisible = false };
+        var status = SettingsForm.Text(string.Empty, PanelTypography.Subtitle);
+        status.Name = "ApplicationUpdateStatus";
+        var progress = new ProgressBar
+        {
+            Name = "ApplicationUpdateProgress",
+            Minimum = 0,
+            Maximum = 100,
+            Height = 4,
+            IsVisible = false,
+        };
+        var details = new StackPanel { Spacing = 8, IsVisible = false, Children = { status, progress } };
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 8,
+            Children = { check, install },
+        };
+        ApplicationUpdate? available = null;
+        var installing = false;
+        check.Click += async (_, _) =>
+        {
+            if (_updater is null)
+            {
+                return;
+            }
+
+            available = null;
+            check.IsEnabled = false;
+            check.Content = "확인 중…";
+            install.IsVisible = false;
+            details.IsVisible = true;
+            progress.IsVisible = true;
+            progress.IsIndeterminate = true;
+            status.Text = "새 버전을 확인하고 있습니다…";
+            try
+            {
+                available = await _updater.CheckAsync();
+                status.Text = available is null
+                    ? "새로운 업데이트가 없습니다."
+                    : $"새 버전 {available.Version.Replace('~', '-').Split('+', 2)[0]}을 설치할 수 있습니다.";
+                install.IsVisible = available is not null;
+            }
+            catch (OperationCanceledException)
+            {
+                status.Text = "업데이트 확인 시간이 초과되었습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.";
+            }
+            catch (HttpRequestException)
+            {
+                status.Text = "업데이트 서버에 연결하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.";
+            }
+            catch (Exception exception)
+            {
+                status.Text = $"업데이트를 확인하지 못했습니다.\n{exception.Message}";
+            }
+            finally
+            {
+                check.IsEnabled = true;
+                check.Content = "업데이트 확인";
+                progress.IsVisible = false;
+            }
+        };
+        install.Click += async (_, _) =>
+        {
+            if (_updater is null || available is null || installing)
+            {
+                return;
+            }
+
+            installing = true;
+            check.IsEnabled = false;
+            install.IsEnabled = false;
+            install.Content = "설치 중…";
+            progress.IsVisible = true;
+            progress.IsIndeterminate = true;
+            status.Text = "업데이트를 준비하고 있습니다…";
+            var reporter = new Progress<UpdateProgress>(value => Dispatcher.UIThread.Post(() =>
+            {
+                if (!installing)
+                {
+                    return;
+                }
+
+                status.Text = value.Fraction is { } fraction
+                    ? $"{value.Message} {fraction:P0}"
+                    : value.Message;
+                progress.IsIndeterminate = value.Fraction is null;
+                progress.Value = (value.Fraction ?? 0) * 100;
+            }));
+            try
+            {
+                var result = await _updater.InstallAsync(available, reporter);
+                available = null;
+                install.IsVisible = false;
+                status.Text = result.Message;
+                if (result.RequiresApplicationExit)
+                {
+                    ExitRequested?.Invoke(this, EventArgs.Empty);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                status.Text = "설치를 취소했습니다.";
+            }
+            catch (HttpRequestException)
+            {
+                status.Text = "업데이트를 다운로드하지 못했습니다. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.";
+            }
+            catch (Exception exception)
+            {
+                status.Text = $"업데이트를 완료하지 못했습니다.\n{exception.Message}";
+            }
+            finally
+            {
+                installing = false;
+                check.IsEnabled = true;
+                install.IsEnabled = true;
+                install.Content = "설치";
+                progress.IsVisible = false;
+            }
+        };
+        if (_updater?.IsAvailable != true)
+        {
+            details.IsVisible = true;
+            status.Text = _updater?.UnavailableMessage ?? "이 환경에서는 앱 내 업데이트를 사용할 수 없습니다.";
+        }
+
+        return SettingsForm.Section("업데이트", "새 버전이 있으면 여기에서 바로 설치할 수 있습니다.",
+            SettingsForm.Row("새 버전", buttons), SettingsForm.Fill(details));
+    }
+
+    /// <summary>
     /// The version line for the app section.
     /// </summary>
     /// <returns>Text such as <c>2.0.0-alpha.1</c>.</returns>
-    private static string VersionText()
-    {
-        var informational = typeof(SettingsWindow).Assembly
-            .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-            .InformationalVersion;
-        return string.IsNullOrWhiteSpace(informational)
-            ? typeof(SettingsWindow).Assembly.GetName().Version?.ToString(3) ?? "-"
-            : informational.Split('+', 2)[0];
-    }
+    private static string VersionText() => AppVersion.Current;
 
     /// <summary>
     /// The distribution and kernel, as the system section shows them.
