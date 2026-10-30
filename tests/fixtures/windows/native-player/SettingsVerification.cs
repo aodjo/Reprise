@@ -17,10 +17,8 @@ internal static class SettingsVerification
     {
         var stage = "construct";
         SettingsWindow? settings = null;
-        var previousConnection = RepriseApplication.PlayerAccountConnectionFactory;
         try
         {
-            RepriseApplication.PlayerAccountConnectionFactory = () => SpotifyAccountConnection.Shared;
             var preferences = new PreferencesStore(Path.Combine(root, "settings-preferences.json"));
             using var model = new NowPlayingViewModel(new WindowsMediaSessionService(), preferences: () => preferences.Current);
             settings = new SettingsWindow(model, preferences, new WindowsApplicationUpdater(), new WindowsAutostartEntry());
@@ -30,8 +28,6 @@ internal static class SettingsVerification
             var tabs = settings.GetVisualDescendants().OfType<SettingsTabBar>().Single();
             if (!settings.GetVisualDescendants().OfType<TextBlock>().Any(item => item.Text == "멜론"))
                 throw new InvalidOperationException("Melon is absent from the Windows display priority list.");
-            if (!settings.GetVisualDescendants().OfType<TextBlock>().Any(item => item.Text == "Spotify Connect"))
-                throw new InvalidOperationException("Spotify account connection controls are absent.");
             var visited = new List<int>();
             for (var round = 0; round < 3; round++)
             {
@@ -101,7 +97,6 @@ internal static class SettingsVerification
         }
         finally
         {
-            RepriseApplication.PlayerAccountConnectionFactory = previousConnection;
             if (settings is not null)
             {
                 settings.AllowClose = true;

@@ -36,9 +36,6 @@ public sealed class RepriseApplication : Application
     /// </summary>
     public static Func<IApplicationUpdater>? ApplicationUpdaterFactory { get; set; }
 
-    /// <summary>Supplies optional official player account authorization for remote-device controls.</summary>
-    public static Func<IPlayerAccountConnection>? PlayerAccountConnectionFactory { get; set; }
-
     /// <summary>
     /// Supplies the platform's per-user launch-at-login registration.
     /// </summary>

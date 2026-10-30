@@ -54,7 +54,6 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
     private GlobalSystemMediaTransportControlsSession _session;
     private string? _artworkKey;
     private Uri? _artwork;
-    private SpotifyDeviceVolume? _spotifyVolume;
 
     /// <summary>
     /// Wraps a native session with an identifier that remains stable across polls.
@@ -115,12 +114,9 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
             _artworkKey = _artwork is null ? null : artworkKey;
         }
 
-        var snapshot = new MediaSessionSnapshot(Id, WindowsPlayerNames.DisplayName(_session.SourceAppUserModelId), status,
+        return new MediaSessionSnapshot(Id, WindowsPlayerNames.DisplayName(_session.SourceAppUserModelId), status,
             properties.Title ?? string.Empty, properties.Artist ?? string.Empty, properties.AlbumTitle ?? string.Empty,
             duration, position, await Task.Run(ReadVolume, cancellationToken), _artwork, now);
-        _spotifyVolume = WindowsApplicationVolume.MatchesProcess(_session.SourceAppUserModelId, "Spotify")
-            ? SpotifyAccountConnection.Shared.ReadCachedVolume(snapshot) : null;
-        return _spotifyVolume is { } spotify ? snapshot with { Volume = spotify.Volume } : snapshot;
     }
 
     /// <inheritdoc />
@@ -166,8 +162,6 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
     /// <inheritdoc />
     public Task<bool> SetVolumeAsync(double volume, CancellationToken cancellationToken)
     {
-        if (_spotifyVolume is { } spotify)
-            return SpotifyAccountConnection.Shared.SetVolumeAsync(spotify, volume, cancellationToken);
         var appId = _session.SourceAppUserModelId;
         return Task.Run(() => WindowsApplicationVolume.Set(appId, volume), cancellationToken);
     }
