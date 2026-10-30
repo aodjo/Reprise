@@ -81,10 +81,10 @@ public sealed class StatusItemController : IDisposable
             DispatcherPriority.Background,
             (_, _) => Refresh());
 
-        _item.Activated += (_, _) => Dispatcher.UIThread.Post(RaiseActivated);
+        _item.Activated += (_, _) => Dispatcher.UIThread.Post(() => RaiseActivated(EventArgs.Empty));
         if (_publisher is not null)
         {
-            _publisher.Activated += (_, _) => Dispatcher.UIThread.Post(RaiseActivated);
+            _publisher.Activated += (_, args) => Dispatcher.UIThread.Post(() => RaiseActivated(args));
         }
         _viewModel.PropertyChanged += HandleViewModelChanged;
         _preferences.Changed += HandlePreferencesChanged;
@@ -121,7 +121,8 @@ public sealed class StatusItemController : IDisposable
     /// activation and a context-menu request, say - and the panel toggles,
     /// so the two would cancel out and nothing would appear.
     /// </remarks>
-    private void RaiseActivated()
+    /// <param name="args">Activation details, including physical widget bounds when supplied by the publisher.</param>
+    private void RaiseActivated(EventArgs args)
     {
         var now = DateTimeOffset.UtcNow;
         if (now - _lastActivated < ActivationDebounce)
@@ -130,7 +131,7 @@ public sealed class StatusItemController : IDisposable
         }
 
         _lastActivated = now;
-        Activated?.Invoke(this, EventArgs.Empty);
+        Activated?.Invoke(this, args);
     }
 
     /// <summary>

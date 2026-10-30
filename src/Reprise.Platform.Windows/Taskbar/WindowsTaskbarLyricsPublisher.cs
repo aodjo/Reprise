@@ -89,8 +89,9 @@ internal sealed class WindowsTaskbarLyricsPublisher : IMenuBarPublisher
         };
         window.PointerPressed += (_, args) =>
         {
-            if (args.GetCurrentPoint(window).Properties.IsLeftButtonPressed)
-                Activated?.Invoke(this, EventArgs.Empty);
+            if (args.GetCurrentPoint(window).Properties.IsLeftButtonPressed && _displayedRectangle is { } rectangle)
+                Activated?.Invoke(this, new MenuBarActivatedEventArgs(
+                    new PixelRect(rectangle.Left, rectangle.Top, rectangle.Width, rectangle.Height)));
         };
         window.Closed += (_, _) => _windowClosed = true;
         return window;

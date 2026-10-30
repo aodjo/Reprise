@@ -1,5 +1,13 @@
 namespace Reprise.Desktop;
 
+/// <summary>Identifies the physical screen bounds of the widget that opened the player panel.</summary>
+/// <param name="bounds">The widget's current bounds, including any in-progress width animation.</param>
+public sealed class MenuBarActivatedEventArgs(Avalonia.PixelRect bounds) : EventArgs
+{
+    /// <summary>Gets the widget bounds in physical screen pixels.</summary>
+    public Avalonia.PixelRect Bounds { get; } = bounds;
+}
+
 /// <summary>
 /// Everything a shell extension needs to draw Reprise in the top bar.
 /// </summary>
