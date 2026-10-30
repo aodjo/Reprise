@@ -79,6 +79,17 @@ public sealed class PanelTitleMarquee : Control
     public static readonly StyledProperty<double> FontSizeProperty =
         AvaloniaProperty.Register<PanelTitleMarquee, double>(nameof(FontSize), PanelTypography.Title);
 
+    /// <summary>Whether overflowing text also fades at the leading edge.</summary>
+    public static readonly StyledProperty<bool> FadesLeadingEdgeProperty =
+        AvaloniaProperty.Register<PanelTitleMarquee, bool>(nameof(FadesLeadingEdge), false);
+
+    /// <summary>Whether overflowing text also fades at the leading edge.</summary>
+    public bool FadesLeadingEdge
+    {
+        get => GetValue(FadesLeadingEdgeProperty);
+        set => SetValue(FadesLeadingEdgeProperty, value);
+    }
+
     private readonly DispatcherTimer _frameTimer;
     private DateTimeOffset _scrollStart;
     private bool _isHovering;
@@ -94,7 +105,8 @@ public sealed class PanelTitleMarquee : Control
             ForegroundProperty,
             AutomaticallyScrollsProperty,
             PointsPerSecondProperty,
-            FontSizeProperty);
+            FontSizeProperty,
+            FadesLeadingEdgeProperty);
         AffectsMeasure<PanelTitleMarquee>(TitleProperty, FontSizeProperty);
     }
 
@@ -154,6 +166,10 @@ public sealed class PanelTitleMarquee : Control
         get => GetValue(FontSizeProperty);
         set => SetValue(FontSizeProperty, value);
     }
+
+    /// <summary>Measures the exact shaped title width using the renderer's typeface and size.</summary>
+    /// <returns>Natural title width in device-independent pixels.</returns>
+    public double MeasureTitleWidth() => string.IsNullOrEmpty(Title) ? 0 : Math.Ceiling(CreateText(Title).Width);
 
     /// <summary>
     /// Sends a scrolling title back to its beginning.
@@ -223,7 +239,7 @@ public sealed class PanelTitleMarquee : Control
 
         var distance = textWidth + TitleGap;
         var offset = ScrollOffset(distance);
-        using (PushFade(context, bounds))
+        using (PushFade(context, bounds, FadesLeadingEdge ? LeadingEdgeOpacity(offset, textWidth) : 1))
         {
             context.DrawText(text, new Point(offset, y));
             context.DrawText(text, new Point(offset + distance, y));
@@ -352,7 +368,7 @@ public sealed class PanelTitleMarquee : Control
     /// <param name="context">Surface being drawn.</param>
     /// <param name="bounds">Area the fade covers.</param>
     /// <returns>A scope that removes the fade when disposed.</returns>
-    private static DrawingContext.PushedState PushFade(DrawingContext context, Rect bounds)
+    private DrawingContext.PushedState PushFade(DrawingContext context, Rect bounds, double leadingOpacity = 1)
     {
         var start = bounds.Width > 0 ? Math.Max(0, 1 - FadeWidth / bounds.Width) : 0;
         var mask = new LinearGradientBrush
@@ -361,13 +377,21 @@ public sealed class PanelTitleMarquee : Control
             EndPoint = new RelativePoint(1, 0.5, RelativeUnit.Relative),
             GradientStops =
             {
-                new GradientStop(Colors.Black, 0),
+                new GradientStop(Color.FromArgb((byte)Math.Round(Math.Clamp(leadingOpacity, 0, 1) * 255), 0, 0, 0), 0),
+                new GradientStop(Colors.Black, FadesLeadingEdge ? Math.Min(0.5, FadeWidth / bounds.Width) : 0),
                 new GradientStop(Colors.Black, start),
                 new GradientStop(Colors.Transparent, 1),
             },
         };
         return context.PushOpacityMask(mask, bounds.WithX(0).WithY(0));
     }
+
+    /// <summary>Keeps complete sentence starts sharp, fading only a copy that has actually crossed the left edge.</summary>
+    /// <param name="offset">First copy's horizontal position.</param>
+    /// <param name="textWidth">Width of one shaped copy before the repeating gap.</param>
+    /// <returns>Opacity at the viewport's left edge, including the seamless next-copy handoff.</returns>
+    internal static double LeadingEdgeOpacity(double offset, double textWidth) =>
+        offset >= 0 || offset + textWidth <= 0 ? 1 : 1 - Math.Clamp(-offset / FadeWidth, 0, 1);
 
     /// <summary>
     /// Marks the start of a scroll cycle and begins issuing frames.
