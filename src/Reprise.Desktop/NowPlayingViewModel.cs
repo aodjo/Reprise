@@ -23,6 +23,9 @@ public enum PanelPlayerLogo
     /// YouTube Music, whether through a browser tab or a wrapper app.
     /// </summary>
     YouTubeMusic,
+
+    /// <summary>The Melon desktop client, with its own display and last-played priority.</summary>
+    Melon,
 }
 
 /// <summary>
@@ -706,6 +709,8 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         {
             return PanelPlayerLogo.Spotify;
         }
+
+        if (playerId.Contains("melon", StringComparison.OrdinalIgnoreCase)) return PanelPlayerLogo.Melon;
 
         return playerId.Contains("youtube", StringComparison.OrdinalIgnoreCase)
             || playerId.Contains("YoutubeMusic", StringComparison.OrdinalIgnoreCase)

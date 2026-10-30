@@ -14,7 +14,7 @@ internal static class WindowsPlayerNames
     {
         foreach (var (key, name) in new[]
         {
-            ("spotify", "Spotify"), ("chrome", "Google Chrome"), ("msedge", "Microsoft Edge"),
+            ("spotify", "Spotify"), ("melon", "멜론"), ("chrome", "Google Chrome"), ("msedge", "Microsoft Edge"),
             ("firefox", "Firefox"), ("brave", "Brave"), ("vivaldi", "Vivaldi"),
             ("vlc", "VLC"), ("zunemusic", "Media Player"), ("music.ui", "Media Player"),
         })

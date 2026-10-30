@@ -330,6 +330,7 @@ public sealed class NowPlayingViewModelTests
     /// <param name="expected">Mark that should be drawn.</param>
     [Theory]
     [InlineData("spotify", PanelPlayerLogo.Spotify)]
+    [InlineData("windows:com.kakaoent.melon.player:1", PanelPlayerLogo.Melon)]
     [InlineData("chromium.instance12", PanelPlayerLogo.Generic)]
     [InlineData("YoutubeMusic", PanelPlayerLogo.YouTubeMusic)]
     [InlineData("youtube-music", PanelPlayerLogo.YouTubeMusic)]

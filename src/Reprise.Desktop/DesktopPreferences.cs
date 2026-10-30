@@ -66,7 +66,7 @@ public sealed record DesktopPreferences(
     bool AutomaticallyPausesOtherPlayer = false,
     bool RemembersLastPlayedPlayer = false,
     string LastPlayedPlayer = "",
-    string PlayerDisplayPriority = "spotify,youTubeMusic,generic",
+    string PlayerDisplayPriority = "spotify,youTubeMusic,melon,generic",
     bool WindowsTaskbarShowsLyrics = true,
     bool WindowsTaskbarReservesLabelWidth = false);
 
