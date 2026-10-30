@@ -1,0 +1,59 @@
+using Reprise.Platform.Windows.Taskbar;
+using Xunit;
+
+namespace Reprise.Platform.Windows.Tests;
+
+/// <summary>Verifies safe shell-only recovery when Windows temporarily stops reporting taskbar accessibility geometry.</summary>
+public sealed class TaskbarFrameCacheTests
+{
+    /// <summary>Representative measured Windows taskbar geometry.</summary>
+    private static TaskbarFrame Frame() => new(new(0, 936, 1728, 984), new(1450, 936, 1728, 984),
+        new(500, 936, 1000, 984), new(0, 0, 1728, 984), 96);
+
+    /// <summary>Start can retain the measured tray, while newly occupied task-list space still limits lyric placement.</summary>
+    [Fact]
+    public void KeepsMeasuredTrayDuringShellOutageAndRespectsCurrentButtons()
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        cache.Remember(123, frame);
+        var expanded = new TaskbarRect(500, 936, 1420, 984);
+        var recovered = cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, expanded, true)!;
+        Assert.Equal(frame.Tray, recovered.Tray);
+        Assert.Equal(expanded, recovered.TaskList);
+        Assert.Null(TaskbarLyricsLayout.Place(recovered, 20));
+        Assert.Null(cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, null, false));
+        Assert.Equal(frame, cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, null, true));
+    }
+
+    /// <summary>Explorer restarts, taskbar movement, monitor changes, and DPI changes invalidate old coordinates.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public void NeverReusesGeometryAfterNativeChanges(int change)
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        cache.Remember(123, frame);
+        var handle = change == 0 ? 456 : 123;
+        var bar = change == 1 ? new TaskbarRect(0, 0, 1728, 48) : frame.Bar;
+        var monitor = change == 2 ? new TaskbarRect(0, 0, 1920, 1080) : frame.Monitor;
+        var dpi = change == 3 ? 144u : frame.Dpi;
+        Assert.Null(cache.DuringShell(handle, bar, monitor, dpi, null, true));
+        Assert.Null(cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, null, true));
+    }
+
+    /// <summary>A hidden or unavailable taskbar cannot resurrect a stale lyric placement.</summary>
+    [Fact]
+    public void CannotInventGeometryOrReuseClearedFrames()
+    {
+        var cache = new TaskbarFrameCache();
+        var frame = Frame();
+        Assert.Null(cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, null, true));
+        cache.Remember(123, frame);
+        cache.Clear();
+        Assert.Null(cache.DuringShell(123, frame.Bar, frame.Monitor, frame.Dpi, null, true));
+    }
+}

@@ -18,6 +18,10 @@ internal static class TaskbarAccessibility
     private static DateTimeOffset _lastResult;
     private static nint _root;
     private static nint _pendingRoot;
+    /// <summary>Most recent provider failure, exposed only to the platform diagnostic.</summary>
+    internal static string? LastError { get; private set; }
+    /// <summary>Background provider query state for the native platform diagnostic.</summary>
+    internal static string? QueryStatus => _pending?.Status.ToString();
 
     /// <summary>Returns a cached immutable snapshot and schedules a bounded-frequency background refresh.</summary>
     /// <param name="taskbar">Current shell handle, reacquired after Explorer restarts.</param>
@@ -57,6 +61,7 @@ internal static class TaskbarAccessibility
     {
         try
         {
+            LastError = null;
             var cache = new CacheRequest();
             cache.Add(AutomationElement.AutomationIdProperty);
             cache.Add(AutomationElement.ClassNameProperty);
@@ -81,6 +86,7 @@ internal static class TaskbarAccessibility
         catch (Exception error) when (error is ElementNotAvailableException or System.Runtime.InteropServices.COMException
             or InvalidOperationException or UnauthorizedAccessException)
         {
+            LastError = error.GetType().Name + ": " + error.Message;
             return [];
         }
     }

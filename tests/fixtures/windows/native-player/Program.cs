@@ -33,6 +33,21 @@ internal static class Program
     internal static async Task RunAsync(string[] args)
     {
         var root = AppContext.BaseDirectory;
+        if (args.Contains("--fullscreen-target"))
+        {
+            await TaskbarVisibilityVerification.RunFullscreenTargetAsync(root);
+            return;
+        }
+        if (args.Contains("--verify-taskbar-fullscreen"))
+        {
+            await TaskbarVisibilityVerification.VerifyFullscreenAsync(root);
+            return;
+        }
+        if (args.Contains("--observe-taskbar") || args.Contains("--watch-taskbar"))
+        {
+            await TaskbarVisibilityVerification.ObserveAsync(root, args.Contains("--watch-taskbar"));
+            return;
+        }
         if (args.Contains("--verify-lyrics-highlight"))
         {
             await LyricsHighlightVerification.RunAsync(root);

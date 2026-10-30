@@ -59,7 +59,8 @@ internal static class TaskbarVerification
             var outer = metrics.GetProperty("Outer");
             var top = outer.GetProperty("Top").GetInt32();
             var bottom = outer.GetProperty("Bottom").GetInt32();
-            if (top != frame.Bar.Top || bottom != frame.Bar.Bottom || window.IsActive || window.ShowInTaskbar)
+            if (top != frame.Bar.Top || bottom != frame.Bar.Bottom || window.IsActive || window.ShowInTaskbar ||
+                metrics.GetProperty("OwnerClass").GetString() != "Shell_TrayWnd")
                 throw new InvalidOperationException("Native strip bounds or activation do not match the taskbar: " + metrics);
             var viewport = window.GetVisualDescendants().OfType<TaskbarLyricViewport>().Single();
             var image = window.GetVisualDescendants().OfType<Image>().Single();
@@ -129,10 +130,20 @@ internal static class TaskbarVerification
             if (reservedOuter.GetProperty("Right").GetInt32() - reservedOuter.GetProperty("Left").GetInt32() <= expectedCompact.Width)
                 throw new InvalidOperationException("Reservation did not retain the maximum width.");
             publisher.Publish(state);
+            stage = "native strip recreation";
+            window.Close();
+            await Task.Delay(600);
+            var replacement = ((IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!).Windows
+                .SingleOrDefault(item => item.Title == "Reprise 작업 표시줄 가사" && item.IsVisible);
+            if (replacement is null || ReferenceEquals(window, replacement) || replacement.IsActive ||
+                replacement.GetVisualDescendants().OfType<TaskbarLyricViewport>().Single().Text != state.LyricText)
+                throw new InvalidOperationException("The native strip did not recover its lyric state after closure.");
+            window = replacement;
             File.WriteAllText(Path.Combine(root, "taskbar-result.json"), JsonSerializer.Serialize(new
             {
                 ok = true, Frame = frame, Native = metrics, Layers = layers, pushStarted, coverHidden, realArtwork,
                 sentenceStartMatchesUnfadedReference = true,
+                nativeStripRecreated = true,
                 Compact = compact, Reserved = reserved,
                 hiddenWhenDisabled, hiddenWithoutPlayer, Placement = TaskbarLyricsLayout.Place(frame, 20, true),
                 Children = WindowsTaskbarGeometry.Diagnose(),

@@ -67,6 +67,15 @@ while an unrelated Acrylic layer covers it. The composed PNGs are diagnostic
 renders of those two owned layers, not monitor screenshots. `--verify-ui` runs the material,
 sentence fade, lyric emphasis, and settings checks together.
 
+`--watch-taskbar` publishes an isolated diagnostic strip for four minutes while
+the user opens and closes Start or Search. It records foreground process/class,
+native taskbar geometry, accessibility status, and native strip visibility in
+`visibility-observation.json`. It never injects input into the shell. Place a
+`stop-visibility` file beside the fixture to stop early. `--observe-taskbar`
+records the same metadata briefly without creating a diagnostic strip.
+`--verify-taskbar-fullscreen` uses a fixture-owned fullscreen child process to
+verify that genuine fullscreen content hides lyrics and returning to the
+desktop restores them. Its result is `fullscreen-result.json`.
 
 To verify the production PowerShell/NSIS handoff without a network connection,
 first exit Reprise and run the fixture with `--verify-update update.json Setup.exe`.
