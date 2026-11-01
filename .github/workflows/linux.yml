@@ -278,7 +278,7 @@ jobs:
           esac
 
           version="$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
-          suffix="$(grep -oPm1 '(?<=<VersionSuffix>)[^<]+' Directory.Build.props || true)"
+          suffix="$(python3 -c 'import xml.etree.ElementTree as ET; print(next(node.text or "" for node in ET.parse("Directory.Build.props").findall(".//VersionSuffix") if not node.attrib))')"
           if [[ -n "$suffix" ]]; then
             version="$version~$suffix"
           fi
@@ -305,7 +305,7 @@ jobs:
           esac
 
           version="$(grep -oPm1 '(?<=<VersionPrefix>)[^<]+' Directory.Build.props)"
-          suffix="$(grep -oPm1 '(?<=<VersionSuffix>)[^<]+' Directory.Build.props || true)"
+          suffix="$(python3 -c 'import xml.etree.ElementTree as ET; print(next(node.text or "" for node in ET.parse("Directory.Build.props").findall(".//VersionSuffix") if not node.attrib))')"
           if [[ -n "$suffix" ]]; then
             version="$version-$suffix"
           fi
