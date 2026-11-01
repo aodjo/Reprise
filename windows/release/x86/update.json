@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows",
+  "channel": "release",
+  "architecture": "x86",
+  "version": "2.0.0",
+  "buildNumber": "20261101154757",
+  "fileName": "Reprise-2.0.0-win-x86-20261101154757-Setup.exe",
+  "sha256": "24b142eddc7d8655ff3b5e50b5dfccf82ae0ce06f4ed8345e683ec39c86f9c0a",
+  "size": 70772978,
+  "url": "https://aodjo.github.io/Reprise/windows/release/x86/packages/Reprise-2.0.0-win-x86-20261101154757-Setup.exe"
+}

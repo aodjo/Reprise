@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "platform": "windows",
+  "channel": "release",
+  "architecture": "arm64",
+  "version": "2.0.0",
+  "buildNumber": "20261101154757",
+  "fileName": "Reprise-2.0.0-win-arm64-20261101154757-Setup.exe",
+  "sha256": "21e2a12a16136e106d851dd3af28763f319f957ba5baffb394c60974ccc09849",
+  "size": 68079476,
+  "url": "https://aodjo.github.io/Reprise/windows/release/arm64/packages/Reprise-2.0.0-win-arm64-20261101154757-Setup.exe"
+}
