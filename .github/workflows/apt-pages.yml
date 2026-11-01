@@ -62,10 +62,22 @@ jobs:
                   if stamp:
                       builds.append((stamp.group(1), package))
               builds.sort(key=lambda item: item[0], reverse=True)
-              keep = {current, *(package.name for _, package in builds[:3])}
+              keep = {current, *(package.name for _, package in builds[:2])}
               for _, package in builds:
                   if package.name not in keep:
                       package.unlink()
+          # Keep every package selected by a published apt index, including aliases.
+          active_linux = set()
+          for index in target.glob('dists/*/main/binary-*/Packages'):
+              for line in index.read_text().splitlines():
+                  if line.startswith('Filename: '):
+                      relative = Path(line.split(': ', 1)[1])
+                      if relative.is_absolute() or '..' in relative.parts or not (target / relative).is_file():
+                          raise RuntimeError('Current Linux download is missing: ' + str(relative))
+                      active_linux.add(relative.as_posix())
+          for package in target.glob('pool/**/*.deb'):
+              if package.relative_to(target).as_posix() not in active_linux:
+                  package.unlink()
           total = sum(path.stat().st_size for path in target.rglob('*') if path.is_file())
           if total > 1024 ** 3:
               raise RuntimeError(f'Pages content exceeds 1 GiB: {total} bytes')

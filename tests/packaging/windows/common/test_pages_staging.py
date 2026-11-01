@@ -24,6 +24,11 @@ class PagesStagingTests(unittest.TestCase):
             linux = source / 'pool/main/reprise.deb'
             linux.parent.mkdir(parents=True)
             linux.write_bytes(b'unchanged Linux package')
+            index = source / 'dists/alpha/main/binary-amd64/Packages'
+            index.parent.mkdir(parents=True)
+            index.write_text('Package: reprise\nFilename: pool/main/reprise.deb\n')
+            archived_linux = linux.with_name('archived.deb')
+            archived_linux.write_bytes(b'archived Linux package')
             originals = {}
             for channel in ('alpha', 'beta', 'release'):
                 for arch in ('x64', 'arm64'):
@@ -40,10 +45,12 @@ class PagesStagingTests(unittest.TestCase):
             self.assertEqual(0, result.returncode, result.stderr)
             staged = base / 'runner/reprise-pages'
             self.assertEqual(linux.read_bytes(), (staged / linux.relative_to(source)).read_bytes())
+            self.assertTrue(archived_linux.exists())
+            self.assertFalse((staged / archived_linux.relative_to(source)).exists())
             for path, content in originals.items():
                 self.assertEqual(content, path.read_bytes())
                 output = staged / path.relative_to(source)
-                if '000002-Setup' in path.name:
+                if any(stamp in path.name for stamp in ('000002-Setup', '000003-Setup')):
                     self.assertFalse(output.exists())
                 else:
                     self.assertEqual(content, output.read_bytes())

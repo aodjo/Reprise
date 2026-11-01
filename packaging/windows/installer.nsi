@@ -103,7 +103,7 @@ Section "Reprise"
   SetOutPath "$INSTDIR"
   SetOverwrite on
   ClearErrors
-  File /r "${APP_DIR}/*"
+  File /r "${APP_FILES}"
   File /oname=LICENSE.txt "${LICENSE_FILE}"
   ${If} ${Errors}
     SetErrorLevel 4
