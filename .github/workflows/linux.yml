@@ -417,13 +417,38 @@ jobs:
             echo 'Nothing changed.'
           else
             git commit -q -m "chore: publish ${{ github.ref_name }} build ${{ github.run_number }}"
-            git push -q origin HEAD:apt-repo
+            # Incorporate independent Windows publications before retrying a raced push.
+            for attempt in 1 2 3; do
+              if git push -q origin HEAD:apt-repo; then
+                break
+              fi
+              if [[ "$attempt" == 3 ]]; then
+                exit 1
+              fi
+              git fetch origin apt-repo
+              git rebase origin/apt-repo
+            done
           fi
+
+      - name: Stage the site within the Pages size limit
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import textwrap
+
+          source = Path.cwd()
+          workflow = (source / '.github/workflows/apt-pages.yml').read_text()
+          code = textwrap.dedent(workflow.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+          os.chdir(source / 'Site')
+          exec(compile(code, 'apt-pages-staging', 'exec'))
+          PY
 
       - name: Upload the site
         uses: actions/upload-pages-artifact@v4
         with:
-          path: Site
+          path: ${{ runner.temp }}/reprise-pages
 
       - name: Deploy to Pages
         id: deploy

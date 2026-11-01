@@ -70,7 +70,7 @@ def build(architecture, build_number, publish_only=False):
     removal.write_text("\n".join(
         [f'Delete "$INSTDIR\\{str(path).replace(chr(47), chr(92))}"' for path in files] +
         [f'RMDir "$INSTDIR\\{str(path).replace(chr(47), chr(92))}"' for path in directories]) + "\n")
-    definitions = {"APP_DIR": app, "OUTPUT_FILE": installer, "APP_VERSION": version,
+    definitions = {"APP_DIR": app, "APP_FILES": app / "*", "OUTPUT_FILE": installer, "APP_VERSION": version,
                    "FILE_VERSION": ".".join((prefix.split(".") + ["0"] * 4)[:4]),
                    "BUILD_NUMBER": build_number, "CHANNEL": channel, "ARCH": architecture,
                    "ICON_FILE": icon, "UNINSTALL_FILES": removal, "LICENSE_FILE": ROOT / "LICENSE"}
