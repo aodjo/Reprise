@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<?xml version='1.0' encoding='utf-8'?>
 <rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
     <channel>
         <title>Reprise Updates</title>
@@ -6,21 +6,31 @@
         <description>Reprise release updates</description>
         <language>ko</language>
         <item>
+            <title>2.0.0</title>
+            <pubDate>Sun, 01 Nov 2026 15:55:14 +0000</pubDate>
+            <link>https://github.com/aodjo/Reprise/releases/tag/v2.0.0</link>
+            <sparkle:version>4</sparkle:version>
+            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown">Reprise 2.0.0 정식 배포판입니다. macOS Universal 앱과 Windows·Linux 배포판을 제공합니다. 플레이어 설정, 가사 표시와 전환, 자동 업데이트 채널을 정비했습니다.</description>
+            <enclosure url="https://github.com/aodjo/Reprise/releases/download/v2.0.0/Reprise-2.0.0-macos-universal.zip" length="2815702" type="application/octet-stream" sparkle:edSignature="f/mn9Niob/ZQK2Iun3p9uAa+TQBSmF41L3RyrroYhH1s1pE/NTzoWmVFOtOOVlfgLOvbeQAi9VJ+sJFxoAd8AA==" />
+        </item>
+        <item>
             <title>1.1.0</title>
             <pubDate>Sat, 01 Aug 2026 07:48:23 +0900</pubDate>
             <link>https://github.com/aodjo/Reprise</link>
             <sparkle:version>3</sparkle:version>
             <sparkle:shortVersionString>1.1.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
-            <description sparkle:format="markdown"><![CDATA[## Reprise v1.1.0
+            <description sparkle:format="markdown">## Reprise v1.1.0
 
 - Chromium과 Firefox 확장을 통한 YouTube Music 제어를 추가했습니다.
 - 여러 브라우저와 여러 YouTube Music 탭을 세션별로 인식합니다.
 - 플레이어 자동 전환, 마지막 재생 플레이어 기억과 제어 막대 갱신을 개선했습니다.
 - 자동 업데이트 확인과 로그인 시 자동 실행 설정을 추가했습니다.
 - Apple Music 가사 표시와 플레이어 패널 동작을 안정화했습니다.
-]]></description>
-            <enclosure url="https://github.com/aodjo/Reprise/releases/download/v1.1.0/Reprise-1.1.0-macos-universal.zip" length="2047041" type="application/octet-stream" sparkle:edSignature="hIsdnkU5JheqlBGhJeWV38Ta50DPqpYIqKhz8R+XyvJtaOQXUBrI0RtLUztvRrk/4dqgtqOtEoODYFD3rxp8Dg=="/>
+</description>
+            <enclosure url="https://github.com/aodjo/Reprise/releases/download/v1.1.0/Reprise-1.1.0-macos-universal.zip" length="2047041" type="application/octet-stream" sparkle:edSignature="hIsdnkU5JheqlBGhJeWV38Ta50DPqpYIqKhz8R+XyvJtaOQXUBrI0RtLUztvRrk/4dqgtqOtEoODYFD3rxp8Dg==" />
         </item>
     </channel>
 </rss>
