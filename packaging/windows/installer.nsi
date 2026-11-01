@@ -2,7 +2,8 @@
 Unicode true
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-SetCompressorDictSize 128
+; Keep LZMA initialization within the address space of Windows' 32-bit NSIS compiler.
+SetCompressorDictSize 32
 CRCCheck force
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
