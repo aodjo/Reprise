@@ -30,8 +30,9 @@ installer filenames, so previous installer binaries are not downloaded again.
 Only those changed paths are staged; existing Windows and Linux archives remain
 in the artifact branch. Reusing a published filename still checks its contents.
 
-The Pages staging workflow serves the two newest Windows installers per
-stage/architecture and always preserves the active manifest's download. Older
+The Pages staging workflow serves up to two recent Windows installers per
+stage/architecture and always preserves the active manifest's download. It
+removes the oldest optional installers when needed to fit the 1 GiB site limit. Older
 installers remain unchanged in the `apt-repo` artifact branch and local build
 directories; only the temporary Pages staging copy is pruned. Linux content is
 kept when referenced by a published apt index; historical binaries remain in the artifact branch. This keeps repeated alpha builds below Pages' site-size limit.
