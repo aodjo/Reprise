@@ -6,6 +6,16 @@
         <description>Reprise release updates</description>
         <language>ko</language>
         <item>
+            <title>2.0.1</title>
+            <pubDate>Tue, 03 Nov 2026 05:03:20 +0000</pubDate>
+            <link>https://github.com/aodjo/Reprise/releases/tag/v2.0.1</link>
+            <sparkle:version>5</sparkle:version>
+            <sparkle:shortVersionString>2.0.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown">Reprise 2.0.1 정식 배포판입니다. Windows 설치 패키지 생성과 Linux 정식 버전 패키징을 수정하고, 업데이트 서버의 용량 관리를 개선했습니다.</description>
+            <enclosure url="https://github.com/aodjo/Reprise/releases/download/v2.0.1/Reprise-2.0.1-macos-universal.zip" length="2815633" type="application/octet-stream" sparkle:edSignature="mU5GNI5yg9ro0vI/rrqeQWVnJKQAov7kH57SsPATeix0IaFZCFVdkmTEf5gSovG0ZgkWgLpf3Ca96q75mfQrCw==" />
+        </item>
+        <item>
             <title>2.0.0</title>
             <pubDate>Sun, 01 Nov 2026 15:55:14 +0000</pubDate>
             <link>https://github.com/aodjo/Reprise/releases/tag/v2.0.0</link>
