@@ -49,6 +49,8 @@ jobs:
           source = Path.cwd()
           target = Path(os.environ['RUNNER_TEMP']) / 'reprise-pages'
           shutil.copytree(source, target, ignore=shutil.ignore_patterns('.git'))
+          # Historical installers are optional; active feed downloads are always required.
+          optional_windows = []
           for packages in target.glob('windows/*/*/packages'):
               feed = packages.parent / 'update.json'
               if not feed.is_file():
@@ -63,9 +65,11 @@ jobs:
                       builds.append((stamp.group(1), package))
               builds.sort(key=lambda item: item[0], reverse=True)
               keep = {current, *(package.name for _, package in builds[:2])}
-              for _, package in builds:
+              for stamp, package in builds:
                   if package.name not in keep:
                       package.unlink()
+                  elif package.name != current:
+                      optional_windows.append((stamp, package))
           # Keep every package selected by a published apt index, including aliases.
           active_linux = set()
           for index in target.glob('dists/*/main/binary-*/Packages'):
@@ -79,6 +83,12 @@ jobs:
               if package.relative_to(target).as_posix() not in active_linux:
                   package.unlink()
           total = sum(path.stat().st_size for path in target.rglob('*') if path.is_file())
+          # Remove the oldest optional copies until the new release fits the site budget.
+          for _, package in sorted(optional_windows):
+              if total <= 1024 ** 3:
+                  break
+              total -= package.stat().st_size
+              package.unlink()
           if total > 1024 ** 3:
               raise RuntimeError(f'Pages content exceeds 1 GiB: {total} bytes')
           print(f'Staged {total} bytes; all original packages remain in the artifact repository.')
