@@ -67,10 +67,56 @@ class PagesStagingTests(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn('Current Windows download is missing', result.stderr)
 
+    def test_capacity_pressure_preserves_every_active_channel_download(self):
+        """A new release fits by dropping optional history without changing any source files."""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            source = base / 'repo'
+            originals = []
+            active = []
+            for channel in ('alpha', 'beta', 'release'):
+                packages = source / f'windows/{channel}/x64/packages'
+                packages.mkdir(parents=True)
+                for stamp in ('20261101000000', '20261103000000'):
+                    path = packages / f'Reprise-{channel}-{stamp}-Setup.exe'
+                    path.write_bytes(b'x' * 100)
+                    originals.append(path)
+                active.append(path)
+                (packages.parent / 'update.json').write_text(json.dumps({'fileName': path.name}))
+            limit = sum(p.stat().st_size for p in source.rglob('*') if p.is_file()) - 150
+            (base / 'runner').mkdir()
+            result = self.stage(source, base / 'runner', limit=limit)
+            self.assertEqual(0, result.returncode, result.stderr)
+            staged = base / 'runner/reprise-pages'
+            self.assertLessEqual(sum(p.stat().st_size for p in staged.rglob('*') if p.is_file()), limit)
+            self.assertLess(len(list(staged.glob('windows/*/*/packages/*.exe'))), len(originals))
+            for path in active:
+                self.assertEqual(path.read_bytes(), (staged / path.relative_to(source)).read_bytes())
+            for path in originals:
+                self.assertEqual(b'x' * 100, path.read_bytes())
+
+    def test_required_downloads_over_budget_fail_without_dropping_current(self):
+        """An undersized site cannot hide the active installer to make publication appear valid."""
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            packages = base / 'repo/windows/release/x64/packages'
+            packages.mkdir(parents=True)
+            current = packages / 'Reprise-20261103000000-Setup.exe'
+            current.write_bytes(b'x' * 100)
+            (packages.parent / 'update.json').write_text(json.dumps({'fileName': current.name}))
+            (base / 'runner').mkdir()
+            result = self.stage(base / 'repo', base / 'runner', limit=10)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn('Pages content exceeds', result.stderr)
+            self.assertTrue((base / 'runner/reprise-pages' / current.relative_to(base / 'repo')).is_file())
+            self.assertEqual(b'x' * 100, current.read_bytes())
+
     @staticmethod
-    def stage(source, runner):
-        """Execute the workflow's actual embedded Python with a task-owned runner directory."""
+    def stage(source, runner, limit=None):
+        """Execute the actual workflow, optionally reducing its budget to avoid gigabyte fixtures."""
         workflow = (ROOT / '.github/workflows/apt-pages.yml').read_text()
         code = textwrap.dedent(workflow.split("          python3 - <<'PY'\n", 1)[1].split('\n          PY', 1)[0])
+        if limit is not None:
+            code = code.replace('1024 ** 3', str(limit))
         return subprocess.run([sys.executable, '-c', code], cwd=source,
                               env={**os.environ, 'RUNNER_TEMP': str(runner)}, capture_output=True, text=True)
