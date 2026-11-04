@@ -80,8 +80,11 @@ native taskbar geometry, accessibility status, and native strip visibility in
 `stop-visibility` file beside the fixture to stop early. `--observe-taskbar`
 records the same metadata briefly without creating a diagnostic strip.
 `--verify-taskbar-fullscreen` uses a fixture-owned fullscreen child process to
-verify that genuine fullscreen content hides lyrics and returning to the
-desktop restores them. Its result is `fullscreen-result.json`.
+verify that genuine fullscreen content and a borderless surface inset by one
+physical pixel hide lyrics, and returning to the desktop restores them after
+each case. Its result is `fullscreen-result.json`. Exclusive Direct3D state and
+mixed-monitor resolution cases are also covered by the fullscreen policy tests;
+this fixture does not run a protected game or create an exclusive Direct3D device.
 
 To verify the production PowerShell/NSIS handoff without a network connection,
 first exit Reprise and run the fixture with `--verify-update update.json Setup.exe`.

@@ -55,7 +55,7 @@ internal static class Program
         }
         if (args.Contains("--fullscreen-target"))
         {
-            await TaskbarVisibilityVerification.RunFullscreenTargetAsync(root);
+            await TaskbarVisibilityVerification.RunFullscreenTargetAsync(root, args.Contains("--inset-fullscreen"));
             return;
         }
         if (args.Contains("--verify-taskbar-fullscreen"))

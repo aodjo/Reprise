@@ -28,7 +28,13 @@ without synced lyrics the strip shows the track title and artist. Click it to
 open the player. General settings provide visibility and width controls. Taskbar settings include title format, cover style, and left/right placement. Left placement uses the measured gap between Widgets and centered application buttons and falls back to the right when there is no safe gap. Unreserved lyric widths ease over the same 280 ms as the upward line push.
 The strip follows taskbar DPI and system theme, and hides during fullscreen,
 taskbar autohide, or insufficient free space. The tray artwork setting also
-controls the leading cover. Start, Search, and trusted Windows shell flyouts
+controls the leading cover. Fullscreen detection uses physical DWM frame bounds
+with a two-pixel rounding tolerance and the shell's exclusive Direct3D state.
+The shell's generic busy state also suppresses a borderless foreground game.
+Shell state applies only to the foreground monitor, so a game on a secondary
+display does not hide lyrics on another display. Geometry remains a fallback
+when the shell query fails, and a maximized work-area window is not fullscreen.
+Start, Search, and trusted Windows shell flyouts
 do not count as fullscreen apps, even when their native surface covers the
 monitor. If the shell temporarily stops exposing tray accessibility geometry,
 the strip retains its last measured position only while that shell UI has focus
