@@ -11,7 +11,7 @@ using Reprise.Platform.Windows.Taskbar;
 /// <summary>Records real foreground and Reprise visibility without injecting input or changing another application's windows.</summary>
 internal static class TaskbarVisibilityVerification
 {
-    /// <summary>Verifies that a real fullscreen window in another process still hides lyrics and closing it restores them.</summary>
+    /// <summary>Verifies exact fullscreen and one-pixel inset windows hide lyrics, then restore them after each child exits.</summary>
     internal static async Task VerifyFullscreenAsync(string root)
     {
         using var publisher = new WindowsTaskbarLyricsPublisher();
@@ -39,32 +39,41 @@ internal static class TaskbarVisibilityVerification
                 await Task.Delay(250);
             }
             if (frame is null || strip is null) throw new InvalidOperationException("The diagnostic strip did not appear on the ordinary desktop.");
-            stage = "fullscreen child";
-            var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
-            start.ArgumentList.Add("--fullscreen-target");
-            target = Process.Start(start)!;
-            var detected = false;
-            for (var attempt = 0; attempt < 120; attempt++)
+            var cases = new List<object>();
+            foreach (var inset in new[] { false, true })
             {
-                publisher.Publish(state);
-                GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
-                detected = foregroundProcess == target.Id && WindowsTaskbarGeometry.IsFullscreen(frame.Monitor);
-                if (detected && !strip.IsVisible) break;
-                await Task.Delay(250);
+                File.Delete(Path.Combine(root, "stop-fullscreen"));
+                stage = inset ? "inset fullscreen child" : "fullscreen child";
+                var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
+                start.ArgumentList.Add("--fullscreen-target");
+                if (inset) start.ArgumentList.Add("--inset-fullscreen");
+                target = Process.Start(start)!;
+                var detected = false;
+                for (var attempt = 0; attempt < 120; attempt++)
+                {
+                    publisher.Publish(state);
+                    GetWindowThreadProcessId(GetForegroundWindow(), out var foregroundProcess);
+                    detected = foregroundProcess == target.Id && WindowsTaskbarGeometry.IsFullscreen(frame.Monitor);
+                    if (detected && !strip.IsVisible) break;
+                    await Task.Delay(250);
+                }
+                if (!detected || strip.IsVisible) throw new InvalidOperationException("The real fullscreen child did not suppress the strip.");
+                stage = "restore desktop";
+                File.WriteAllText(Path.Combine(root, "stop-fullscreen"), "stop");
+                await target.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                control.Activate();
+                for (var attempt = 0; attempt < 40 && !strip.IsVisible; attempt++)
+                {
+                    publisher.Publish(state);
+                    await Task.Delay(250);
+                }
+                if (!strip.IsVisible) throw new InvalidOperationException("The strip did not return after fullscreen ended.");
+                cases.Add(new { inset, fullscreenDetected = detected, hiddenDuringFullscreen = true, restored = strip.IsVisible });
+                target.Dispose();
+                target = null;
             }
-            if (!detected || strip.IsVisible) throw new InvalidOperationException("The real fullscreen child did not suppress the strip.");
-            stage = "restore desktop";
-            File.WriteAllText(Path.Combine(root, "stop-fullscreen"), "stop");
-            await target.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-            control.Activate();
-            for (var attempt = 0; attempt < 40 && !strip.IsVisible; attempt++)
-            {
-                publisher.Publish(state);
-                await Task.Delay(250);
-            }
-            if (!strip.IsVisible) throw new InvalidOperationException("The strip did not return after fullscreen ended.");
             File.WriteAllText(Path.Combine(root, "fullscreen-result.json"), JsonSerializer.Serialize(new
-            { ok = true, fullscreenDetected = detected, hiddenDuringFullscreen = true, restored = strip.IsVisible }));
+            { ok = true, cases }));
         }
         catch (Exception error)
         {
@@ -83,10 +92,11 @@ internal static class TaskbarVisibilityVerification
     }
 
     /// <summary>Runs only the fixture-owned fullscreen target; no other application's windows or keyboard input are modified.</summary>
-    internal static async Task RunFullscreenTargetAsync(string root)
+    internal static async Task RunFullscreenTargetAsync(string root, bool inset)
     {
         var window = new Window { Title = "Reprise fullscreen regression target", WindowDecorations = WindowDecorations.None,
-            ShowInTaskbar = false, Topmost = true, WindowState = WindowState.FullScreen,
+            ShowInTaskbar = false, Topmost = true, WindowState = inset ? WindowState.Normal : WindowState.FullScreen,
+            WindowStartupLocation = WindowStartupLocation.Manual,
             Background = Avalonia.Media.Brushes.MidnightBlue,
             Content = new TextBlock { Text = "Reprise 전체 화면 표시 검사", FontSize = 32,
                 Foreground = Avalonia.Media.Brushes.White,
@@ -95,6 +105,13 @@ internal static class TaskbarVisibilityVerification
         try
         {
             window.Show();
+            if (inset)
+            {
+                var monitor = window.Screens.Primary!.Bounds;
+                window.Position = new PixelPoint(monitor.X + 1, monitor.Y + 1);
+                window.Width = (monitor.Width - 2) / window.RenderScaling;
+                window.Height = (monitor.Height - 2) / window.RenderScaling;
+            }
             window.Activate();
             while (window.IsVisible && !File.Exists(Path.Combine(root, "stop-fullscreen"))) await Task.Delay(100);
         }

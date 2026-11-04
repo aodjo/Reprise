@@ -82,7 +82,7 @@ internal static class WindowsTaskbarGeometry
         return result.ToArray();
     }
 
-    /// <summary>Hides the strip for genuine fullscreen apps, excluding monitor-sized Start and other trusted Windows shell surfaces.</summary>
+    /// <summary>Combines physical frame bounds with shell-reported fullscreen state, including exclusive games with different render resolutions.</summary>
     /// <param name="monitor">Monitor containing the taskbar.</param>
     internal static bool IsFullscreen(TaskbarRect monitor)
     {
@@ -91,11 +91,21 @@ internal static class WindowsTaskbarGeometry
         var name = new StringBuilder(256);
         GetClassName(foreground, name, name.Capacity);
         GetWindowThreadProcessId(foreground, out var process);
-        if (process == Environment.ProcessId || !GetWindowRect(foreground, out var bounds)) return false;
-        if (bounds.Left > monitor.Left || bounds.Top > monitor.Top ||
-            bounds.Right < monitor.Right || bounds.Bottom < monitor.Bottom) return false;
-        return TaskbarFullscreenPolicy.ShouldHide(monitor, Convert(bounds), name.ToString(),
-            ProcessPath(process), Environment.GetFolderPath(Environment.SpecialFolder.Windows));
+        if (process == Environment.ProcessId) return false;
+        TaskbarRect? bounds = null;
+        // DWM reports physical pixels; GetWindowRect can be virtualized for another DPI context.
+        if (DwmGetWindowAttribute(foreground, 9, out var physicalBounds, Marshal.SizeOf<NativeRect>()) >= 0)
+            bounds = Convert(physicalBounds);
+        else if (GetWindowRect(foreground, out var fallbackBounds))
+            bounds = Convert(fallbackBounds);
+        var foregroundMonitor = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        var sameMonitor = GetMonitorInfo(MonitorFromWindow(foreground, 2), ref foregroundMonitor) &&
+            Convert(foregroundMonitor.Monitor) == monitor;
+        var notification = SHQueryUserNotificationState(out var state) >= 0 ? state : TaskbarNotificationState.Unknown;
+        var borderless = (GetWindowLong(foreground, -16) & 0x00C40000) == 0;
+        return TaskbarFullscreenPolicy.ShouldHide(monitor, bounds, name.ToString(),
+            ProcessPath(process), Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+            notification, sameMonitor, borderless);
     }
 
     /// <summary>Reads a foreground process image with limited query access, including across x86, x64, and ARM64 processes.</summary>
@@ -175,6 +185,12 @@ internal static class WindowsTaskbarGeometry
     /// <summary>Reads native screen bounds.</summary>
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(nint window, out NativeRect rect);
+    /// <summary>Reads the visible frame in physical screen pixels without DPI virtualization.</summary>
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(nint window, uint attribute, out NativeRect rect, int size);
+    /// <summary>Reads the shell's fullscreen notification state without opening or injecting into a game process.</summary>
+    [DllImport("shell32.dll")]
+    private static extern int SHQueryUserNotificationState(out TaskbarNotificationState state);
     /// <summary>Checks native visibility.</summary>
     [DllImport("user32.dll")]
     private static extern bool IsWindowVisible(nint window);
