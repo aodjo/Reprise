@@ -57,7 +57,16 @@ internal static class TaskbarVisibilityVerification
                     if (detected && !strip.IsVisible) break;
                     await Task.Delay(250);
                 }
-                if (!detected || strip.IsVisible) throw new InvalidOperationException("The real fullscreen child did not suppress the strip.");
+                if (!detected || strip.IsVisible)
+                {
+                    GetWindowThreadProcessId(GetForegroundWindow(), out var activeProcess);
+                    GetWindowRect(GetForegroundWindow(), out var activeBounds);
+                    var activeClass = new StringBuilder(256);
+                    GetClassName(GetForegroundWindow(), activeClass, activeClass.Capacity);
+                    throw new InvalidOperationException($"Fullscreen verification failed: foreground={activeProcess}, target={target.Id}, " +
+                        $"class={activeClass}, bounds={activeBounds.Left},{activeBounds.Top},{activeBounds.Right},{activeBounds.Bottom}, " +
+                        $"monitor={frame.Monitor}, detected={detected}, stripVisible={strip.IsVisible}.");
+                }
                 stage = "restore desktop";
                 File.WriteAllText(Path.Combine(root, "stop-fullscreen"), "stop");
                 await target.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
@@ -95,6 +104,7 @@ internal static class TaskbarVisibilityVerification
     internal static async Task RunFullscreenTargetAsync(string root, bool inset)
     {
         var window = new Window { Title = "Reprise fullscreen regression target", WindowDecorations = WindowDecorations.None,
+            CanResize = false,
             ShowInTaskbar = false, Topmost = true, WindowState = inset ? WindowState.Normal : WindowState.FullScreen,
             WindowStartupLocation = WindowStartupLocation.Manual,
             Background = Avalonia.Media.Brushes.MidnightBlue,
