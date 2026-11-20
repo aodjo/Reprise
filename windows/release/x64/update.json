@@ -3,10 +3,10 @@
   "platform": "windows",
   "channel": "release",
   "architecture": "x64",
-  "version": "2.0.2",
-  "buildNumber": "20261120215814",
-  "fileName": "Reprise-2.0.2-win-x64-20261120215814-Setup.exe",
-  "sha256": "7d6cc512ef074ce5cdfbd4f515eeaa4d363860789eff500498ad53c384c05ec2",
-  "size": 75892107,
-  "url": "https://aodjo.github.io/Reprise/windows/release/x64/packages/Reprise-2.0.2-win-x64-20261120215814-Setup.exe"
+  "version": "2.1.0",
+  "buildNumber": "20261120221235",
+  "fileName": "Reprise-2.1.0-win-x64-20261120221235-Setup.exe",
+  "sha256": "18c8211cac7026f5354be0df3e83db6fb801a04bcc036d0357b0b627c4135616",
+  "size": 75873678,
+  "url": "https://aodjo.github.io/Reprise/windows/release/x64/packages/Reprise-2.1.0-win-x64-20261120221235-Setup.exe"
 }
