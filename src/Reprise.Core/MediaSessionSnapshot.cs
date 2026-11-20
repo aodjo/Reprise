@@ -52,7 +52,8 @@ public sealed record MediaSessionSnapshot(
     TimeSpan? Position,
     double? Volume,
     Uri? ArtworkUri,
-    DateTimeOffset ObservedAt)
+    DateTimeOffset ObservedAt,
+    string? CollectionEvidence = null)
 {
     /// <summary>
     /// Fraction of the track that has already played, as a progress-bar value.

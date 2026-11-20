@@ -8,6 +8,26 @@ namespace Reprise.Platform.Windows.Media;
 /// <summary>Controls dedicated players through their Core Audio process sessions without touching endpoint master volume.</summary>
 internal static class WindowsApplicationVolume
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, long> LastOutput = new();
+
+    /// <summary>Observes a signed player's active output across all devices, allowing short musical silences.</summary>
+    internal static bool HasLocalOutput(string appId)
+    {
+        var found = false;
+        Visit(appId, (session, process) =>
+        {
+            if (session.State != NAudio.CoreAudioApi.Interfaces.AudioSessionState.AudioSessionStateActive) return;
+            var path = process.MainModule?.FileName;
+            if (path is null || !WindowsPlayerTrust.IsTrusted(path, appId)) return;
+            try
+            {
+                if (session.AudioMeterInformation.MasterPeakValue > 0.00001f) LastOutput[process.Id] = Stopwatch.GetTimestamp();
+                if (LastOutput.TryGetValue(process.Id, out var last) && Stopwatch.GetElapsedTime(last) < TimeSpan.FromSeconds(8)) found = true;
+            }
+            catch (NotSupportedException) { }
+        });
+        return found;
+    }
     /// <summary>Maps known dedicated media identities to executable names; browser tabs cannot safely have independent mixer volumes.</summary>
     internal static bool MatchesProcess(string appId, string processName)
     {
@@ -23,7 +43,7 @@ internal static class WindowsApplicationVolume
     internal static double? Read(string appId)
     {
         double? result = null;
-        Visit(appId, session =>
+        Visit(appId, (session, _) =>
         {
             var volume = session.SimpleAudioVolume;
             var level = volume.Mute ? 0d : volume.Volume;
@@ -33,14 +53,14 @@ internal static class WindowsApplicationVolume
     }
 
     /// <summary>Sets all matching streams, including an application's dedicated output device, and unmutes when raising the level.</summary>
-    internal static bool Set(string appId, double value) => Visit(appId, session =>
+    internal static bool Set(string appId, double value) => Visit(appId, (session, _) =>
     {
         session.SimpleAudioVolume.Volume = (float)value;
         if (value > 0) session.SimpleAudioVolume.Mute = false;
     });
 
     /// <summary>Reacquires sessions on an MTA worker for every operation and releases each native wrapper before returning.</summary>
-    private static bool Visit(string appId, Action<AudioSessionControl> action)
+    private static bool Visit(string appId, Action<AudioSessionControl, Process> action)
     {
         if (!MatchesProcess(appId, "Spotify") && !MatchesProcess(appId, "Melon Player")) return false;
         var found = false;
@@ -63,7 +83,7 @@ internal static class WindowsApplicationVolume
                                 if (session.IsSystemSoundsSession || session.GetProcessID == 0) continue;
                                 using var process = Process.GetProcessById((int)session.GetProcessID);
                                 if (!MatchesProcess(appId, process.ProcessName)) continue;
-                                action(session);
+                                action(session, process);
                                 found = true;
                             }
                             catch (Exception error) when (error is COMException or Win32Exception or ArgumentException or InvalidOperationException) { }

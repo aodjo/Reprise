@@ -153,10 +153,13 @@ public sealed class RepriseApplication : Application
                 ? new AutomaticApplicationUpdater(platformUpdater, preferences) : null;
             updater?.Start();
             desktop.Exit += (_, _) => updater?.Dispose();
+            var recordShop = new RecordShopConnection();
+            desktop.Exit += (_, _) => recordShop.Dispose();
             var viewModel = new NowPlayingViewModel(
                 service,
                 lyricsService: new LyricsService(),
-                preferences: () => preferences.Current);
+                preferences: () => preferences.Current,
+                recordShop: recordShop);
             viewModel.LastPlayedPlayerChanged += (_, kind) => Dispatcher.UIThread.Post(() =>
                 preferences.Update(p => p with { LastPlayedPlayer = kind.ToString() }));
             var window = new NowPlayingWindow(viewModel, preferences);
