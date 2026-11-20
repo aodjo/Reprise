@@ -111,6 +111,7 @@ private struct GeneralSettingsView: View {
     /// changed.
     var body: some View {
         Form {
+            RecordShopSettingsSection()
             Section {
                 Toggle(
                     "다른 플레이어 자동 정지",

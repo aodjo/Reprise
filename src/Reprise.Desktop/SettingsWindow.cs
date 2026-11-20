@@ -41,6 +41,9 @@ public sealed class SettingsWindow : Window
     private StackPanel? _priorityList;
     private TextBlock? _autostartError;
     private ToggleSwitch? _autostartToggle;
+    private TextBlock? _recordShopStatus;
+    private Button? _recordShopConnect;
+    private Button? _recordShopDisconnect;
 
     /// <summary>
     /// Whether the application is shutting down and the window may close.
@@ -119,7 +122,7 @@ public sealed class SettingsWindow : Window
         _sessionTimer = new DispatcherTimer(
             TimeSpan.FromMilliseconds(500),
             DispatcherPriority.Background,
-            (_, _) => RefreshSessions());
+            (_, _) => { RefreshSessions(); RefreshRecordShop(); });
 
         _preferences.Changed += (_, _) => RefreshAll();
         Opened += (_, _) =>
@@ -335,7 +338,45 @@ public sealed class SettingsWindow : Window
                 "로그인하면 Reprise를 자동으로 실행합니다.",
                 autostartRow,
                 _autostartError);
-        return SettingsForm.Page(playback, lyricsSection, priority, startup);
+        return _viewModel.RecordShop is null
+            ? SettingsForm.Page(playback, lyricsSection, priority, startup)
+            : SettingsForm.Page(playback, lyricsSection, priority, startup, BuildRecordShopSection());
+    }
+
+    /// <summary>Offers explicit browser consent before sending any playback metadata.</summary>
+    private Control BuildRecordShopSection()
+    {
+        var connection = _viewModel.RecordShop!;
+        _recordShopStatus = new TextBlock { Text = connection.Status, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, 10), FontSize = PanelTypography.Subtitle };
+        _recordShopConnect = new Button { Content = "Google 계정 연결" };
+        _recordShopDisconnect = new Button { Content = "연결 해제" };
+        _recordShopConnect.Click += async (_, _) =>
+        {
+            var task = connection.ConnectAsync(uri => System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true }));
+            RefreshRecordShop();
+            await task;
+            RefreshRecordShop();
+        };
+        _recordShopDisconnect.Click += async (_, _) =>
+        {
+            if (connection.IsConnecting) connection.CancelConnect();
+            else await connection.DisconnectAsync();
+            RefreshRecordShop();
+        };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { _recordShopConnect, _recordShopDisconnect } };
+        RefreshRecordShop();
+        return SettingsForm.Section("Reprise.mx", "연결 후 곡명·아티스트·앨범·재생 상태를 전송하며, 프로필과 청취 시간이 공개 차트에 표시됩니다.",
+            SettingsForm.Row("청취 기록 공유", actions), _recordShopStatus);
+    }
+
+    /// <summary>Reflects asynchronous pairing and revocation in the existing settings timer.</summary>
+    private void RefreshRecordShop()
+    {
+        if (_viewModel.RecordShop is not { } connection || _recordShopStatus is null) return;
+        _recordShopStatus.Text = connection.Status;
+        _recordShopConnect!.IsEnabled = !connection.IsConnected && !connection.IsConnecting;
+        _recordShopDisconnect!.IsEnabled = connection.IsConnected || connection.IsConnecting;
+        _recordShopDisconnect.Content = connection.IsConnecting ? "연결 취소" : "연결 해제";
     }
 
     /// <summary>

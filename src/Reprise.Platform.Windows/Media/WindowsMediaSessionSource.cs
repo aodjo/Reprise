@@ -114,9 +114,12 @@ internal sealed class WindowsNativeMediaSession : IWindowsMediaSession
             _artworkKey = _artwork is null ? null : artworkKey;
         }
 
+        var localOutput = status == PlaybackStatus.Playing && await Task.Run(
+            () => WindowsApplicationVolume.HasLocalOutput(_session.SourceAppUserModelId), cancellationToken);
         return new MediaSessionSnapshot(Id, WindowsPlayerNames.DisplayName(_session.SourceAppUserModelId), status,
             properties.Title ?? string.Empty, properties.Artist ?? string.Empty, properties.AlbumTitle ?? string.Empty,
-            duration, position, await Task.Run(ReadVolume, cancellationToken), _artwork, now);
+            duration, position, await Task.Run(ReadVolume, cancellationToken), _artwork, now,
+            localOutput ? "local_output" : null);
     }
 
     /// <inheritdoc />
