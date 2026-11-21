@@ -2,10 +2,10 @@
 
 # Reprise
 
-**A lightweight menu bar music controller for macOS.**
+**A lightweight music controller for macOS, Windows, and Linux.**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](#requirements)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#requirements)
 [![Release](https://img.shields.io/github/v/release/aodjo/reprise)](https://github.com/aodjo/reprise/releases)
 [![GitHub commit activity](https://img.shields.io/github/commit-activity/m/aodjo/reprise)](https://github.com/aodjo/reprise/commits)
 [![GitHub Issues](https://img.shields.io/github/issues/aodjo/reprise)](https://github.com/aodjo/reprise/issues)
@@ -19,31 +19,34 @@
 
 Reprise puts whatever you're listening to one click away. Album art, track title
 and artist, a scrubbable progress bar, and playback controls — all in a single
-menu bar panel. When synced lyrics are available, they appear alongside the
-player.
+menu bar or system tray panel. When synced lyrics are available, they appear
+alongside the player and in the menu bar, taskbar, or desktop panel.
 
-Supports **Apple Music**, **Spotify**, and **YouTube Music**, the last of which
-connects through a browser extension. No Reprise account, no API keys, and no
-relay server in between.
+On macOS, Reprise connects to **Apple Music**, **Spotify**, and **YouTube Music**
+through local apps and a browser extension. Windows uses system media sessions,
+including **Spotify** and **Melon**; Linux uses **MPRIS-compatible players**.
+Local playback control needs no account or API keys. Optionally connect a Google
+account to share listening history, charts, and a profile on [reprise.mx](https://reprise.mx).
 
 ## Features
 
-- **Three players, one control** — automatically follows whichever of Apple Music, Spotify, or YouTube Music is currently playing
-- **Now playing at a glance** — album art, track title, and artist, right in the menu bar panel
+- **Your players, one control** — automatically follows the active player using each platform's local media integration
+- **Now playing at a glance** — album art, track title, and artist, right in the menu bar or tray panel
 - **Full playback control** — play, pause, skip, and scrub without leaving the app you're in
 - **Progress bar** — see where you are in a track and jump anywhere in it
-- **Synced lyrics** — time-synced lyrics, in the panel and in the menu bar
-- **Built around your menu bar** — configure the title format, album art style, carousel behavior, lyrics width, and panel theme
-- **Native and light** — built with SwiftUI, sitting quietly in the menu bar
+- **Synced lyrics** — time-synced lyrics in the player and the menu bar, Windows taskbar, or supported Linux panels
+- **Make it yours** — configure the title format, album art style, carousel behavior, lyrics width, and panel theme
+- **At home on your desktop** — SwiftUI on macOS, with a shared Avalonia player on Windows and Linux
 - **Local player control** — playback state and commands travel only between Reprise and your local app or browser extension
+- **Optional listening history** — connect through Google and explicitly approve sharing to use your profile and listening charts on reprise.mx
 
 ## Requirements
 
-- macOS 14 Sonoma or later
-- At least one of the following:
-  - The Music app included with macOS
-  - The Spotify desktop app
-  - A Chromium or Firefox browser with the Reprise YouTube Music extension installed
+| Platform | Requirements | Player connection |
+| --- | --- | --- |
+| macOS | macOS 14 Sonoma or later | Music, Spotify, or YouTube Music through the Reprise browser extension |
+| Windows | Windows 10 1809 or later; x64 or ARM64 | Apps and browsers that expose a Windows media session |
+| Linux | A desktop with a D-Bus session bus; x64 or ARM64 | MPRIS-compatible apps and browsers |
 
 On first launch, macOS will ask for permission to control your music app.
 Reprise needs this to read the current track and send playback commands. You can
@@ -51,22 +54,22 @@ review it anytime under **System Settings → Privacy & Security → Automation*
 
 ## Installation
 
-### Homebrew
+### macOS — Homebrew
 
 ```bash
 brew install --cask aodjo/tap/reprise
 ```
 
-### Mac App Store
+### macOS — Mac App Store
 
 Coming soon.
 
-### Direct download
+### macOS — Direct download
 
 Download the latest `.dmg` from the
 [Releases](https://github.com/aodjo/reprise/releases) page.
 
-### Build from source
+### macOS — Build from source
 
 ```bash
 git clone https://github.com/aodjo/reprise.git
@@ -76,7 +79,7 @@ open src/Reprise.Platform.MacOS/Reprise.xcodeproj
 
 Build and run the `Reprise` scheme in Xcode 16 or later.
 
-### Windows alpha
+### Windows
 
 Download the [Windows installer](https://aodjo.github.io/Reprise/windows/):
 choose **x64** for Intel/AMD PCs or **ARM64** for Windows on Arm. Windows 10
@@ -89,23 +92,21 @@ stage and CPU architecture. Development installers are unsigned.
 
 See [Windows packaging](packaging/windows/README.md) for source builds.
 
-### Linux alpha
+### Linux
 
-The Linux implementation is under active development on `develop`. It uses
-Avalonia for the desktop and reads local MPRIS media sessions straight from the
-D-Bus session bus, so it needs no extra packages. The panel is the same one
-macOS shows: album art, a scrolling title, transport controls, a scrubber,
+The Linux app uses Avalonia for the desktop and reads local MPRIS media sessions
+from the D-Bus session bus. Its player includes album art, a scrolling title, transport controls, a scrubber,
 volume, and the White, Dark, Liquid, and System themes.
 
 Add the apt repository once, and later builds arrive with your usual
 updates:
 
 ```bash
-echo "deb [trusted=yes] https://aodjo.github.io/Reprise stable main" | sudo tee /etc/apt/sources.list.d/reprise.list
+echo "deb [trusted=yes] https://aodjo.github.io/Reprise release main" | sudo tee /etc/apt/sources.list.d/reprise.list
 sudo apt update && sudo apt install reprise
 ```
 
-There is also an AppImage on that page for running Reprise without
+There is also an AppImage on the [Linux download page](https://aodjo.github.io/Reprise/) for running Reprise without
 installing anything, and the source builds directly:
 
 ```bash
@@ -123,7 +124,7 @@ with the application. Linux CI also publishes self-contained `linux-x64` and
 
 ## Usage
 
-Click the Reprise icon in your menu bar to open the player panel.
+Click the Reprise icon in your menu bar or system tray to open the player panel.
 
 Reprise gives priority to whichever player is actively playing. If more than one
 is playing at the same time, it follows the order set under **Settings → General
@@ -132,18 +133,23 @@ player that still has a track loaded. Drag the entries in Settings to reorder
 them.
 
 Open Settings with the gear button in the player panel, or press
-<kbd>⌘</kbd><kbd>,</kbd> while the panel is open. You can configure:
+<kbd>⌘</kbd><kbd>,</kbd> on macOS while the panel is open. Depending on your platform, you can configure:
 
 - Automatically pausing the current player when another one starts playing
 - Player display priority and YouTube Music extension connection status
-- Synced lyrics in the menu bar, along with lyrics width and reserved space
+- Synced lyrics in the menu bar, taskbar, or Linux panel, along with lyrics width and reserved space
 - Panel theme — White, Dark, Liquid, or matching your system setting
 - Title format, album art / CD / level indicator style, and carousel speed
 - How elapsed time, remaining time, and total duration are displayed
 
-YouTube Music requires a separate browser extension. See the
+On macOS, YouTube Music requires a separate browser extension. See the
 [browser extension guide](BrowserExtension/README.md) for local installation
-instructions.
+instructions. Windows and Linux can discover browser playback through system
+media sessions or MPRIS when the browser exposes them.
+
+To share listening history, open the **Reprise.mx** section in Settings and connect
+your Google account. Sharing starts only after you approve the connection in your
+browser; you can disconnect from Settings at any time.
 
 ## Contributing
 
