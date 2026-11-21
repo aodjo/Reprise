@@ -5,8 +5,8 @@
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-    <VersionPrefix>2.0.2</VersionPrefix>
-    <VersionSuffix>alpha.1</VersionSuffix>
+    <VersionPrefix>2.1.0</VersionPrefix>
+    <VersionSuffix></VersionSuffix>
     <VersionSuffix Condition="'$(RepriseBuildNumber)' != '' and '$(VersionSuffix)' != ''">$(VersionSuffix).$(RepriseBuildNumber)</VersionSuffix>
     <InformationalVersion Condition="'$(RepriseBuildNumber)' != '' and '$(VersionSuffix)' == ''">$(VersionPrefix)+$(RepriseBuildNumber)</InformationalVersion>
     <ContinuousIntegrationBuild Condition="'$(CI)' == 'true'">true</ContinuousIntegrationBuild>

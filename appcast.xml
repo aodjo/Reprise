@@ -6,6 +6,16 @@
         <description>Reprise release updates</description>
         <language>ko</language>
         <item>
+            <title>2.1.0</title>
+            <pubDate>Fri, 20 Nov 2026 22:12:17 +0000</pubDate>
+            <link>https://github.com/aodjo/Reprise/releases/tag/v2.1.0</link>
+            <sparkle:version>7</sparkle:version>
+            <sparkle:shortVersionString>2.1.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+            <description sparkle:format="markdown">Google 계정 연결과 청취 기록 공유를 추가했습니다. Reprise 설정에서 계정을 연결하면 실제 재생 기록을 reprise.mx 프로필과 청취 차트에 반영합니다. Spotify 원격 재생과 여러 기기의 중복 집계 조정을 지원합니다.</description>
+            <enclosure url="https://github.com/aodjo/Reprise/releases/download/v2.1.0/Reprise-2.1.0-macos-universal.zip" length="2937578" type="application/octet-stream" sparkle:edSignature="F4IcR6AI3Zus8oS/0lEyobkxwCs9pmE/tak9r43h7gbow85RqvocwMx4/jjM9o3UdWxEl1LavBtL0PUUSgjdAQ==" />
+        </item>
+        <item>
             <title>2.0.1</title>
             <pubDate>Tue, 03 Nov 2026 05:03:20 +0000</pubDate>
             <link>https://github.com/aodjo/Reprise/releases/tag/v2.0.1</link>
