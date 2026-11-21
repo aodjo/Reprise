@@ -333,6 +333,7 @@ final class NowPlayingStore {
             currentSnapshots: snapshotsByPlayer
         )
         synchronizeLyricsWithActiveTrack(observedAt: Date())
+        RecordShopConnection.shared.observe(menuBarSnapshot)
         if MediaPlayerKind.allCases.contains(where: { player in
             Self.menuBarContentChanged(
                 from: previousSnapshots[player]

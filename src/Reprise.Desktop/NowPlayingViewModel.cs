@@ -145,13 +145,15 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
         IArtworkLoader? artworkLoader = null,
         TimeProvider? timeProvider = null,
         ILyricsService? lyricsService = null,
-        Func<DesktopPreferences>? preferences = null)
+        Func<DesktopPreferences>? preferences = null,
+        RecordShopConnection? recordShop = null)
     {
         _mediaSessionService = mediaSessionService;
         _artworkLoader = artworkLoader ?? new ArtworkLoader();
         _timeProvider = timeProvider ?? TimeProvider.System;
         _lyricsService = lyricsService;
         _preferences = preferences ?? DefaultPreferences;
+        RecordShop = recordShop;
     }
 
     /// <summary>
@@ -172,6 +174,9 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
     /// Every session from the latest poll, in the backend's order.
     /// </summary>
     public IReadOnlyList<MediaSessionSnapshot> Sessions => _sessions;
+
+    /// <summary>Optional, explicitly connected public listening collector.</summary>
+    public RecordShopConnection? RecordShop { get; }
 
     /// <summary>
     /// The session currently on display, or null when nothing is playing.
@@ -427,6 +432,7 @@ public sealed class NowPlayingViewModel : INotifyPropertyChanged, IDisposable
                     : session).ToList();
             _sessions = sessions;
             Apply(SelectActive(sessions, started));
+            RecordShop?.Observe(sessions, ActiveSession, ArtworkData);
             SetPollError(null);
         }
         catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)

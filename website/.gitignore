@@ -1,0 +1,10 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+dist/
+!.dev.vars.example
+public/app.js
+public/legal.js
+public/login.js
+public/connect.js
