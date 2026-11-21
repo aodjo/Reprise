@@ -1,0 +1,4 @@
+# Google Cloud Console: Web application OAuth client, openid/profile scopes.
+# Authorized redirect URI: https://reprise.mx/auth/google/callback
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=

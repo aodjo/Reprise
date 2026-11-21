@@ -1,0 +1,58 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "reprise-record-shop",
+  "account_id": "ff3a009550868ab1237ca76d2ab8e08d",
+  "routes": [
+    {
+      "pattern": "reprise.mx",
+      "custom_domain": true
+    }
+  ],
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-18",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "reprise-record-shop",
+      "database_id": "5c85f515-f1c2-4f02-beac-e519498c10a5",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "reprise-record-shop-media"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COLLECTORS",
+        "class_name": "Collector"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "Collector"
+      ]
+    }
+  ],
+  "vars": {
+    "APP_ORIGIN": "https://reprise.mx"
+  },
+  "triggers": {
+    "crons": [
+      "17 3 * * *"
+    ]
+  },
+  "workers_dev": false,
+  "preview_urls": false
+}

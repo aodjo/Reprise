@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="ko-KR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark"><title>앱 연결 · Reprise</title><link rel="icon" href="/favicon.png"><link rel="stylesheet" href="/styles.css?v=profile-settings-1"><link rel="stylesheet" href="/connect.css?v=direct-2"><script type="module" src="/connect.js?v=private-history-2"></script></head>
+<body class="connect-page">
+  <main class="connect-main">
+    <div class="connect-brand"><img src="/favicon.png" alt="" width="32" height="32"></div>
+    <h1 data-copy="title">Reprise 앱 연결</h1>
+    <p id="connect-identity" class="connect-identity"></p>
+    <form id="connect-form">
+      <div id="verified-device" class="verified-device" hidden><span data-copy="device">연결할 기기</span><strong id="device-name"></strong></div>
+      <p class="connect-description" data-copy="description">연결하면 이 기기의 재생 정보가 기록되고 곡 차트에 집계됩니다. 프로필은 공개되며, 청취 기록과 통계의 공개 여부는 프로필 설정에서 관리합니다.</p>
+      <p id="connect-status" class="connect-status" role="status" aria-live="polite"></p>
+      <div class="connect-actions"><a class="secondary-button" href="/" data-copy="cancel">취소</a><button id="connect-submit" type="submit" class="primary-button" disabled data-copy="approve">연결</button></div>
+    </form>
+    <section id="connect-success" class="connect-success" hidden><p data-copy="success">연결되었습니다. Reprise 앱으로 돌아가 주세요.</p><a class="primary-button" href="/profile" data-copy="profile">내 프로필</a></section>
+    <p class="connect-policies"><a href="/terms" target="_blank" rel="noopener" data-copy="terms">이용약관</a><span>·</span><a href="/privacy" target="_blank" rel="noopener" data-copy="privacy">개인정보 처리방침</a></p>
+  </main>
+  <footer class="connect-footer"><span>© 2026 Reprise</span><label class="language-picker"><span class="sr-only">Language</span><select id="connect-language"><option value="ko-KR">한국어</option><option value="en-US">English</option></select><span class="language-chevron" aria-hidden="true"></span></label></footer>
+</body></html>
